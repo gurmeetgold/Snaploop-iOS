@@ -29,7 +29,10 @@ struct RequestsView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @StateObject private var model: RequestsModel
-    init(event: Event) { _model = StateObject(wrappedValue: RequestsModel(event: event)) }
+    init(event: Event) {
+        self.event = event
+        _model = StateObject(wrappedValue: RequestsModel(event: event))
+    }
 
     var body: some View {
         ScrollView {
