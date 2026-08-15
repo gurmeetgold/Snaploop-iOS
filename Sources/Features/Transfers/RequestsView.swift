@@ -127,6 +127,6 @@ private struct RequestRow: View {
         }
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(.separator.opacity(0.4)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
     }
 }

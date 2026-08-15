@@ -71,7 +71,7 @@ public struct CameraSyncCoordinator {
         }
 
         // Permission gate.
-        guard photoLibrary.authorizationStatus().canRead else {
+        if !photoLibrary.authorizationStatus().canRead {
             let status = await photoLibrary.requestAuthorization()
             guard status.canRead else { throw AppError.photoLibraryAccessDenied }
         }

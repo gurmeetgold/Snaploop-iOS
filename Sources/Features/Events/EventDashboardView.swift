@@ -85,7 +85,7 @@ struct EventDashboardView: View {
         }
         .padding(14)
         .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(.separator.opacity(0.4)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
         .padding(.horizontal)
     }
 
@@ -126,7 +126,7 @@ struct EventDashboardView: View {
         }
         .padding(.vertical, 12)
         .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(.separator.opacity(0.4)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
         .padding(.horizontal)
     }
 
@@ -188,7 +188,7 @@ struct EventDashboardView: View {
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(.separator.opacity(0.4)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
         .padding(.horizontal)
     }
 }

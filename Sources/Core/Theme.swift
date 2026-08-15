@@ -20,6 +20,11 @@ public enum Theme {
     public static let amber = Color(red: 0.98, green: 0.70, blue: 0.24)      // highlights / delight accents
     public static let ink = Color(red: 0.10, green: 0.13, blue: 0.22)        // headline text
 
+    /// Card hairline color. `ShapeStyle.separator` (bare `.separator`) is an
+    /// iOS 17 API; this UIColor-bridged form works back to iOS 13 and keeps the
+    /// app on its iOS 16 deployment target.
+    public static let separator = Color(uiColor: .separator)
+
     // MARK: Gradients (used on hero covers, stat tiles, dashboard cards)
     public static let coralGradient = LinearGradient(
         colors: [coral, coralDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
