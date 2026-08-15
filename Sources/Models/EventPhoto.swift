@@ -57,13 +57,11 @@ public struct EventPhoto: Identifiable, Equatable, Codable, Sendable {
     /// Drops `sourceAssetReference` so no one can address another device's
     /// library.
     public func redactedForClients() -> EventPhoto {
-        var copy = self
-        copy = EventPhoto(
+        EventPhoto(
             eventId: eventId, sourceUserId: sourceUserId, capturedAt: capturedAt,
             thumbnailPath: thumbnailPath, previewPath: previewPath,
             width: width, height: height, mediaType: mediaType,
             matchedUserIds: matchedUserIds, createdAt: createdAt,
             sourceAssetReference: "")   // redacted
-        return copy
     }
 }

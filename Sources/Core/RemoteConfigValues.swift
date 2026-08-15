@@ -60,6 +60,12 @@ public struct RemoteConfigValues: Equatable, Sendable {
     /// Maximum number of participants in one event.
     public var maxParticipantsPerEvent: Int
 
+    // MARK: AI feature flags (additive — the core loop works with all disabled)
+
+    public var aiBestShotEnabled: Bool
+    public var aiBlurFilterEnabled: Bool
+    public var aiHighlightsEnabled: Bool
+
     public init(
         matchConfidenceThreshold: Double,
         matchAmbiguityMargin: Double,
@@ -71,7 +77,10 @@ public struct RemoteConfigValues: Equatable, Sendable {
         defaultEventDurationDays: Int,
         maxEventDurationDays: Int,
         eventGracePeriodDays: Int,
-        maxParticipantsPerEvent: Int
+        maxParticipantsPerEvent: Int,
+        aiBestShotEnabled: Bool = true,
+        aiBlurFilterEnabled: Bool = true,
+        aiHighlightsEnabled: Bool = true
     ) {
         self.matchConfidenceThreshold = matchConfidenceThreshold
         self.matchAmbiguityMargin = matchAmbiguityMargin
@@ -84,6 +93,9 @@ public struct RemoteConfigValues: Equatable, Sendable {
         self.maxEventDurationDays = maxEventDurationDays
         self.eventGracePeriodDays = eventGracePeriodDays
         self.maxParticipantsPerEvent = maxParticipantsPerEvent
+        self.aiBestShotEnabled = aiBestShotEnabled
+        self.aiBlurFilterEnabled = aiBlurFilterEnabled
+        self.aiHighlightsEnabled = aiHighlightsEnabled
     }
 
     /// Shipped-in defaults. Deliberately conservative on the matching side.
@@ -98,7 +110,10 @@ public struct RemoteConfigValues: Equatable, Sendable {
         defaultEventDurationDays: 15,
         maxEventDurationDays: 30,
         eventGracePeriodDays: 3,
-        maxParticipantsPerEvent: 250
+        maxParticipantsPerEvent: 250,
+        aiBestShotEnabled: true,
+        aiBlurFilterEnabled: true,
+        aiHighlightsEnabled: true
     )
 }
 
@@ -117,5 +132,8 @@ public extension RemoteConfigValues {
         case maxEventDurationDays      = "max_event_duration_days"
         case eventGracePeriodDays      = "event_grace_period_days"
         case maxParticipantsPerEvent   = "max_participants_per_event"
+        case aiBestShotEnabled         = "ai_best_shot_enabled"
+        case aiBlurFilterEnabled       = "ai_blur_filter_enabled"
+        case aiHighlightsEnabled       = "ai_highlights_enabled"
     }
 }

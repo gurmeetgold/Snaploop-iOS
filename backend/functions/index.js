@@ -184,3 +184,77 @@ exports.checkSyncAllowance = functions.https.onCall(async (data, context) => {
   });
   return { allowed: count <= DEFAULTS.SYNC_RATE_LIMIT_PER_MIN };
 });
+
+// ---------------------------------------------------------------------------
+// PHASE 4 — data retention / cleanup jobs.
+// ---------------------------------------------------------------------------
+
+// Purge expired temporary originals + mark their transfers expired.
+exports.purgeExpiredTransfers = functions.pubsub
+  .schedule("every 1 hours")
+  .onRun(async () => {
+    const now = admin.firestore.Timestamp.now();
+    const expired = await db.collection("transfers")
+      .where("expiresAt", "<=", now)
+      .where("status", "in", ["ready", "queued", "source_notified", "uploading"])
+      .get();
+    const bucket = admin.storage().bucket();
+    await Promise.all(expired.docs.map(async (doc) => {
+      const t = doc.data();
+      if (t.temporaryObjectPath) {
+        await bucket.file(t.temporaryObjectPath).delete({ ignoreNotFound: true });
+      }
+      await doc.ref.set({ status: "expired", temporaryObjectPath: null }, { merge: true });
+    }));
+  });
+
+// When a member leaves, purge that event's cached embedding for them (the
+// client also calls removeMember; this is the server-side guarantee).
+exports.onMemberRemoved = functions.firestore
+  .document("events/{eventId}/members/{userId}")
+  .onDelete(async (snap, ctx) => {
+    await db.doc(`events/${ctx.params.eventId}/participants/${ctx.params.userId}`)
+      .delete().catch(() => {});
+  });
+
+// Expire events past end + grace, and purge all event face-template caches so
+// no embedding outlives the event.
+exports.expireEndedEvents = functions.pubsub
+  .schedule("every 6 hours")
+  .onRun(async () => {
+    const graceDays = DEFAULTS.EVENT_GRACE_PERIOD_DAYS || 7;
+    const cutoff = admin.firestore.Timestamp.fromMillis(Date.now() - graceDays * 86400 * 1000);
+    const ended = await db.collection("events")
+      .where("endDate", "<=", cutoff)
+      .where("status", "in", ["active", "endedByOrganizer"])
+      .get();
+    await Promise.all(ended.docs.map(async (doc) => {
+      // Purge the event's embedding roster.
+      const roster = await doc.ref.collection("participants").get();
+      const batch = db.batch();
+      roster.docs.forEach((p) => batch.delete(p.ref));
+      batch.set(doc.ref, { status: "expired" }, { merge: true });
+      await batch.commit();
+    }));
+  });
+
+// Account deletion cascade (mirrors the client ErasureService, server-authoritative):
+// removes memberships + event embeddings + face profile + user doc. Photos the
+// user SOURCED remain event property, by policy.
+exports.deleteAccount = functions.https.onCall(async (data, context) => {
+  const uid = context.auth && context.auth.uid;
+  if (!uid) throw new functions.https.HttpsError("unauthenticated", "Sign in first.");
+
+  const memberships = await db.collectionGroup("members").where("userId", "==", uid).get();
+  const batch = db.batch();
+  for (const m of memberships.docs) {
+    const eventRef = m.ref.parent.parent;
+    batch.delete(m.ref);
+    batch.delete(eventRef.collection("participants").doc(uid));
+  }
+  batch.delete(db.doc(`users/${uid}/faceProfile/current`));
+  batch.delete(db.doc(`users/${uid}`));
+  await batch.commit();
+  await admin.auth().deleteUser(uid).catch(() => {});
+  return { deleted: true };
+});

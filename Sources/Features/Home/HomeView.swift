@@ -37,6 +37,9 @@ struct HomeView: View {
             }
             .navigationTitle("SnapLoop")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    NavigationLink { SettingsView() } label: { Image(systemName: "gearshape") }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { showCreate = true } label: { Label("Create Event", systemImage: "plus") }

@@ -111,6 +111,46 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
     }
 }
 
+final class InMemoryFaceProfileStore: FaceProfileStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var store: [String: FaceProfile] = [:]
+    init(seed: FaceProfile? = nil) { if let seed { store[seed.userId] = seed } }
+    func load(userId: String) async throws -> FaceProfile? {
+        lock.lock(); defer { lock.unlock() }; return store[userId]
+    }
+    func save(_ profile: FaceProfile) async throws {
+        lock.lock(); store[profile.userId] = profile; lock.unlock()
+    }
+    func delete(userId: String) async throws {
+        lock.lock(); store[userId] = nil; lock.unlock()
+    }
+    // Test helper.
+    func exists(userId: String) -> Bool { lock.lock(); defer { lock.unlock() }; return store[userId] != nil }
+}
+
+final class InMemoryUserDirectory: UserDirectory, @unchecked Sendable {
+    private let lock = NSLock()
+    private var store: [String: User] = [:]
+    init(seed: User? = nil) { if let seed { store[seed.id] = seed } }
+    func fetch(userId: String) async throws -> User {
+        lock.lock(); defer { lock.unlock() }
+        guard let u = store[userId] else { throw AppError.notAuthenticated }; return u
+    }
+    func save(_ user: User) async throws { lock.lock(); store[user.id] = user; lock.unlock() }
+    func delete(userId: String) async throws { lock.lock(); store[userId] = nil; lock.unlock() }
+    func exists(userId: String) -> Bool { lock.lock(); defer { lock.unlock() }; return store[userId] != nil }
+}
+
+/// Neutral quality scores so the AI features render believably in dev without a
+/// real on-device model.
+struct StubQualityScoring: QualityScoring {
+    func signals(for photoIds: [String]) async -> [String: PhotoQualitySignals] {
+        Dictionary(uniqueKeysWithValues: photoIds.map {
+            ($0, PhotoQualitySignals(photoId: $0, sharpness: 0.7, faceQuality: 0.7, exposure: 0.7))
+        })
+    }
+}
+
 final class InMemoryMatchRepository: MatchRepository, @unchecked Sendable {
     private let lock = NSLock()
     private var store: [String: PhotoMatch] = [:]

@@ -14,12 +14,27 @@ messaging.
 
 ---
 
-## Status — Phase 1 (Foundation & Core Business Logic)
+## Status — Phases 1–4 implemented (MVP feature-complete, pending Firebase/Vision concretes)
 
-Phase 1 ships the architecture, the domain model, the three pure business-logic
-engines (fully unit-tested), the service protocol seams, and a running app
-skeleton. Firebase and the Vision/Core ML pipeline are stubbed behind protocols
-and land in Phase 2.
+The full MVP surface is built: architecture, domain model, all pure
+business-logic engines (extensively unit-tested), service protocol seams,
+server-side Firestore rules + Cloud Functions, and the SwiftUI screens for the
+whole loop. What remains is the **Phase 2-era `.live()` wiring**: the concrete
+Firebase (Auth/Firestore/Storage/Remote Config/FCM/Analytics/Crashlytics) and
+Vision + Core ML implementations behind the existing protocols — no engine
+changes required.
+
+| Phase | What landed |
+|-------|-------------|
+| **1 — Foundation** | FaceMatcher, ScanPlanner, EventLifecycle (pure), CameraSyncCoordinator, seams, config, human errors, app shell. |
+| **2 — Events** | Create/edit (stable id/joinCode/inviteToken), InviteLink + DeepLinkRouter, membership service (join=consent, cap, leave revokes embedding), Firestore rules, Create/Join/Dashboard/Share UI. |
+| **3 — Sync & delivery** | SyncProgress staged status, TransferJob state machine (idempotent), NotificationDebouncer, DownloadEstimator, Paginator, My Photos / Shared Album / Sync UI, Cloud Functions (invite resolve, batched notifications, idempotent transfers, rate limiting). |
+| **4 — Trust & delight** | Erase/account-deletion cascade, expiry/grace messaging, RetryPolicy backoff, Analytics funnel + north-star (biometric-safe by type), Best-Shot/Blur/Highlights curation (flag-gated, additive), Entitlement scaffolding, retention/cleanup Cloud Functions, Privacy/Settings UI. |
+
+> **Not yet run.** This repo was authored in a Linux CI environment with no
+> Swift/Xcode toolchain, so nothing here has been compiled or executed. The
+> ~15 unit-test suites are written to pass on a Mac; the first `xcodebuild test`
+> there is the real verification gate.
 
 ### What's built
 

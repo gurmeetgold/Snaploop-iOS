@@ -111,6 +111,25 @@ public protocol MatchRepository: Sendable {
     func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL
 }
 
+// MARK: - Face profile store
+
+/// Persists the user's own `FaceProfile` (the sensitive reference embedding).
+/// Deleting here removes the biometric template entirely.
+public protocol FaceProfileStore: Sendable {
+    func load(userId: String) async throws -> FaceProfile?
+    func save(_ profile: FaceProfile) async throws
+    func delete(userId: String) async throws
+}
+
+// MARK: - User directory
+
+/// User document CRUD. Backed by Firestore `users/{uid}` in production.
+public protocol UserDirectory: Sendable {
+    func fetch(userId: String) async throws -> User
+    func save(_ user: User) async throws
+    func delete(userId: String) async throws
+}
+
 // MARK: - Local scan state
 
 /// Persists per-event `ScanState` locally so sync stays incremental across app

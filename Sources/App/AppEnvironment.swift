@@ -16,6 +16,10 @@ public final class AppEnvironment: ObservableObject {
     public let events: EventRepository
     public let matches: MatchRepository
     public let scanStateStore: ScanStateStore
+    public let faceProfiles: FaceProfileStore
+    public let users: UserDirectory
+    public let quality: QualityScoring
+    public let analytics: AnalyticsService
 
     public init(
         config: ConfigProviding,
@@ -26,7 +30,11 @@ public final class AppEnvironment: ObservableObject {
         thumbnailEncoder: ThumbnailEncoder,
         events: EventRepository,
         matches: MatchRepository,
-        scanStateStore: ScanStateStore
+        scanStateStore: ScanStateStore,
+        faceProfiles: FaceProfileStore,
+        users: UserDirectory,
+        quality: QualityScoring,
+        analytics: AnalyticsService
     ) {
         self.config = config
         self.clock = clock
@@ -37,6 +45,15 @@ public final class AppEnvironment: ObservableObject {
         self.events = events
         self.matches = matches
         self.scanStateStore = scanStateStore
+        self.faceProfiles = faceProfiles
+        self.users = users
+        self.quality = quality
+        self.analytics = analytics
+    }
+
+    /// Builds an erasure service from the current stores.
+    public func makeErasureService() -> ErasureService {
+        ErasureService(events: events, faceProfiles: faceProfiles, users: users)
     }
 
     /// A ready-to-run camera-sync coordinator built from the current services.
@@ -65,7 +82,11 @@ public final class AppEnvironment: ObservableObject {
             thumbnailEncoder: PassthroughThumbnailEncoder(),
             events: InMemoryEventRepository(),
             matches: InMemoryMatchRepository(),
-            scanStateStore: InMemoryScanStateStore()
+            scanStateStore: InMemoryScanStateStore(),
+            faceProfiles: InMemoryFaceProfileStore(),
+            users: InMemoryUserDirectory(),
+            quality: StubQualityScoring(),
+            analytics: InMemoryAnalytics()
         )
     }
 }
