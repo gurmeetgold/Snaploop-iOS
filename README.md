@@ -80,6 +80,19 @@ edits needed. `AppEnvironment.current()` reads it and picks `.live()` or
 real sign-in flow, and pre-signed-in under `.dev()` for fast iteration on
 everything downstream of auth.
 
+**Nothing reads or writes Firestore/Storage yet** — `FirebaseAuthService` only
+touches Firebase Auth's own user record. `backend/firestore.rules` and
+`backend/storage.rules` describe the schema steps 2–4 will implement against;
+they're safe to paste into the console now (locking a schema down before any
+writes happen is good practice), but treat them as prepared-ahead, not
+currently exercised by any live code. `backend/storage.rules` also documents
+one syntax point (Storage rules cross-referencing Firestore membership) that
+couldn't be verified against current docs in this environment — see the
+comment in that file for the fallback if the console rejects it. Step 4
+(`TransferRepository`) will also require `firebase deploy --only functions`
+for the transfer flow to do anything beyond sit at `queued` — it's designed to
+call the `requestOriginalTransfer` Cloud Function, not write Firestore directly.
+
 #### Testing step 1 (Auth) today
 
 1. Create a Firebase project (console.firebase.google.com), add an iOS app with
