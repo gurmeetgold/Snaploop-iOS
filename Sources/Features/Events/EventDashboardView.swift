@@ -5,12 +5,13 @@ struct EventDashboardView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @State private var members: [EventMember] = []
+    @State private var photosOfMe = 0
+    @State private var sharedCount = 0
 
     private var isOrganizer: Bool {
         members.first(where: { $0.userId == session.user?.id })?.role == .organizer
             || event.creatorUserId == session.user?.id
     }
-
     private var lifecycle: EventLifecycle.Status {
         EventLifecycle.status(for: event, clock: env.clock, config: env.config.current)
     }
@@ -18,91 +19,155 @@ struct EventDashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                header
-                syncCard
+                hero
+                syncStatusRow
                 featureGrid
+                statsRow
+                membersRow
                 if isOrganizer { organizerControls }
             }
-            .padding()
+            .padding(.bottom, 24)
         }
-        .navigationTitle(event.name)
         .navigationBarTitleDisplayMode(.inline)
-        .task { members = (try? await env.events.members(eventId: event.id)) ?? [] }
+        .ignoresSafeArea(edges: .top)
+        .task {
+            session.activeEvent = event
+            members = (try? await env.events.members(eventId: event.id)) ?? []
+            if let userId = session.user?.id {
+                photosOfMe = ((try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []).count
+            }
+            sharedCount = ((try? await env.matches.sharedAlbum(eventId: event.id)) ?? []).count
+        }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label(event.category.displayName, systemImage: event.category.systemImage)
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                lifecyclePill
+    private var hero: some View {
+        ZStack(alignment: .bottomLeading) {
+            Theme.violetGradient
+                .overlay(Image(systemName: event.category.systemImage)
+                    .font(.system(size: 80)).foregroundStyle(.white.opacity(0.15)))
+                .frame(height: 220)
+            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(event.name).font(.title).bold().foregroundStyle(.white)
+                HStack(spacing: 8) {
+                    Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
+                        .font(.subheadline).foregroundStyle(.white.opacity(0.9))
+                    lifecyclePill
+                }
             }
-            Text(DateFormatting.range(event.startsAt, event.endsAt))
-                .font(.subheadline).foregroundStyle(.secondary)
-            if let location = event.locationName {
-                Label(location, systemImage: "mappin.and.ellipse")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            Label("\(members.count) participants", systemImage: "person.2.fill")
-                .font(.footnote).foregroundStyle(.secondary)
+            .padding(20)
         }
+        .frame(height: 220)
     }
 
     private var lifecyclePill: some View {
+        let text: String
         switch lifecycle {
-        case .upcoming: return StatusPill(text: "Starts soon", tint: .blue, systemImage: "clock")
-        case .active:   return StatusPill(text: "Live", tint: .green, systemImage: "dot.radiowaves.left.and.right")
-        case .grace:    return StatusPill(text: "Wrapping up", tint: .orange, systemImage: "hourglass")
-        case .expired:  return StatusPill(text: "Ended", tint: .secondary, systemImage: "checkmark.seal")
+        case .upcoming: text = "UPCOMING"
+        case .active: text = "LIVE"
+        case .grace: text = "WRAPPING UP"
+        case .expired: text = "COMPLETED"
         }
+        return Text(text).font(.caption2).bold()
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(.white.opacity(0.25), in: Capsule())
+            .foregroundStyle(.white)
     }
 
-    private var syncCard: some View {
-        VStack(spacing: 12) {
-            Text("Find your photos from this event")
-                .font(.subheadline).foregroundStyle(.secondary)
-            NavigationLink {
-                SyncView(event: event)
-            } label: {
-                Label("Sync My Camera", systemImage: "arrow.triangle.2.circlepath")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!EventLifecycle.canSync(event, clock: env.clock, config: env.config.current))
+    private var syncStatusRow: some View {
+        HStack {
+            Label("Trip Sync", systemImage: "checkmark.icloud.fill")
+                .font(.subheadline).bold()
+            Spacer()
+            Text("Up to date").font(.subheadline).foregroundStyle(.green)
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .padding(14)
+        .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(.separator.opacity(0.4)))
+        .padding(.horizontal)
     }
 
     private var featureGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             NavigationLink { MyPhotosView(event: event) } label: {
-                dashboardTile("My Photos", "photo.stack", "Photos of you")
+                GradientTile(title: "My Photos", subtitle: "\(photosOfMe) found of you",
+                            systemImage: "photo.stack.fill", gradient: Theme.coralGradient)
             }
             NavigationLink { SharedAlbumView(event: event) } label: {
-                dashboardTile("Shared Album", "square.grid.2x2", "Everyone's photos")
+                GradientTile(title: "Shared Album", subtitle: "\(sharedCount) everyone's photos",
+                            systemImage: "person.2.fill", gradient: Theme.skyGradient)
             }
-            NavigationLink { ParticipantsView(event: event) } label: {
-                dashboardTile("Participants", "person.3", "\(members.count) joined")
+            NavigationLink { RequestsView(event: event) } label: {
+                GradientTile(title: "Requests", subtitle: "Photos you're waiting for",
+                            systemImage: "bell.fill", gradient: Theme.violetGradient)
             }
             NavigationLink { HighlightsView(event: event) } label: {
-                dashboardTile("Highlights", "sparkles", "Best moments")
+                GradientTile(title: "AI Highlights", subtitle: "Smart picks from your trip",
+                            systemImage: "sparkles", gradient: Theme.amberGradient)
             }
         }
         .buttonStyle(.plain)
+        .padding(.horizontal)
     }
 
-    private func dashboardTile(_ title: String, _ icon: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: icon).font(.title2).foregroundStyle(.tint)
-            Text(title).font(.headline).foregroundStyle(.primary)
-            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+    private var statsRow: some View {
+        HStack(spacing: 0) {
+            statTile(value: "\(sharedCount)", label: "Total Photos", icon: "photo.stack", tint: .green)
+            Divider().frame(height: 36)
+            statTile(value: "\(photosOfMe)", label: "Photos of You", icon: "person.fill", tint: Theme.violet)
+            Divider().frame(height: 36)
+            NavigationLink { SyncView(event: event) } label: {
+                statTile(value: "Sync", label: "My Camera", icon: "arrow.triangle.2.circlepath", tint: Theme.sky)
+            }
+            .buttonStyle(.plain)
+            .disabled(!EventLifecycle.canSync(event, clock: env.clock, config: env.config.current))
         }
-        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-        .padding()
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.vertical, 12)
+        .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(.separator.opacity(0.4)))
+        .padding(.horizontal)
+    }
+
+    private func statTile(value: String, label: String, icon: String, tint: Color) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon).foregroundStyle(tint)
+            Text(value).font(.headline).foregroundStyle(Theme.ink)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var membersRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Trip Members").font(.headline)
+                Spacer()
+                NavigationLink("View all") { ParticipantsView(event: event) }
+                    .font(.subheadline)
+            }
+            HStack(spacing: -8) {
+                ForEach(members.prefix(6)) { member in
+                    ZStack {
+                        Circle().fill(Theme.violetGradient)
+                        Text(String(member.userId.prefix(1)).uppercased())
+                            .font(.caption).bold().foregroundStyle(.white)
+                    }
+                    .frame(width: 36, height: 36)
+                    .overlay(Circle().strokeBorder(.background, lineWidth: 2))
+                }
+                if members.count > 6 {
+                    ZStack {
+                        Circle().fill(Color(.systemGray4))
+                        Text("+\(members.count - 6)").font(.caption2).bold()
+                    }
+                    .frame(width: 36, height: 36)
+                    .overlay(Circle().strokeBorder(.background, lineWidth: 2))
+                }
+            }
+        }
+        .padding(.horizontal)
     }
 
     private var organizerControls: some View {
@@ -112,16 +177,18 @@ struct EventDashboardView: View {
                 Label("Invite People / QR Code", systemImage: "person.badge.plus")
             }
             NavigationLink { Text("Edit flow (Phase 2 create form reused)") } label: {
-                Label("Edit Event", systemImage: "pencil")
+                Label("Edit Trip", systemImage: "pencil")
             }
             Button(role: .destructive) {
                 Task { try? await env.events.endEvent(id: event.id) }
             } label: {
-                Label("End Event", systemImage: "stop.circle")
+                Label("End Trip", systemImage: "stop.circle")
             }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(.separator.opacity(0.4)))
+        .padding(.horizontal)
     }
 }

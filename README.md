@@ -30,6 +30,24 @@ changes required.
 | **2 — Events** | Create/edit (stable id/joinCode/inviteToken), InviteLink + DeepLinkRouter, membership service (join=consent, cap, leave revokes embedding), Firestore rules, Create/Join/Dashboard/Share UI. |
 | **3 — Sync & delivery** | SyncProgress staged status, TransferJob state machine (idempotent), NotificationDebouncer, DownloadEstimator, Paginator, My Photos / Shared Album / Sync UI, Cloud Functions (invite resolve, batched notifications, idempotent transfers, rate limiting). |
 | **4 — Trust & delight** | Erase/account-deletion cascade, expiry/grace messaging, RetryPolicy backoff, Analytics funnel + north-star (biometric-safe by type), Best-Shot/Blur/Highlights curation (flag-gated, additive), Entitlement scaffolding, retention/cleanup Cloud Functions, Privacy/Settings UI. |
+| **Design pass** | Visual system (`Theme.swift`: coral/sky/violet gradient palette, gradient tiles, filter chips, insight banners) and a 5-tab shell (Home / Trips / Shared / Requests / You), restyled across every screen. See note below. |
+
+### Design pass note
+
+The visual design (colors, gradients, card layout, tab structure) was adapted
+from a set of reference mockups for a similarly-named "SnapTrip" concept. Two
+deliberate choices in translating them:
+
+- **Naming/terminology kept as SnapLoop's**, since the product covers all event
+  types (weddings, conferences, sports — not just trips); only the UI chrome
+  ("Trips" tab label, "Trip Sync", etc.) borrows the mockups' wording where it
+  reads naturally.
+- **The mockups' "Nearby Transfer" (Bluetooth/Wi-Fi P2P) and "Cloud Pickup"
+  concepts were not implemented literally** — they contradict this project's
+  Phase 3 architecture rule that originals move only via a server-issued signed
+  URL with a TTL, never device-to-device. The Requests screen adopts the same
+  visual language (cards, icons, colors) but stays wired to the real
+  `TransferJob` state machine (`Sources/Features/Transfers/RequestsView.swift`).
 
 > **Not yet run.** This repo was authored in a Linux CI environment with no
 > Swift/Xcode toolchain, so nothing here has been compiled or executed. The

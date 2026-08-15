@@ -111,6 +111,32 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
     }
 }
 
+final class InMemoryTransferRepository: TransferRepository, @unchecked Sendable {
+    private let lock = NSLock()
+    private var jobs: [String: TransferJob] = [:]   // transferId -> job
+    private let clock: Clock
+    init(clock: Clock = SystemClock()) { self.clock = clock }
+
+    func requestTransfer(eventId: String, photo: PhotoMatch, requestingUserId: String) async throws -> TransferJob {
+        let transferId = "\(photo.assetLocalId)_\(requestingUserId)"
+        lock.lock(); defer { lock.unlock() }
+        if let existing = jobs[transferId], !existing.status.isTerminal { return existing }
+        let job = TransferJob(
+            id: transferId, eventId: eventId, photoId: photo.id,
+            sourceUserId: photo.ownerUserId, requestingUserId: requestingUserId,
+            status: .queued, requestedAt: clock.now())
+        jobs[transferId] = job
+        return job
+    }
+
+    func transfers(involvingUserId: String) async throws -> [TransferJob] {
+        lock.lock(); defer { lock.unlock() }
+        return jobs.values
+            .filter { $0.requestingUserId == involvingUserId || $0.sourceUserId == involvingUserId }
+            .sorted { $0.requestedAt > $1.requestedAt }
+    }
+}
+
 final class InMemoryFaceProfileStore: FaceProfileStore, @unchecked Sendable {
     private let lock = NSLock()
     private var store: [String: FaceProfile] = [:]

@@ -15,6 +15,7 @@ public final class AppEnvironment: ObservableObject {
     public let thumbnailEncoder: ThumbnailEncoder
     public let events: EventRepository
     public let matches: MatchRepository
+    public let transfers: TransferRepository
     public let scanStateStore: ScanStateStore
     public let faceProfiles: FaceProfileStore
     public let users: UserDirectory
@@ -30,6 +31,7 @@ public final class AppEnvironment: ObservableObject {
         thumbnailEncoder: ThumbnailEncoder,
         events: EventRepository,
         matches: MatchRepository,
+        transfers: TransferRepository,
         scanStateStore: ScanStateStore,
         faceProfiles: FaceProfileStore,
         users: UserDirectory,
@@ -44,6 +46,7 @@ public final class AppEnvironment: ObservableObject {
         self.thumbnailEncoder = thumbnailEncoder
         self.events = events
         self.matches = matches
+        self.transfers = transfers
         self.scanStateStore = scanStateStore
         self.faceProfiles = faceProfiles
         self.users = users
@@ -82,6 +85,7 @@ public final class AppEnvironment: ObservableObject {
             thumbnailEncoder: PassthroughThumbnailEncoder(),
             events: InMemoryEventRepository(),
             matches: InMemoryMatchRepository(),
+            transfers: InMemoryTransferRepository(),
             scanStateStore: InMemoryScanStateStore(),
             faceProfiles: InMemoryFaceProfileStore(),
             users: InMemoryUserDirectory(),

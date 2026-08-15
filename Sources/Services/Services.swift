@@ -111,6 +111,20 @@ public protocol MatchRepository: Sendable {
     func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL
 }
 
+// MARK: - Transfers (on-demand originals)
+
+/// Client-side access to transfer jobs. The trusted state-machine transitions
+/// happen server-side (Cloud Functions); the client requests, watches, and
+/// downloads. Backed by Firestore `transfers/{transferId}` in production.
+public protocol TransferRepository: Sendable {
+    /// Requests an original. Idempotent — a repeat call for the same photo by
+    /// the same requester returns the existing job rather than duplicating work.
+    func requestTransfer(eventId: String, photo: PhotoMatch, requestingUserId: String) async throws -> TransferJob
+    /// Jobs where the current user is the requester (their downloads) or the
+    /// source (originals others are waiting on from their phone).
+    func transfers(involvingUserId: String) async throws -> [TransferJob]
+}
+
 // MARK: - Face profile store
 
 /// Persists the user's own `FaceProfile` (the sensitive reference embedding).

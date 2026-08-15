@@ -14,6 +14,12 @@ public final class AppSession: ObservableObject {
     /// complete — this is what makes deferred deep linking "land on Join".
     @Published public var pendingRoute: DeepLinkRoute?
 
+    /// The event currently in focus — set when the user opens a trip from Home
+    /// or Trips. The Shared and Requests tabs are scoped to this event, mirroring
+    /// the "active trip" the UI is centered on (shown via the switcher chevron
+    /// next to the avatar).
+    @Published public var activeEvent: Event?
+
     public init(user: User? = nil, faceProfile: FaceProfile? = nil) {
         self.user = user
         self.faceProfile = faceProfile
