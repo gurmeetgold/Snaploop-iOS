@@ -1,0 +1,27 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# XcodeGen output (generated from project.yml — do not commit)
+SnapLoop.xcodeproj/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# CocoaPods (not used, but ignore if introduced)
+Pods/
+
+# Firebase secrets — never commit real config
+GoogleService-Info.plist
+
+# macOS
+.DS_Store
+
+# Fastlane / misc
+fastlane/report.xml
+*.log

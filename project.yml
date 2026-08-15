@@ -1,0 +1,53 @@
+name: SnapLoop
+options:
+  bundleIdPrefix: com.snaploop
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_LANGUAGE: en
+
+targets:
+  SnapLoop:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: SnapLoop
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        # Human-readable permission prompts (no technical internals).
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop looks through your photos to find pictures of you from your events. Your photos never leave your phone unless you're in them."
+        INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the camera to set up your face and to scan event QR codes."
+    # Phase 2 adds the Firebase SPM package and GoogleService-Info.plist here.
+
+  SnapLoopTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/SnapLoopTests
+    dependencies:
+      - target: SnapLoop
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app.tests
+
+schemes:
+  SnapLoop:
+    build:
+      targets:
+        SnapLoop: all
+        SnapLoopTests: [test]
+    test:
+      targets:
+        - SnapLoopTests
