@@ -39,6 +39,7 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
     private let lock = NSLock()
     private var events: [String: Event] = [:]
     private var roster: [String: [EventParticipant]] = [:]
+    private var membership: [String: [String: EventMember]] = [:]   // eventId -> userId -> member
 
     func createEvent(_ event: Event) async throws {
         lock.lock(); events[event.id] = event; lock.unlock()
@@ -52,21 +53,61 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
         guard let e = events.values.first(where: { $0.joinCode == joinCode.value })
         else { throw AppError.invalidJoinCode }; return e
     }
-    func updateEventDetails(id: String, name: String, coverImagePath: String?, locationName: String?) async throws {
+    func fetchEvent(inviteToken: InviteToken) async throws -> Event {
+        lock.lock(); defer { lock.unlock() }
+        guard let e = events.values.first(where: { $0.inviteToken == inviteToken.value })
+        else { throw AppError.eventNotFound }; return e
+    }
+    func updateEventDetails(id: String, name: String, category: EventCategory, coverImagePath: String?, locationName: String?) async throws {
         lock.lock(); defer { lock.unlock() }
         guard var e = events[id] else { throw AppError.eventNotFound }
-        e.name = name; e.coverImagePath = coverImagePath; e.locationName = locationName
-        events[id] = e   // note: id and joinCode untouched, by contract
+        e.name = name; e.category = category; e.coverImagePath = coverImagePath
+        e.locationName = locationName; e.updatedAt = Date()
+        events[id] = e   // identity fields untouched, by contract
+    }
+    func updateEventDates(id: String, startsAt: Date, endsAt: Date) async throws {
+        lock.lock(); defer { lock.unlock() }
+        guard var e = events[id] else { throw AppError.eventNotFound }
+        e.startsAt = startsAt; e.endsAt = endsAt; e.updatedAt = Date()
+        events[id] = e
+    }
+    func endEvent(id: String) async throws {
+        lock.lock(); defer { lock.unlock() }
+        guard var e = events[id] else { throw AppError.eventNotFound }
+        e.status = .endedByOrganizer; e.updatedAt = Date(); events[id] = e
+    }
+    func addMember(eventId: String, member: EventMember) async throws {
+        lock.lock(); membership[eventId, default: [:]][member.userId] = member; lock.unlock()
+    }
+    func removeMember(eventId: String, userId: String) async throws {
+        lock.lock()
+        membership[eventId]?[userId] = nil
+        roster[eventId]?.removeAll { $0.userId == userId }   // revoke embedding
+        lock.unlock()
+    }
+    func setSharing(eventId: String, userId: String, enabled: Bool) async throws {
+        lock.lock(); defer { lock.unlock() }
+        guard var m = membership[eventId]?[userId] else { throw AppError.notAMember }
+        m.sharingEnabled = enabled; membership[eventId]?[userId] = m
+    }
+    func members(eventId: String) async throws -> [EventMember] {
+        lock.lock(); defer { lock.unlock() }
+        return Array((membership[eventId] ?? [:]).values).sorted { $0.joinedAt < $1.joinedAt }
     }
     func join(eventId: String, participant: EventParticipant) async throws {
-        lock.lock(); roster[eventId, default: []].append(participant); lock.unlock()
+        lock.lock()
+        roster[eventId, default: []].removeAll { $0.userId == participant.userId }
+        roster[eventId, default: []].append(participant)
+        lock.unlock()
     }
     func participants(eventId: String) async throws -> [EventParticipant] {
         lock.lock(); defer { lock.unlock() }; return roster[eventId] ?? []
     }
     func events(forUserId userId: String) async throws -> [Event] {
         lock.lock(); defer { lock.unlock() }
-        return Array(events.values).sorted { $0.startsAt > $1.startsAt }
+        return events.values
+            .filter { membership[$0.id]?[userId] != nil }
+            .sorted { $0.startsAt > $1.startsAt }
     }
 }
 

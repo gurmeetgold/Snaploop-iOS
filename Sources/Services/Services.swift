@@ -70,11 +70,27 @@ public protocol EventRepository: Sendable {
     func createEvent(_ event: Event) async throws
     func fetchEvent(id: String) async throws -> Event
     func fetchEvent(joinCode: JoinCode) async throws -> Event
-    /// Edits presentation details only — id and joinCode are immutable and not
+    func fetchEvent(inviteToken: InviteToken) async throws -> Event
+
+    /// Edits presentation details only — identity fields are immutable and not
     /// part of this call, by design.
-    func updateEventDetails(id: String, name: String, coverImagePath: String?, locationName: String?) async throws
+    func updateEventDetails(id: String, name: String, category: EventCategory, coverImagePath: String?, locationName: String?) async throws
+    /// Edits the date window without touching the invite link.
+    func updateEventDates(id: String, startsAt: Date, endsAt: Date) async throws
+    /// Marks an event ended by the organizer (early "End Event").
+    func endEvent(id: String) async throws
+
+    // Membership (the doc whose existence grants read access).
+    func addMember(eventId: String, member: EventMember) async throws
+    func removeMember(eventId: String, userId: String) async throws
+    func setSharing(eventId: String, userId: String, enabled: Bool) async throws
+    func members(eventId: String) async throws -> [EventMember]
+
+    // Matching roster (embeddings, downloaded only for this event's members).
     func join(eventId: String, participant: EventParticipant) async throws
     func participants(eventId: String) async throws -> [EventParticipant]
+
+    /// Events the user is a member of (drives Home/Events).
     func events(forUserId userId: String) async throws -> [Event]
 }
 

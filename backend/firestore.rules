@@ -1,0 +1,109 @@
+rules_version = '2';
+
+// SnapLoop Firestore security rules.
+//
+// Core principle: an event's data is readable ONLY by users who hold a
+// membership document under that event. There is no way to enumerate events or
+// resolve an invite token from the client — token → event resolution happens
+// exclusively in a Cloud Function (see functions/resolveInvite), which checks
+// the token server-side and creates the membership. Clients never query events
+// by inviteToken.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // A membership doc's existence is the read grant for an event.
+    function isMember(eventId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid));
+    }
+
+    function isOrganizer(eventId) {
+      return isMember(eventId) &&
+        get(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
+    }
+
+    // -------- Users (+ private face profile) --------
+    match /users/{userId} {
+      allow read, update, delete: if isSelf(userId);
+      allow create: if isSelf(userId);
+
+      // Face embedding is private to the user. Other clients receive an event
+      // member's embedding only through the server-curated roster below, never
+      // by reading this document.
+      match /faceProfile/{doc} {
+        allow read, write: if isSelf(userId);
+      }
+    }
+
+    // -------- Events --------
+    match /events/{eventId} {
+      // No listing/enumeration: reads require membership. Creating an event is
+      // allowed for any signed-in user who stamps themselves as creator.
+      allow get: if isMember(eventId);
+      allow list: if false;
+      allow create: if isSignedIn() && request.resource.data.creatorUserId == request.auth.uid;
+
+      // Only the organizer edits event fields, and identity fields are immutable.
+      allow update: if isOrganizer(eventId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.joinCode == resource.data.joinCode
+        && request.resource.data.inviteToken == resource.data.inviteToken
+        && request.resource.data.creatorUserId == resource.data.creatorUserId
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;   // events expire via scheduled jobs, never client-deleted
+
+      // -------- Members --------
+      match /members/{userId} {
+        allow read: if isMember(eventId);
+        // Membership is created by the server-side join (resolveInvite). A user
+        // may update their own membership (sharingEnabled) and leave (delete).
+        allow update: if isSelf(userId)
+          && request.resource.data.role == resource.data.role;   // can't self-promote
+        allow delete: if isSelf(userId) || isOrganizer(eventId);
+        allow create: if false;   // created only by the trusted server
+      }
+
+      // -------- Matching roster (embeddings for this event's members only) --------
+      match /participants/{userId} {
+        allow read: if isMember(eventId);
+        allow write: if false;    // written only by the trusted server on join/leave
+      }
+
+      // -------- Photos (thumbnails + metadata) --------
+      match /photos/{photoId} {
+        allow read: if isMember(eventId);
+        // Clients upload matches for their own camera only; sourceAssetReference
+        // is never exposed to other members (stripped server-side on read fan-out).
+        allow create: if isMember(eventId)
+          && request.resource.data.sourceUserId == request.auth.uid;
+        allow update: if isMember(eventId)
+          && request.resource.data.sourceUserId == resource.data.sourceUserId;
+        allow delete: if isMember(eventId)
+          && resource.data.sourceUserId == request.auth.uid;
+      }
+    }
+
+    // -------- Transfers (originals on demand) --------
+    match /transfers/{transferId} {
+      // A transfer is visible to its requester and the source (owner) only.
+      allow read: if isSignedIn() &&
+        (resource.data.requestingUserId == request.auth.uid ||
+         resource.data.sourceUserId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.requestingUserId == request.auth.uid;
+      // State transitions are driven by the server / the two involved devices.
+      allow update: if isSignedIn() &&
+        (resource.data.requestingUserId == request.auth.uid ||
+         resource.data.sourceUserId == request.auth.uid);
+      allow delete: if false;
+    }
+  }
+}

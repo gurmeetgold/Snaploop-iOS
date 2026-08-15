@@ -24,7 +24,9 @@ public enum AppError: Error, Equatable, Sendable {
     case eventNotFound
     case eventExpired
     case eventFull
+    case invalidEventName
     case invalidEventDates
+    case notAMember
     case eventDurationTooLong(maxDays: Int)
     case invalidJoinCode
 
@@ -69,8 +71,12 @@ public extension AppError {
             return "This event has ended."
         case .eventFull:
             return "This event is full."
+        case .invalidEventName:
+            return "Please give your event a name."
         case .invalidEventDates:
             return "Please pick a valid start and end date."
+        case .notAMember:
+            return "You need to join this event first."
         case .eventDurationTooLong(let maxDays):
             return "Events can run for up to \(maxDays) days."
         case .invalidJoinCode:
