@@ -72,9 +72,24 @@ public final class AppEnvironment: ObservableObject {
         )
     }
 
+    /// Whether this run should use real backend services where they exist yet.
+    /// Toggle by setting the `SNAPLOOP_LIVE=1` environment variable on the
+    /// Xcode scheme (Product ▸ Scheme ▸ Edit Scheme ▸ Run ▸ Arguments) — no
+    /// code edits needed, and each newly-wired seam in `.live()` becomes
+    /// testable the moment you flip it on. Defaults to false so a fresh
+    /// checkout always just runs, with zero credentials.
+    public static var useLiveServices: Bool {
+        ProcessInfo.processInfo.environment["SNAPLOOP_LIVE"] == "1"
+    }
+
+    /// Picks `.live()` or `.dev()` based on `useLiveServices`. This is what
+    /// `SnapLoopApp` constructs its environment from.
+    public static func current() -> AppEnvironment {
+        useLiveServices ? .live() : .dev()
+    }
+
     /// Dev/preview environment: local + in-memory implementations, no network,
-    /// no Firebase, no secrets. This is what the app runs on today. The `.live`
-    /// factory that wires Firebase concretes arrives in Phase 2.
+    /// no Firebase, no secrets. This is what the app runs on by default.
     public static func dev() -> AppEnvironment {
         AppEnvironment(
             config: StaticConfigProvider(.default),
@@ -87,6 +102,44 @@ public final class AppEnvironment: ObservableObject {
             matches: InMemoryMatchRepository(),
             transfers: InMemoryTransferRepository(),
             scanStateStore: InMemoryScanStateStore(),
+            faceProfiles: InMemoryFaceProfileStore(),
+            users: InMemoryUserDirectory(),
+            quality: StubQualityScoring(),
+            analytics: InMemoryAnalytics()
+        )
+    }
+
+    /// Live environment. Wired incrementally, one seam at a time, so each is
+    /// independently testable before the next depends on it:
+    ///
+    ///   ✅ auth              — `FirebaseAuthService` (Firebase Auth, phone/OTP)
+    ///   ⬜ users              — next: Firestore-backed `UserDirectory`
+    ///   ⬜ faceProfiles       — next: Firestore-backed `FaceProfileStore`
+    ///   ⬜ events             — after that: Firestore-backed `EventRepository`
+    ///   ⬜ matches, transfers — after that: Firestore + Storage
+    ///   ⬜ config             — later, low priority: Firebase Remote Config
+    ///
+    /// `photoLibrary`, `faceDetection`, and `quality` are **not** part of this
+    /// list — they're on-device PhotoKit/Vision/Core ML work, unrelated to
+    /// Firebase, and land as their own separate track.
+    ///
+    /// Until a row above is checked off, that seam stays on its `.dev()`
+    /// in-memory/stub implementation here — signing in via `auth` proves
+    /// identity but doesn't yet persist a profile beyond Firebase Auth's own
+    /// user record.
+    public static func live() -> AppEnvironment {
+        FirebaseBootstrap.configureIfNeeded()
+        return AppEnvironment(
+            config: StaticConfigProvider(.default),
+            clock: SystemClock(),
+            auth: FirebaseAuthService(),
+            photoLibrary: StubPhotoLibraryService(),
+            faceDetection: StubFaceDetectionService(),
+            thumbnailEncoder: ImageIOThumbnailEncoder(),
+            events: InMemoryEventRepository(),
+            matches: InMemoryMatchRepository(),
+            transfers: InMemoryTransferRepository(),
+            scanStateStore: UserDefaultsScanStateStore(),
             faceProfiles: InMemoryFaceProfileStore(),
             users: InMemoryUserDirectory(),
             quality: StubQualityScoring(),

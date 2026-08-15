@@ -12,12 +12,24 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_LANGUAGE: en
 
+# Firebase products are added one at a time as each seam is wired live — see
+# AppEnvironment.live() for what's real today. Only Auth so far.
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: 10.29.0
+
 targets:
   SnapLoop:
     type: application
     platform: iOS
     sources:
       - path: Sources
+    dependencies:
+      - package: Firebase
+        product: FirebaseCore
+      - package: Firebase
+        product: FirebaseAuth
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app
@@ -29,7 +41,9 @@ targets:
         # Human-readable permission prompts (no technical internals).
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop looks through your photos to find pictures of you from your events. Your photos never leave your phone unless you're in them."
         INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the camera to set up your face and to scan event QR codes."
-    # Phase 2 adds the Firebase SPM package and GoogleService-Info.plist here.
+    # GoogleService-Info.plist is NOT declared here — it's a per-developer
+    # secret (gitignored). Drag your own into the SnapLoop group in Xcode
+    # after `xcodegen generate`. See README "Testing Auth" for setup.
 
   SnapLoopTests:
     type: bundle.unit-test
@@ -38,6 +52,8 @@ targets:
       - path: Tests/SnapLoopTests
     dependencies:
       - target: SnapLoop
+      - package: Firebase
+        product: FirebaseAuth
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app.tests

@@ -2,11 +2,13 @@ import SwiftUI
 
 @main
 struct SnapLoopApp: App {
-    // Phase 2 will configure Firebase (FirebaseApp.configure()) and swap
-    // `.dev()` for `.live()`. Kept on in-memory services for now so the app
-    // builds and runs with zero credentials.
-    @StateObject private var environment = AppEnvironment.dev()
-    @StateObject private var session = AppSession.dev()
+    // Toggle via the SNAPLOOP_LIVE=1 environment variable on the Xcode scheme
+    // (no code edits needed). `.dev()` (default) needs zero credentials and
+    // starts pre-signed-in for fast iteration on everything downstream of
+    // auth. `.live()` starts signed OUT so you exercise the real phone/OTP
+    // flow — see AppEnvironment.live() for exactly which seams are real today.
+    @StateObject private var environment = AppEnvironment.current()
+    @StateObject private var session: AppSession = AppEnvironment.useLiveServices ? AppSession() : .dev()
 
     var body: some Scene {
         WindowGroup {

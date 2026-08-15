@@ -31,6 +31,7 @@ changes required.
 | **3 — Sync & delivery** | SyncProgress staged status, TransferJob state machine (idempotent), NotificationDebouncer, DownloadEstimator, Paginator, My Photos / Shared Album / Sync UI, Cloud Functions (invite resolve, batched notifications, idempotent transfers, rate limiting). |
 | **4 — Trust & delight** | Erase/account-deletion cascade, expiry/grace messaging, RetryPolicy backoff, Analytics funnel + north-star (biometric-safe by type), Best-Shot/Blur/Highlights curation (flag-gated, additive), Entitlement scaffolding, retention/cleanup Cloud Functions, Privacy/Settings UI. |
 | **Design pass** | Visual system (`Theme.swift`: coral/sky/violet gradient palette, gradient tiles, filter chips, insight banners) and a 5-tab shell (Home / Trips / Shared / Requests / You), restyled across every screen. See note below. |
+| **Firebase wiring, step 1** | `AuthService` → real Firebase Auth (phone/OTP). See "Firebase live wiring" below for status and how to test it. |
 
 ### Design pass note
 
@@ -51,8 +52,57 @@ deliberate choices in translating them:
 
 > **Not yet run.** This repo was authored in a Linux CI environment with no
 > Swift/Xcode toolchain, so nothing here has been compiled or executed. The
-> ~15 unit-test suites are written to pass on a Mac; the first `xcodebuild test`
+> unit-test suites are written to pass on a Mac; the first `xcodebuild test`
 > there is the real verification gate.
+
+### Firebase live wiring
+
+Every service the app depends on sits behind a protocol (`Sources/Services/Services.swift`).
+`AppEnvironment.dev()` — the default — wires all of them to in-memory/local
+stand-ins, so a fresh checkout builds and runs with **zero credentials**.
+`AppEnvironment.live()` wires them to real backends, **one seam at a time**, in
+an order chosen so each is independently testable before the next depends on
+it:
+
+| # | Seam | Status | Depends on |
+|---|------|--------|------------|
+| 1 | `AuthService` | ✅ **Live** — `FirebaseAuthService` (Firebase Auth, phone/OTP) | — |
+| 2 | `UserDirectory`, `FaceProfileStore` | ⬜ Next | a signed-in user (step 1) |
+| 3 | `EventRepository` | ⬜ Not started | a user profile (step 2) — this is the one that unlocks testing Create/Join Trip across two real devices |
+| 4 | `MatchRepository`, `TransferRepository` | ⬜ Not started | events (step 3) — the core loop: My Photos / Shared Album, then downloads |
+| 5 | `ConfigProviding` (Remote Config) | ⬜ Not started, low priority | none — can land anytime |
+| — | `PhotoLibraryService`, `FaceDetectionService`, `QualityScoring` | ⬜ Stubbed, separate track | **Not Firebase.** Real PhotoKit + Vision/Core ML — its own chunk of work, independent of this list |
+
+Toggle live services with **`SNAPLOOP_LIVE=1`** as an environment variable on
+the Xcode scheme (Product ▸ Scheme ▸ Edit Scheme ▸ Run ▸ Arguments) — no code
+edits needed. `AppEnvironment.current()` reads it and picks `.live()` or
+`.dev()`; `SnapLoopApp` starts signed-out under `.live()` so you exercise the
+real sign-in flow, and pre-signed-in under `.dev()` for fast iteration on
+everything downstream of auth.
+
+#### Testing step 1 (Auth) today
+
+1. Create a Firebase project (console.firebase.google.com), add an iOS app with
+   bundle id `com.snaploop.app`, enable **Phone** sign-in under Authentication.
+2. Download its `GoogleService-Info.plist` and drag it into the `SnapLoop`
+   group in Xcode after `xcodegen generate` (it's gitignored — never commit a
+   real one).
+3. Real SMS won't reach a Simulator: add a **test phone number + fixed code**
+   under Authentication ▸ Sign-in method ▸ Phone ▸ Phone numbers for testing.
+4. Set `SNAPLOOP_LIVE=1` on the scheme, run, and sign in with the test number.
+5. `session.user` is set from the Firebase Auth UID alone — no Firestore
+   profile is created or read yet (that's step 2), so `displayName` is nil and
+   `hasFaceProfile` is false regardless of prior state.
+
+One thing to verify on your own SDK version: `FirebaseAuthService.mapError`
+switches over a specific set of `AuthErrorCode` cases (`invalidPhoneNumber`,
+`missingPhoneNumber`, `invalidVerificationCode`, `missingVerificationCode`,
+`sessionExpired`, `invalidVerificationID`, `missingVerificationID`,
+`networkError`, `tooManyRequests`). These are long-stable, commonly-used cases,
+but I couldn't cross-check them against the SDK docs in this environment — if
+any has been renamed in the `firebase-ios-sdk` version Swift Package Manager
+resolves, Xcode will flag the exact line immediately (it's a simple enum-case
+typo, trivial to fix).
 
 ### What's built
 
@@ -131,10 +181,14 @@ Tests/SnapLoopTests/   FaceMatcher, ScanPlanner, EventLifecycle,
                        FaceEmbedding, JoinCode, CameraSyncCoordinator
 ```
 
-## What's next (Phase 2)
+## What's next
 
-Firebase wiring (`AppEnvironment.live()`): Auth (phone OTP), Firestore
-(`EventRepository`/`MatchRepository`), Storage (thumbnails + signed originals),
-Remote Config (`ConfigProviding`), FCM, Analytics/Crashlytics — plus the real
-Vision + Core ML `FaceDetectionService`, and the Authentication / Onboarding /
-FaceProfile UI flows. No engine changes required — that's the point of the seams.
+See **"Firebase live wiring"** above for the current seam-by-seam status and
+how to test what's live today. Short version: `AuthService` is real (Firebase
+Auth, phone/OTP); `UserDirectory`/`FaceProfileStore` are next, then
+`EventRepository`, then `MatchRepository`/`TransferRepository`, then Remote
+Config — each step lands independently testable before the next depends on it.
+The on-device PhotoKit + Vision/Core ML implementations (`PhotoLibraryService`,
+`FaceDetectionService`, `QualityScoring`) are a separate track, unrelated to
+Firebase. No engine changes are required for any of this — that's the point of
+the seams.

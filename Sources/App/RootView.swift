@@ -1,13 +1,41 @@
 import SwiftUI
 
-/// Top-level shell: a 5-tab bar (Home / Trips / Shared / Requests / You),
-/// matching the product's visual language. Shared and Requests are scoped to
-/// `session.activeEvent` — the trip currently in focus, set when the user opens
-/// one from Home or Trips (mirrors the "current trip" switcher in the designs).
-/// Inbound invite links/QR are captured into a pending route and replayed here.
+/// Top-level router: shows the phone/OTP sign-in flow until `session.user` is
+/// set, then the 5-tab shell. Inbound invite links/QR are captured into a
+/// pending route regardless of auth state, and replayed as a join sheet once
+/// the user is signed in — this is what makes deferred deep linking "land on
+/// Join" after a fresh install + sign-in.
 struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var session: AppSession
+
+    var body: some View {
+        Group {
+            if session.user != nil {
+                MainTabView()
+                    .sheet(item: $session.pendingRoute) { route in
+                        NavigationStack {
+                            JoinEventView(route: route) { event in
+                                session.pendingRoute = nil
+                                session.activeEvent = event
+                            }
+                        }
+                    }
+            } else {
+                PhoneAuthFlowView()
+            }
+        }
+        .onOpenURL { url in
+            if let route = DeepLinkRouter.route(for: url) { session.pendingRoute = route }
+        }
+    }
+}
+
+/// The signed-in shell: a 5-tab bar (Home / Trips / Shared / Requests / You),
+/// matching the product's visual language. Shared and Requests are scoped to
+/// `session.activeEvent` — the trip currently in focus, set when the user opens
+/// one from Home or Trips (mirrors the "current trip" switcher in the designs).
+struct MainTabView: View {
     @State private var selectedTab = Tab.home
 
     enum Tab { case home, trips, shared, requests, you }
@@ -35,17 +63,6 @@ struct RootView: View {
                 .tag(Tab.you)
         }
         .tint(Theme.coral)
-        .onOpenURL { url in
-            if let route = DeepLinkRouter.route(for: url) { session.pendingRoute = route }
-        }
-        .sheet(item: $session.pendingRoute) { route in
-            NavigationStack {
-                JoinEventView(route: route) { event in
-                    session.pendingRoute = nil
-                    session.activeEvent = event
-                }
-            }
-        }
     }
 }
 
