@@ -17,7 +17,12 @@ settings:
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
-    from: 10.29.0
+    # Floor deliberately low/round rather than pinned to a specific patch I
+    # can't verify was actually tagged from this environment (no network
+    # access to check firebase-ios-sdk's real release history) — SPM resolves
+    # to the latest 10.x it can reach either way. If you're chasing a specific
+    # CVE fix or API, bump this to whatever version you've confirmed exists.
+    from: "10.0.0"
 
 targets:
   SnapLoop:
