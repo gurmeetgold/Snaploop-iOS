@@ -54,12 +54,16 @@ public struct CameraSyncCoordinator {
     }
 
     /// Runs a single incremental pass for `event` on behalf of `currentUserId`.
+    /// `onProgress` is called on the calling actor as the pass advances so the
+    /// UI can render staged status.
     public func sync(
         event: Event,
         participants: [EventParticipant],
-        currentUserId: String
+        currentUserId: String,
+        onProgress: (@Sendable (SyncProgress) -> Void)? = nil
     ) async throws -> Summary {
         let values = config.current
+        onProgress?(SyncProgress(phase: .preparing))
 
         // Lifecycle gate.
         guard EventLifecycle.canSync(event, clock: clock, config: values) else {
@@ -84,6 +88,7 @@ public struct CameraSyncCoordinator {
         }
 
         let matcher = FaceMatcher(config: values)
+        let totalThisPass = plan.toScan.count
         var matchedCount = 0
         var processedIds: [String] = []
 
@@ -100,6 +105,11 @@ public struct CameraSyncCoordinator {
                 if matched { matchedCount += 1 }
                 // Mark scanned whether or not it matched — never reprocess it.
                 processedIds.append(asset.id)
+                onProgress?(SyncProgress(
+                    phase: .scanning,
+                    checked: processedIds.count,
+                    matched: matchedCount,
+                    remaining: (totalThisPass - processedIds.count) + plan.remaining))
             } catch {
                 // One bad asset must not abort the whole pass. Leave it
                 // unmarked so a later pass retries it, and move on.
@@ -107,6 +117,8 @@ public struct CameraSyncCoordinator {
             }
         }
 
+        onProgress?(SyncProgress(phase: .finishing, checked: processedIds.count,
+                                 matched: matchedCount, remaining: plan.remaining))
         state.markScanned(processedIds)
         state.lastSyncedAt = clock.now()
         scanStateStore.save(state)

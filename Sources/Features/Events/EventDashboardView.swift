@@ -63,7 +63,7 @@ struct EventDashboardView: View {
             Text("Find your photos from this event")
                 .font(.subheadline).foregroundStyle(.secondary)
             NavigationLink {
-                Text("Sync flow arrives in Phase 3").padding()   // placeholder
+                SyncView(event: event)
             } label: {
                 Label("Sync My Camera", systemImage: "arrow.triangle.2.circlepath")
                     .frame(maxWidth: .infinity)
@@ -78,17 +78,26 @@ struct EventDashboardView: View {
 
     private var featureGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            dashboardTile("My Photos", "photo.stack", "Photos of you")
-            dashboardTile("Shared Album", "square.grid.2x2", "Everyone's photos")
-            dashboardTile("Participants", "person.3", "\(members.count) joined")
-            dashboardTile("Highlights", "sparkles", "Best moments")
+            NavigationLink { MyPhotosView(event: event) } label: {
+                dashboardTile("My Photos", "photo.stack", "Photos of you")
+            }
+            NavigationLink { SharedAlbumView(event: event) } label: {
+                dashboardTile("Shared Album", "square.grid.2x2", "Everyone's photos")
+            }
+            NavigationLink { ParticipantsView(event: event) } label: {
+                dashboardTile("Participants", "person.3", "\(members.count) joined")
+            }
+            NavigationLink { HighlightsView(event: event) } label: {
+                dashboardTile("Highlights", "sparkles", "Best moments")
+            }
         }
+        .buttonStyle(.plain)
     }
 
     private func dashboardTile(_ title: String, _ icon: String, _ subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Image(systemName: icon).font(.title2).foregroundStyle(.tint)
-            Text(title).font(.headline)
+            Text(title).font(.headline).foregroundStyle(.primary)
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
