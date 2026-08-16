@@ -57,6 +57,17 @@ targets:
       - path: Tests/SnapLoopTests
     dependencies:
       - target: SnapLoop
+      # Every target needs its own explicit product entry for anything it
+      # imports directly OR anything a target it links against needs — Xcode's
+      # package-product linking isn't transitive across target dependencies in
+      # a generated project. This target imports FirebaseAuth directly (for
+      # AuthErrorCode/AuthErrorDomain in FirebaseAuthServiceMappingTests) and
+      # links SnapLoop via `@testable import`, which itself needs FirebaseCore
+      # (FirebaseBootstrap.swift) — so both must be listed here too, matching
+      # the SnapLoop target's list exactly, not just the product this target's
+      # own source files happen to import.
+      - package: Firebase
+        product: FirebaseCore
       - package: Firebase
         product: FirebaseAuth
     settings:

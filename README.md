@@ -93,6 +93,16 @@ comment in that file for the fallback if the console rejects it. Step 4
 for the transfer flow to do anything beyond sit at `queued` — it's designed to
 call the `requestOriginalTransfer` Cloud Function, not write Firestore directly.
 
+**When adding a Firebase product in a future step**: list it under `SnapLoop`'s
+`dependencies:` *and* mirror it onto `SnapLoopTests`'s. Xcode's package-product
+linking isn't transitive across target dependencies in a generated project —
+`SnapLoopTests` needs its own explicit entry for every product `SnapLoop`
+needs, not just the ones its own test files happen to `import`, because
+`@testable import SnapLoop` links the whole module. Missing this caused a
+"Missing package product" build error once already (`FirebaseCore` was on
+`SnapLoop` but not `SnapLoopTests`); both targets' lists should stay identical
+going forward.
+
 #### Testing step 1 (Auth) today
 
 1. Create a Firebase project (console.firebase.google.com), add an iOS app with
