@@ -93,15 +93,32 @@ comment in that file for the fallback if the console rejects it. Step 4
 for the transfer flow to do anything beyond sit at `queued` — it's designed to
 call the `requestOriginalTransfer` Cloud Function, not write Firestore directly.
 
-**When adding a Firebase product in a future step**: list it under `SnapLoop`'s
-`dependencies:` *and* mirror it onto `SnapLoopTests`'s. Xcode's package-product
-linking isn't transitive across target dependencies in a generated project —
-`SnapLoopTests` needs its own explicit entry for every product `SnapLoop`
-needs, not just the ones its own test files happen to `import`, because
-`@testable import SnapLoop` links the whole module. Missing this caused a
-"Missing package product" build error once already (`FirebaseCore` was on
-`SnapLoop` but not `SnapLoopTests`); both targets' lists should stay identical
-going forward.
+**When adding a Firebase product in a future step**, two rules, both learned
+the hard way while wiring step 1:
+
+1. **List it under `SnapLoop`'s `dependencies:` *and* mirror it onto
+   `SnapLoopTests`'s.** Xcode's package-product linking isn't transitive
+   across target dependencies in a generated project — `SnapLoopTests` needs
+   its own explicit entry for every product `SnapLoop` needs, not just the
+   ones its own test files happen to `import`, because `@testable import
+   SnapLoop` links the whole module. Missing this caused a "Missing package
+   product" error once already (`FirebaseCore` was on `SnapLoop` but not
+   `SnapLoopTests`).
+2. **Give the new product its own `packages:` alias pointing at the same
+   `firebase-ios-sdk` URL**, rather than adding another `product:` line under
+   the existing `FirebaseCore`/`FirebaseAuthPkg` blocks. Confirmed via raw
+   `xcodebuild` dependency-graph output (xcodegen 2.46.0): declaring two
+   products from *one* package block, where one transitively depends on the
+   other (as `FirebaseAuth` depends on `FirebaseCore`), causes XcodeGen to
+   silently drop the "redundant-looking" one from the target's explicit
+   package-product dependencies — even though the Swift compiler needs an
+   explicit entry to `import` a module regardless of what else you link
+   already depends on it internally. Aliasing each product under its own
+   top-level package name in `packages:` sidesteps whatever same-package
+   dedup logic causes this; SPM is fine resolving one remote URL under
+   multiple local names. See the comment block above `packages:` in
+   `project.yml` for the full writeup. Worth retrying the simpler one-package
+   form after an XcodeGen upgrade, in case a later release fixes the collapse.
 
 #### Testing step 1 (Auth) today
 
