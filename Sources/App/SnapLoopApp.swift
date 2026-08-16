@@ -2,13 +2,31 @@ import SwiftUI
 
 @main
 struct SnapLoopApp: App {
-    // Toggle via the SNAPLOOP_LIVE=1 environment variable on the Xcode scheme
-    // (no code edits needed). `.dev()` (default) needs zero credentials and
-    // starts pre-signed-in for fast iteration on everything downstream of
-    // auth. `.live()` starts signed OUT so you exercise the real phone/OTP
-    // flow — see AppEnvironment.live() for exactly which seams are real today.
+
+    // Bridges SwiftUI's app lifecycle to UIApplicationDelegate.
+    //
+    // Firebase Phone Auth needs UIApplicationDelegate callbacks for:
+    // - APNs device registration
+    // - silent authentication notifications
+    // - reCAPTCHA callback URLs
+    @UIApplicationDelegateAdaptor(AppDelegate.self)
+    private var appDelegate
+
+    // Toggle via SNAPLOOP_LIVE=1 in the Xcode scheme.
+    //
+    // .dev():
+    // - no Firebase
+    // - no credentials
+    // - pre-signed-in dev session
+    //
+    // .live():
+    // - Firebase Auth
+    // - starts signed out
+    // - real phone/OTP flow
     @StateObject private var environment = AppEnvironment.current()
-    @StateObject private var session: AppSession = AppEnvironment.useLiveServices ? AppSession() : .dev()
+
+    @StateObject private var session: AppSession =
+        AppEnvironment.useLiveServices ? AppSession() : .dev()
 
     var body: some Scene {
         WindowGroup {
