@@ -1,8 +1,9 @@
 name: SnapLoop
+
 options:
   bundleIdPrefix: com.snaploop
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "17.0"
   createIntermediateGroups: true
 
 settings:
@@ -12,102 +13,82 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_LANGUAGE: en
 
-# Firebase products are added one at a time as each seam is wired live — see
-# AppEnvironment.live() for what's real today. Only Auth so far.
-#
-# WORKAROUND: FirebaseCore and FirebaseAuth are declared as two SEPARATE
-# `packages:` entries pointing at the identical firebase-ios-sdk URL, instead
-# of one `Firebase` package with two `product:` lines. The latter form was
-# confirmed (via raw `xcodebuild` dependency-graph output, xcodegen 2.46.0) to
-# silently drop FirebaseCore from SnapLoop's explicit package-product
-# dependencies in the generated .pbxproj — only FirebaseAuth showed up as a
-# top-level explicit dependency, with FirebaseCore nested underneath it as
-# FirebaseAuth's own transitive dependency. That's not sufficient: a target's
-# own Swift files need an EXPLICIT product dependency to `import` a module at
-# all — that visibility isn't granted just because something else you link
-# happens to depend on it internally. Whatever XcodeGen is doing here reads
-# like it's deduplicating "FirebaseCore is already reachable transitively via
-# FirebaseAuth" and dropping the second, "redundant-looking" entry — plausible
-# for the *linker*, wrong for the *compiler's* import resolution.
-#
-# Aliasing the same URL under two package names sidesteps whatever
-# same-package logic is doing this, since each alias is an independent graph
-# node to XcodeGen/SPM — there's nothing to collapse. SPM itself is fine with
-# one remote URL resolved under multiple local package names in one project
-# (resolves the git checkout once, satisfies both). If a future XcodeGen
-# release fixes the underlying collapse, folding this back into one `Firebase`
-# package block with two `product:` lines is simpler — worth trying again
-# after an XcodeGen upgrade.
 packages:
-  FirebaseCore:
-    url: https://github.com/firebase/firebase-ios-sdk
-    # Floor deliberately low/round rather than pinned to a specific patch I
-    # can't verify was actually tagged from this environment (no network
-    # access to check firebase-ios-sdk's real release history) — SPM resolves
-    # to the latest 10.x it can reach either way. If you're chasing a specific
-    # CVE fix or API, bump this to whatever version you've confirmed exists.
-    from: "10.0.0"
-  FirebaseAuthPkg:
-    url: https://github.com/firebase/firebase-ios-sdk
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
     from: "10.0.0"
 
 targets:
+
   SnapLoop:
     type: application
     platform: iOS
+
+    info:
+      path: Sources/App/Info.plist
+      properties:
+
+        # Required by Firebase Phone Auth for reCAPTCHA fallback.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - app-1-254317517474-ios-fe19926e3a17d2661f95fb
+
     sources:
       - path: Sources
+
     dependencies:
-      - package: FirebaseCore
-        product: FirebaseCore
-      - package: FirebaseAuthPkg
+      # Only attach FirebaseAuth explicitly.
+      # FirebaseCore is brought in transitively by FirebaseAuth.
+      - package: Firebase
         product: FirebaseAuth
+
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app
+
         GENERATE_INFOPLIST_FILE: YES
+
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: SnapLoop
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        # Human-readable permission prompts (no technical internals).
+
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop looks through your photos to find pictures of you from your events. Your photos never leave your phone unless you're in them."
+
         INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the camera to set up your face and to scan event QR codes."
-    # GoogleService-Info.plist is NOT declared here — it's a per-developer
-    # secret (gitignored). Drag your own into the SnapLoop group in Xcode
-    # after `xcodegen generate`. See README "Testing Auth" for setup.
+
+    # GoogleService-Info.plist is developer-specific and gitignored.
+    # After running xcodegen generate, verify it is still included in
+    # the SnapLoop target.
+
 
   SnapLoopTests:
     type: bundle.unit-test
     platform: iOS
+
     sources:
       - path: Tests/SnapLoopTests
+
     dependencies:
       - target: SnapLoop
-      # Every target needs its own explicit product entry for anything it
-      # imports directly OR anything a target it links against needs — Xcode's
-      # package-product linking isn't transitive across target dependencies in
-      # a generated project. This target imports FirebaseAuth directly (for
-      # AuthErrorCode/AuthErrorDomain in FirebaseAuthServiceMappingTests) and
-      # links SnapLoop via `@testable import`, which itself needs FirebaseCore
-      # (FirebaseBootstrap.swift) — so both must be listed here too, matching
-      # the SnapLoop target's list exactly, not just the product this target's
-      # own source files happen to import. Same package aliases as SnapLoop,
-      # for the same reason described above.
-      - package: FirebaseCore
-        product: FirebaseCore
-      - package: FirebaseAuthPkg
+
+      # Match the application target.
+      - package: Firebase
         product: FirebaseAuth
+
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app.tests
 
+
 schemes:
   SnapLoop:
+
     build:
       targets:
         SnapLoop: all
         SnapLoopTests: [test]
+
     test:
       targets:
         - SnapLoopTests
