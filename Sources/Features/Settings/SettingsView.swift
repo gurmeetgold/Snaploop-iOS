@@ -1,7 +1,28 @@
 import SwiftUI
 
+@MainActor
+final class SettingsModel: ObservableObject {
+    @Published var errorMessage: String?
+
+    func signOut(env: AppEnvironment, session: AppSession) {
+        do {
+            try env.auth.signOut()
+            session.user = nil
+            session.faceProfile = nil
+            session.activeEvent = nil
+        } catch let error as AppError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = AppError.unknown("\(error)").userMessage
+        }
+    }
+}
+
 struct SettingsView: View {
+    @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
+    @StateObject private var model = SettingsModel()
+    @State private var confirmSignOut = false
 
     var body: some View {
         List {
@@ -22,21 +43,38 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 6)
 
-                NavigationLink { Text("Face setup flow (Onboarding)") } label: {
+                NavigationLink { FaceSetupView() } label: {
                     Label(session.hasFaceProfile ? "Update Face Setup" : "Set Up Your Face",
                           systemImage: "faceid")
                 }
             }
+
             Section {
                 NavigationLink { PrivacyView() } label: {
                     Label("Privacy & Data", systemImage: "lock.shield")
                 }
             }
+
+            Section {
+                Button(role: .destructive) { confirmSignOut = true } label: {
+                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+
+                if let error = model.errorMessage {
+                    Text(error).font(.footnote).foregroundStyle(.red)
+                }
+            }
+
             Section {
                 Text("SnapLoop finds your photos from trips on-device. Your photos stay on your phone unless you're in them.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("You")
+        .confirmationDialog("Sign out of SnapLoop?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) {
+                model.signOut(env: env, session: session)
+            }
+        }
     }
 }

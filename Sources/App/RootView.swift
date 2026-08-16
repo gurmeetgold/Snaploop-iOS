@@ -1,17 +1,18 @@
 import SwiftUI
 
-/// Top-level router: shows the phone/OTP sign-in flow until `session.user` is
-/// set, then the 5-tab shell. Inbound invite links/QR are captured into a
-/// pending route regardless of auth state, and replayed as a join sheet once
-/// the user is signed in — this is what makes deferred deep linking "land on
-/// Join" after a fresh install + sign-in.
+/// Top-level router. In live mode it first restores a persisted Firebase Auth
+/// session into the Firestore-backed SnapLoop user/profile session.
 struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var session: AppSession
+    @State private var didBootstrapSession = false
+    @State private var isBootstrappingSession = false
 
     var body: some View {
         Group {
-            if session.user != nil {
+            if isBootstrappingSession {
+                ProgressView("Opening SnapLoop…")
+            } else if session.user != nil {
                 MainTabView()
                     .sheet(item: $session.pendingRoute) { route in
                         NavigationStack {
@@ -25,16 +26,43 @@ struct RootView: View {
                 PhoneAuthFlowView()
             }
         }
+        .task { await bootstrapPersistedSessionIfNeeded() }
         .onOpenURL { url in
             if let route = DeepLinkRouter.route(for: url) { session.pendingRoute = route }
         }
     }
+
+    @MainActor
+    private func bootstrapPersistedSessionIfNeeded() async {
+        guard !didBootstrapSession else { return }
+        didBootstrapSession = true
+
+        guard session.user == nil, let uid = environment.auth.currentUserId else { return }
+        isBootstrappingSession = true
+        defer { isBootstrappingSession = false }
+
+        do {
+            var user = try await environment.users.fetch(userId: uid)
+            let faceProfile = try await environment.faceProfiles.load(userId: uid)
+
+            if (faceProfile != nil) != user.hasFaceProfile {
+                user.hasFaceProfile = faceProfile != nil
+                try await environment.users.save(user)
+            }
+
+            session.user = user
+            session.faceProfile = faceProfile
+        } catch {
+            // Firebase Auth may have survived while the SnapLoop user document
+            // was deleted or is unavailable. Return to a clean signed-out state
+            // instead of leaving the UI in a half-authenticated session.
+            try? environment.auth.signOut()
+            session.user = nil
+            session.faceProfile = nil
+        }
+    }
 }
 
-/// The signed-in shell: a 5-tab bar (Home / Trips / Shared / Requests / You),
-/// matching the product's visual language. Shared and Requests are scoped to
-/// `session.activeEvent` — the trip currently in focus, set when the user opens
-/// one from Home or Trips (mirrors the "current trip" switcher in the designs).
 struct MainTabView: View {
     @State private var selectedTab = Tab.home
 
@@ -66,8 +94,6 @@ struct MainTabView: View {
     }
 }
 
-/// Renders the Shared or Requests tab content for whichever event is active,
-/// with a friendly prompt to pick one if nothing is active yet.
 private struct ActiveEventScopedView: View {
     enum Kind { case shared, requests }
     let kind: Kind

@@ -40,17 +40,42 @@ final class PhoneAuthModel: ObservableObject {
         guard let env, let session, case .enterCode(let verificationId) = stage else { return }
         isBusy = true; errorMessage = nil
         defer { isBusy = false }
+
         do {
             let uid = try await env.auth.confirmVerification(verificationId: verificationId, code: code)
-            // NOTE: locally-constructed profile. Firestore-backed UserDirectory
-            // is the next wiring step — until then, signing in proves identity
-            // via Firebase Auth but doesn't persist a profile beyond that.
-            session.user = User(
-                id: uid,
-                phoneNumber: phoneNumber.trimmingCharacters(in: .whitespaces),
-                displayName: nil,
-                hasFaceProfile: false,
-                createdAt: Date())
+            let normalizedPhone = phoneNumber.trimmingCharacters(in: .whitespaces)
+
+            let user: User
+            do {
+                user = try await env.users.fetch(userId: uid)
+            } catch let error as AppError {
+                if case .backend(let code, _) = error, code == "user_not_found" {
+                    let created = User(
+                        id: uid,
+                        phoneNumber: normalizedPhone,
+                        displayName: nil,
+                        hasFaceProfile: false,
+                        createdAt: env.clock.now()
+                    )
+                    try await env.users.save(created)
+                    user = created
+                } else {
+                    throw error
+                }
+            }
+
+            let faceProfile = try await env.faceProfiles.load(userId: uid)
+
+            // Reconcile the denormalized flag if a profile exists but the user
+            // document was left stale by a previous interrupted write.
+            var reconciledUser = user
+            if (faceProfile != nil) != user.hasFaceProfile {
+                reconciledUser.hasFaceProfile = faceProfile != nil
+                try await env.users.save(reconciledUser)
+            }
+
+            session.user = reconciledUser
+            session.faceProfile = faceProfile
         } catch let error as AppError {
             errorMessage = error.userMessage
         } catch {
@@ -65,9 +90,6 @@ final class PhoneAuthModel: ObservableObject {
     }
 }
 
-/// Registration: phone number → OTP → signed in. Wired to `AppEnvironment.auth`
-/// (real Firebase Auth when `AppEnvironment.live()` is active, a stub otherwise)
-/// — see `AppEnvironment.live()` for exactly what's real today.
 struct PhoneAuthFlowView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
@@ -115,13 +137,9 @@ struct PhoneAuthFlowView: View {
                 .padding()
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
 
-            Button {
-                Task { await model.sendCode() }
-            } label: {
-                Group {
-                    if model.isBusy { ProgressView() } else { Text("Send Code") }
-                }
-                .frame(maxWidth: .infinity)
+            Button { Task { await model.sendCode() } } label: {
+                Group { if model.isBusy { ProgressView() } else { Text("Send Code") } }
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(Theme.coral)
@@ -142,13 +160,9 @@ struct PhoneAuthFlowView: View {
                 .padding()
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
 
-            Button {
-                Task { await model.verifyCode() }
-            } label: {
-                Group {
-                    if model.isBusy { ProgressView() } else { Text("Verify") }
-                }
-                .frame(maxWidth: .infinity)
+            Button { Task { await model.verifyCode() } } label: {
+                Group { if model.isBusy { ProgressView() } else { Text("Verify") } }
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(Theme.coral)

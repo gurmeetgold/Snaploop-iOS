@@ -19,7 +19,6 @@ packages:
     from: "10.0.0"
 
 targets:
-
   SnapLoop:
     type: application
     platform: iOS
@@ -27,8 +26,6 @@ targets:
     info:
       path: Sources/App/Info.plist
       properties:
-
-        # Required by Firebase Phone Auth for reCAPTCHA fallback.
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - app-1-254317517474-ios-fe19926e3a17d2661f95fb
@@ -37,30 +34,21 @@ targets:
       - path: Sources
 
     dependencies:
-      # Only attach FirebaseAuth explicitly.
-      # FirebaseCore is brought in transitively by FirebaseAuth.
       - package: Firebase
         product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
 
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app
-
         GENERATE_INFOPLIST_FILE: YES
-
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: SnapLoop
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop looks through your photos to find pictures of you from your events. Your photos never leave your phone unless you're in them."
-
         INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the camera to set up your face and to scan event QR codes."
-
-    # GoogleService-Info.plist is developer-specific and gitignored.
-    # After running xcodegen generate, verify it is still included in
-    # the SnapLoop target.
-
 
   SnapLoopTests:
     type: bundle.unit-test
@@ -71,24 +59,21 @@ targets:
 
     dependencies:
       - target: SnapLoop
-
-      # Match the application target.
       - package: Firebase
         product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
 
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app.tests
 
-
 schemes:
   SnapLoop:
-
     build:
       targets:
         SnapLoop: all
         SnapLoopTests: [test]
-
     test:
       targets:
         - SnapLoopTests
