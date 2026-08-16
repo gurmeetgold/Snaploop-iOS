@@ -1,4 +1,4 @@
-import FirebaseCore
+import Firebase
 
 /// Configures the Firebase SDK exactly once, on first use.
 ///

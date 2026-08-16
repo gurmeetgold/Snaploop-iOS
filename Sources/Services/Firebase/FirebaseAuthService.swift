@@ -79,7 +79,7 @@ public final class FirebaseAuthService: AuthService, @unchecked Sendable {
         guard nsError.domain == AuthErrorDomain else {
             return .network(underlying: nsError.localizedDescription)
         }
-        guard let code = AuthErrorCode(rawValue: nsError.code) else {
+        guard let code = AuthErrorCode.Code(rawValue: nsError.code) else {
             return .backend(code: "\(nsError.code)", message: nsError.localizedDescription)
         }
         switch code {
