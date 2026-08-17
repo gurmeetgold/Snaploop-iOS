@@ -29,6 +29,11 @@ struct RootView: View {
         .task {
             await environment.config.refresh()
             await bootstrapPersistedSessionIfNeeded()
+            await loadPendingInviteIfNeeded()
+        }
+        .onChange(of: session.user?.id) { _, userId in
+            guard userId != nil else { return }
+            Task { await loadPendingInviteIfNeeded() }
         }
         .onOpenURL { url in
             captureInvite(url)
@@ -44,6 +49,21 @@ struct RootView: View {
             // Keep the route even if authentication/Face Setup is not ready.
             // It is replayed once the signed-in MainTabView becomes available.
             session.pendingRoute = route
+        }
+    }
+
+    @MainActor
+    private func loadPendingInviteIfNeeded() async {
+        guard AppEnvironment.useLiveServices,
+              session.user != nil,
+              session.pendingRoute == nil else { return }
+        do {
+            if let route = try await EventInviteClient.nextPendingRoute() {
+                session.pendingRoute = route
+            }
+        } catch {
+            // A pending-invite check must never prevent the app from opening.
+            Log.events.error("Pending invite lookup failed: \(String(describing: error), privacy: .public)")
         }
     }
 
