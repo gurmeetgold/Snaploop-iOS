@@ -1,40 +1,41 @@
+import CoreGraphics
 import Foundation
 
-/// Face descriptor generation currently active in SnapLoop.
+/// SnapLoop face descriptor generations.
 ///
-/// v1 = original placeholder embedding.
-/// v2 = single-template DEBUG Vision feature-print pipeline.
-/// v3 = guided multi-template enrollment + multi-template decision engine,
-///      but still on loose, sometimes-mis-oriented crops.
-/// v4 = landmark-aligned pipeline (`FaceAligner` → `FaceEmbeddingEngine`):
-///      eye-normalized, orientation-correct, fixed-size crops fed to a
-///      pluggable embedding engine (interim aligned feature-print in DEBUG, a
-///      real Core ML identity model when one is bundled). v3 descriptors were
-///      computed in a different, unaligned space and MUST NOT be compared
-///      against v4 — bumping the version forces a clean re-enrollment,
-///      event-roster template refresh, and camera-roll re-scan.
+/// v1 = placeholder embedding.
+/// v2 = single-template Vision feature print.
+/// v3 = guided multi-template enrollment using the same generic descriptor.
+/// v4 = landmark-aligned generic Vision feature print.
+/// v5 = identity-trained AuraFace Core ML embeddings on canonical 112x112 faces.
 ///
-/// NOTE: within v4 the *interim* dev engine and a *real* Core ML engine still
-/// produce different embedding spaces. Only one engine is active per build, so
-/// this is safe in practice; switching the active engine kind for a shipped
-/// build must bump this to v5 to force re-enrollment again.
+/// Embeddings from different generations are intentionally incompatible.
 public enum FaceModelPolicy {
-    public static let currentVersion = 4
-
-    /// Number of diverse templates SnapLoop tries to collect during guided
-    /// enrollment. The matcher works with fewer, but 5 gives us useful pose
-    /// diversity without making setup feel long.
+    public static let currentVersion = 5
+    public static let modelIdentifier = "auraface-v1-coreml-fp16"
     public static let targetTemplateCount = 5
 
-    /// The current Xcode DEBUG engine is still a development descriptor.
-    #if DEBUG
-    public static let usesDevelopmentDescriptor = true
-    #else
-    public static let usesDevelopmentDescriptor = false
-    #endif
+    /// Evaluation operating point only. The final threshold must come from
+    /// SnapLoop's genuine/impostor benchmark, not from one user's photos.
+    public static let evaluationMatchThreshold = 0.52
+    public static let evaluationAmbiguityMargin = 0.08
 
-    /// Release builds must never silently use the development descriptor.
-    public static var requiresCommercialEngineForRelease: Bool {
-        !usesDevelopmentDescriptor
-    }
+    /// Near-threshold matches require corroboration from another enrollment
+    /// template. A clearly strong pose-specific hit may stand alone.
+    public static let strongSingleTemplateBonus = 0.10
+    public static let supportingTemplateSlack = 0.12
+
+    /// Conservative scan gates. Tiny or extreme-pose faces are left unmatched.
+    public static let minimumRecognitionFacePixels: CGFloat = 42
+    public static let maximumRecognitionYawDegrees: Double = 55
+    public static let minimumCaptureQuality: Double = 0.20
+
+    /// This build uses an identity-trained model rather than Vision feature
+    /// prints, but the complete SnapLoop system is still evaluation-only until
+    /// the positive/negative benchmark and privacy/security review pass.
+    public static let isProductionValidated = false
+
+    // Kept for source compatibility with existing screens while v5 lands.
+    public static let usesDevelopmentDescriptor = false
+    public static var requiresCommercialEngineForRelease: Bool { false }
 }
