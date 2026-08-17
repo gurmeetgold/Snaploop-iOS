@@ -7,7 +7,7 @@ final class SettingsModel: ObservableObject {
     func signOut(env: AppEnvironment, session: AppSession) {
         do {
             try env.auth.signOut()
-            session.clearAuthenticatedSession()
+            session.clearAuthenticatedSession(clearPendingRoute: true)
         } catch let error as AppError {
             errorMessage = error.userMessage
         } catch {
@@ -28,75 +28,51 @@ struct SettingsView: View {
                 HStack(spacing: 14) {
                     ZStack {
                         Circle().fill(Theme.coralGradient)
-                        Text(profileInitial)
-                            .font(.title2)
-                            .bold()
-                            .foregroundStyle(.white)
+                        Text(profileInitial).font(.title2).bold().foregroundStyle(.white)
                     }
                     .frame(width: 56, height: 56)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(session.user?.displayName ?? "Add your name")
-                            .font(.headline)
-
+                        Text(session.user?.displayName ?? "Add your name").font(.headline)
                         if let phone = session.user?.phoneNumber {
-                            Text(phone)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Text(phone).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
                 .padding(.vertical, 6)
 
-                NavigationLink {
-                    ProfileNameView()
-                } label: {
+                NavigationLink { ProfileNameView() } label: {
                     Label(session.user?.displayName == nil ? "Add Your Name" : "Edit Your Name", systemImage: "person.text.rectangle")
                 }
-
-                NavigationLink {
-                    FaceSetupView()
-                } label: {
+                NavigationLink { FaceSetupView() } label: {
                     Label(session.hasFaceProfile ? "Update Face Setup" : "Set Up Your Face", systemImage: "faceid")
                 }
-
                 if session.hasFaceProfile {
-                    NavigationLink {
-                        FaceMatchingTestView()
-                    } label: {
+                    NavigationLink { FaceMatchingTestView() } label: {
                         Label("Test My Face Setup", systemImage: "checkmark.viewfinder")
                     }
                 }
             }
 
             Section {
-                NavigationLink { PrivacyView() } label: {
-                    Label("Privacy & Data", systemImage: "lock.shield")
-                }
+                NavigationLink { PrivacyView() } label: { Label("Privacy & Data", systemImage: "lock.shield") }
             }
 
             Section {
-                Button(role: .destructive) {
-                    confirmSignOut = true
-                } label: {
+                Button(role: .destructive) { confirmSignOut = true } label: {
                     Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
-
-                if let error = model.errorMessage {
-                    Text(error).font(.footnote).foregroundStyle(.red)
-                }
+                if let error = model.errorMessage { Text(error).font(.footnote).foregroundStyle(.red) }
             }
 
             Section {
-                Text("SnapLoop finds your photos from trips on-device. Your photos stay on your phone unless you're in them.")
+                Text("SnapLoop finds confident face matches from shared events on-device. For the MVP, only matched preview thumbnails are uploaded.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("You")
         .confirmationDialog("Sign out of SnapLoop?", isPresented: $confirmSignOut, titleVisibility: .visible) {
-            Button("Sign Out", role: .destructive) {
-                model.signOut(env: env, session: session)
-            }
+            Button("Sign Out", role: .destructive) { model.signOut(env: env, session: session) }
         }
     }
 
