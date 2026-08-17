@@ -24,6 +24,21 @@ final class JoinEventModel: ObservableObject {
             case .joinEventByCode(let code):
                 event = try await env.events.fetchEvent(joinCode: code)
             }
+
+            switch event.status {
+            case .active:
+                break
+            case .endedByOrganizer:
+                phase = .error("The organizer ended this event.")
+                return
+            case .deletedByOrganizer:
+                phase = .error("This event is no longer accepting joins.")
+                return
+            case .expired:
+                phase = .error("This event has expired.")
+                return
+            }
+
             participantCount = (try? await env.events.members(eventId: event.id).count) ?? 0
             phase = session?.hasFaceProfile == true ? .ready(event) : .needsFaceSetup(event)
         } catch let error as AppError {
@@ -87,10 +102,12 @@ struct JoinEventView: View {
             case .joined:
                 ProgressView()
             case .declined:
-                ContentUnavailableViewCompat(title: "Invitation declined", message: "You have not joined this trip.")
+                ContentUnavailableViewCompat(title: "Invitation declined", message: "You have not joined this event.")
                     .toolbar { Button("Done") { dismiss() } }
             }
         }
+        .navigationTitle("Join Event")
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             model.configure(env: env, session: session)
             await model.load(route: route)
@@ -103,10 +120,14 @@ struct JoinEventView: View {
             Image(systemName: event.category.systemImage)
                 .font(.system(size: 44)).foregroundStyle(.tint)
             Text(event.name).font(.title2).bold().multilineTextAlignment(.center)
+            Text(event.category.displayName)
+                .font(.caption).bold().foregroundStyle(.secondary)
             Text(DateFormatting.range(event.startsAt, event.endsAt))
                 .font(.subheadline).foregroundStyle(.secondary)
-            Label("\(model.participantCount) already joined", systemImage: "person.2.fill")
-                .font(.footnote).foregroundStyle(.secondary)
+            if model.participantCount > 0 {
+                Label("\(model.participantCount) already joined", systemImage: "person.2.fill")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
 
             consentBox
 
@@ -116,9 +137,14 @@ struct JoinEventView: View {
                         Task { await model.load(route: route) }
                     })
                 } label: {
-                    Text("Set Up Your Face to Continue").frame(maxWidth: .infinity)
+                    Label("Set Up My Face", systemImage: "faceid")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent).controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Text("Face Setup is required for the current MVP matching flow. After saving it, you'll return here to join.")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             } else {
                 Button {
                     Task {
@@ -147,7 +173,7 @@ struct JoinEventView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("How SnapLoop works here", systemImage: "sparkles")
                 .font(.subheadline).bold()
-            Text("While this event is on, SnapLoop finds photos that include people who joined, and makes those photos available to them. Joining is your okay for this — there's no photo-by-photo step. You can pause sharing or leave anytime.")
+            Text("SnapLoop checks participating members' camera libraries on-device for photos from this event. You can leave the event or remove your Face Setup later.")
                 .font(.footnote).foregroundStyle(.secondary)
         }
         .padding()
