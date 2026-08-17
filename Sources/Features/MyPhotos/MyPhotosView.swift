@@ -1,4 +1,5 @@
 import FirebaseStorage
+import Photos
 import SwiftUI
 import UIKit
 
@@ -6,7 +7,9 @@ import UIKit
 final class MyPhotosModel: ObservableObject {
     @Published var photos: [PhotoMatch] = []
     @Published var participants: [EventParticipant] = []
+    @Published var favoriteIds: Set<String> = []
     @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private var env: AppEnvironment?
     private var session: AppSession?
@@ -22,13 +25,20 @@ final class MyPhotosModel: ObservableObject {
     func reload() async {
         guard let env, let userId = session?.user?.id else { return }
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
 
         async let photosResult = env.matches.myPhotos(eventId: event.id, userId: userId)
         async let participantsResult = env.events.participants(eventId: event.id)
 
-        photos = (try? await photosResult) ?? []
+        do {
+            photos = try await photosResult
+        } catch {
+            photos = []
+            errorMessage = (error as NSError).localizedDescription
+        }
         participants = (try? await participantsResult) ?? []
+        favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
     }
 
     func ownerLabel(for userId: String) -> String {
@@ -45,31 +55,41 @@ final class MyPhotosModel: ObservableObject {
             }
             if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
         }
-        return "Trip member"
+        return "Event member"
     }
 
-    /// "Not Me" — records the correction and drops the photo from this feed.
+    func isFavorite(_ match: PhotoMatch) -> Bool {
+        favoriteIds.contains(match.id)
+    }
+
+    func setFavorite(_ favorite: Bool, match: PhotoMatch) {
+        guard let userId = session?.user?.id else { return }
+        LocalPhotoFavoritesStore.set(favorite, matchId: match.id, userId: userId)
+        if favorite { favoriteIds.insert(match.id) }
+        else { favoriteIds.remove(match.id) }
+    }
+
+    /// Precision feedback is optimistic in the UI: the false-positive photo is
+    /// removed immediately, then the trusted backend records the correction.
     func markNotMe(_ match: PhotoMatch) async {
         guard let env, let userId = session?.user?.id else { return }
-        try? await env.matches.dismissAppearance(matchId: match.id, participantUserId: userId)
         photos.removeAll { $0.id == match.id }
+        favoriteIds.remove(match.id)
+        LocalPhotoFavoritesStore.set(false, matchId: match.id, userId: userId)
+        do {
+            try await env.matches.dismissAppearance(matchId: match.id, participantUserId: userId)
+        } catch {
+            errorMessage = "Couldn't save the Not Me correction. Pull to refresh and try again."
+        }
     }
 }
 
 enum PhotoFilter: String, CaseIterable, Identifiable {
-    case all, best, group, portrait, videos
+    case all
+    case favorites
     var id: String { rawValue }
-    var title: String { rawValue.capitalized }
-    var systemImage: String {
-        switch self {
-        case .all: return "square.grid.2x2"
-        case .best: return "star"
-        case .group: return "person.2"
-        case .portrait: return "person.crop.square"
-        case .videos: return "play.rectangle"
-        }
-    }
-    var isImplemented: Bool { self == .all || self == .videos }
+    var title: String { self == .all ? "All" : "Favorites" }
+    var systemImage: String { self == .all ? "square.grid.2x2" : "heart.fill" }
 }
 
 struct MyPhotosView: View {
@@ -83,16 +103,14 @@ struct MyPhotosView: View {
     }
 
     private let columns = [
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8)
+        GridItem(.flexible(minimum: 120), spacing: 10),
+        GridItem(.flexible(minimum: 120), spacing: 10)
     ]
 
     private var filtered: [PhotoMatch] {
         switch filter {
         case .all: return model.photos
-        case .videos: return []
-        default: return model.photos
+        case .favorites: return model.photos.filter { model.favoriteIds.contains($0.id) }
         }
     }
 
@@ -102,42 +120,54 @@ struct MyPhotosView: View {
                 InsightBanner(value: "\(model.photos.count)", label: "photos of you", systemImage: "sparkles")
                     .padding(.horizontal)
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(PhotoFilter.allCases) { f in
-                            FilterChip(title: f.title, systemImage: f.systemImage, isSelected: filter == f) {
-                                filter = f
-                            }
+                HStack(spacing: 8) {
+                    ForEach(PhotoFilter.allCases) { f in
+                        FilterChip(title: f.title, systemImage: f.systemImage, isSelected: filter == f) {
+                            filter = f
                         }
                     }
-                    .padding(.horizontal)
+                }
+                .padding(.horizontal)
+
+                if let errorMessage = model.errorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal)
                 }
 
                 if filtered.isEmpty && !model.isLoading {
                     ContentUnavailableViewCompat(
-                        title: filter.isImplemented ? "No photos of you yet" : "\(filter.title) is coming soon",
-                        message: filter.isImplemented
-                            ? "Tap Sync My Camera — and as others sync theirs, your photos will show up here."
-                            : "We're still working on this filter.",
-                        systemImage: "person.crop.square"
+                        title: filter == .favorites ? "No favorites yet" : "No photos of you yet",
+                        message: filter == .favorites
+                            ? "Open a photo and tap Favorite to keep it here."
+                            : "Tap Sync My Camera — and as others sync theirs, your matched photos will show up here.",
+                        systemImage: filter == .favorites ? "heart" : "person.crop.square"
                     )
                     .frame(minHeight: 280)
                 } else {
-                    LazyVGrid(columns: columns, spacing: 8) {
+                    LazyVGrid(columns: columns, spacing: 10) {
                         ForEach(filtered) { match in
                             NavigationLink {
                                 PhotoDetailView(
                                     match: match,
-                                    ownerLabel: model.ownerLabel(for: match.ownerUserId)
-                                ) {
-                                    Task { await model.markNotMe(match) }
-                                }
+                                    ownerLabel: model.ownerLabel(for: match.ownerUserId),
+                                    isFavorite: model.isFavorite(match),
+                                    onFavoriteChanged: { value in
+                                        model.setFavorite(value, match: match)
+                                    },
+                                    onNotMe: {
+                                        Task { await model.markNotMe(match) }
+                                    }
+                                )
                             } label: {
                                 PhotoCard(
                                     match: match,
-                                    ownerLabel: model.ownerLabel(for: match.ownerUserId)
+                                    ownerLabel: model.ownerLabel(for: match.ownerUserId),
+                                    isFavorite: model.isFavorite(match)
                                 )
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal)
@@ -158,44 +188,52 @@ struct MyPhotosView: View {
 
 struct PhotoCard: View {
     let match: PhotoMatch
-    var ownerLabel: String = "Trip member"
+    var ownerLabel: String = "Event member"
     var isFavorite = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
             ThumbnailCell(path: match.thumbnailPath)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+
             HStack(spacing: 4) {
                 Circle().fill(Theme.violetGradient).frame(width: 16, height: 16)
                 Text(ownerLabel)
-                    .font(.caption2)
-                    .bold()
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                    .font(.caption2).bold().foregroundStyle(.white).lineLimit(1)
                 Spacer()
             }
             .padding(6)
         }
-        .aspectRatio(1, contentMode: .fill)
+        .aspectRatio(1, contentMode: .fit)
         .overlay(alignment: .topTrailing) {
-            Image(systemName: isFavorite ? "heart.fill" : "heart")
-                .font(.caption)
-                .foregroundStyle(isFavorite ? Theme.coral : .white)
-                .padding(6)
+            if isFavorite {
+                Image(systemName: "heart.fill")
+                    .font(.caption)
+                    .foregroundStyle(Theme.coral)
+                    .padding(7)
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(Rectangle())
     }
 }
 
 @MainActor
-private final class StorageThumbnailLoader: ObservableObject {
+final class StorageThumbnailLoader: ObservableObject {
     @Published var image: UIImage?
     @Published var failed = false
 
     private static let cache = NSCache<NSString, UIImage>()
 
     func load(path: String?) async {
-        guard let path, !path.isEmpty else { return }
+        image = nil
+        failed = false
+        guard let path, !path.isEmpty else {
+            failed = true
+            return
+        }
         if let cached = Self.cache.object(forKey: path as NSString) {
             image = cached
             return
@@ -203,7 +241,7 @@ private final class StorageThumbnailLoader: ObservableObject {
 
         do {
             let data: Data = try await withCheckedThrowingContinuation { continuation in
-                Storage.storage().reference(withPath: path).getData(maxSize: 5 * 1024 * 1024) { data, error in
+                Storage.storage().reference(withPath: path).getData(maxSize: 8 * 1024 * 1024) { data, error in
                     if let error { continuation.resume(throwing: error); return }
                     guard let data else {
                         continuation.resume(throwing: AppError.originalUnavailable)
@@ -212,7 +250,6 @@ private final class StorageThumbnailLoader: ObservableObject {
                     continuation.resume(returning: data)
                 }
             }
-
             guard let decoded = UIImage(data: data) else {
                 failed = true
                 return
@@ -248,7 +285,6 @@ struct ThumbnailCell: View {
                     }
             }
         }
-        .aspectRatio(1, contentMode: .fill)
         .clipped()
         .task(id: path) { await loader.load(path: path) }
     }
@@ -257,57 +293,145 @@ struct ThumbnailCell: View {
 struct PhotoDetailView: View {
     let match: PhotoMatch
     let ownerLabel: String
+    let onFavoriteChanged: (Bool) -> Void
     let onNotMe: () -> Void
 
-    @EnvironmentObject private var env: AppEnvironment
-    @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
-    @State private var requestState: String?
+    @StateObject private var loader = StorageThumbnailLoader()
+    @State private var favorite: Bool
+    @State private var statusMessage: String?
+    @State private var showShareSheet = false
+    @State private var shareImage: UIImage?
+    @State private var confirmNotMe = false
 
-    var body: some View {
-        VStack(spacing: 16) {
-            ThumbnailCell(path: match.thumbnailPath)
-                .frame(maxHeight: 420)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-
-            VStack(spacing: 4) {
-                Text("Taken by \(ownerLabel)")
-                    .font(.subheadline)
-                Text(DateFormatting.longDate(match.capturedAt))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 28) {
-                actionButton("Download", "arrow.down.circle") { Task { await requestDownload() } }
-                actionButton("Share", "square.and.arrow.up") { }
-                actionButton("Favorite", "heart") { }
-                actionButton("Not Me", "person.crop.circle.badge.xmark", role: .destructive) {
-                    onNotMe()
-                    dismiss()
-                }
-            }
-
-            if let requestState {
-                Text(requestState)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding()
-        .navigationTitle("Photo")
-        .navigationBarTitleDisplayMode(.inline)
+    init(
+        match: PhotoMatch,
+        ownerLabel: String,
+        isFavorite: Bool,
+        onFavoriteChanged: @escaping (Bool) -> Void,
+        onNotMe: @escaping () -> Void
+    ) {
+        self.match = match
+        self.ownerLabel = ownerLabel
+        self.onFavoriteChanged = onFavoriteChanged
+        self.onNotMe = onNotMe
+        _favorite = State(initialValue: isFavorite)
     }
 
-    private func requestDownload() async {
-        guard let userId = session.user?.id else { return }
-        let job = try? await env.transfers.requestTransfer(
-            eventId: match.eventId,
-            photo: match,
-            requestingUserId: userId
-        )
-        requestState = job?.userStatus(sourceName: ownerLabel)
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                preview
+                    .frame(maxHeight: 460)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                VStack(spacing: 4) {
+                    Text("Taken by \(ownerLabel)").font(.subheadline)
+                    Text(DateFormatting.longDate(match.capturedAt))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("MVP shared preview")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 28) {
+                    actionButton("Save", "square.and.arrow.down") { Task { await savePreview() } }
+                    actionButton("Share", "square.and.arrow.up") { sharePreview() }
+                    actionButton(favorite ? "Favorited" : "Favorite", favorite ? "heart.fill" : "heart") {
+                        favorite.toggle()
+                        onFavoriteChanged(favorite)
+                    }
+                    actionButton("Not Me", "person.crop.circle.badge.xmark", role: .destructive) {
+                        confirmNotMe = true
+                    }
+                }
+                .disabled(loader.image == nil)
+
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding()
+        }
+        .navigationTitle("Photo")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
+        .sheet(isPresented: $showShareSheet) {
+            if let shareImage {
+                ActivityView(items: [shareImage])
+            }
+        }
+        .confirmationDialog(
+            "This isn't you?",
+            isPresented: $confirmNotMe,
+            titleVisibility: .visible
+        ) {
+            Button("Not Me", role: .destructive) {
+                onNotMe()
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("SnapLoop will hide this photo from My Photos and record the false match so we can improve precision.")
+        }
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        if let image = loader.image {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity)
+        } else if loader.failed {
+            ContentUnavailableViewCompat(
+                title: "Preview unavailable",
+                message: "Pull back and try again.",
+                systemImage: "exclamationmark.triangle"
+            )
+        } else {
+            ProgressView().frame(maxWidth: .infinity, minHeight: 280)
+        }
+    }
+
+    private func sharePreview() {
+        guard let image = loader.image else {
+            statusMessage = "The preview is still loading."
+            return
+        }
+        shareImage = image
+        showShareSheet = true
+    }
+
+    @MainActor
+    private func savePreview() async {
+        guard let image = loader.image else {
+            statusMessage = "The preview is still loading."
+            return
+        }
+
+        let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard authorization == .authorized || authorization == .limited else {
+            statusMessage = "Allow SnapLoop to add photos in iPhone Settings, then try Save again."
+            return
+        }
+
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }) { success, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else if success { continuation.resume(returning: ()) }
+                    else { continuation.resume(throwing: AppError.originalUnavailable) }
+                }
+            }
+            statusMessage = "Saved to Photos."
+        } catch {
+            statusMessage = "Couldn't save this preview."
+        }
     }
 
     private func actionButton(
