@@ -8,7 +8,7 @@
   <style>
     :root { color-scheme: light dark; font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif; }
     body { margin:0; min-height:100vh; display:grid; place-items:center; background:linear-gradient(160deg,#4b2ca3,#ff6f61); }
-    main { width:min(420px,calc(100% - 36px)); background:rgba(255,255,255,.94); color:#15151a; border-radius:28px; padding:30px; box-sizing:border-box; box-shadow:0 20px 60px rgba(0,0,0,.25); text-align:center; }
+    main { width:min(420px,calc(100% - 36px)); background:rgba(255,255,255,.96); color:#15151a; border-radius:28px; padding:30px; box-sizing:border-box; box-shadow:0 20px 60px rgba(0,0,0,.25); text-align:center; }
     .mark { width:68px; height:68px; border-radius:22px; display:grid; place-items:center; margin:0 auto 18px; background:#ff6f61; color:white; font-size:32px; }
     h1 { margin:0 0 10px; font-size:28px; }
     p { line-height:1.45; color:#5c5c66; }
@@ -21,30 +21,21 @@
 <body>
   <main>
     <div class="mark">↻</div>
-    <h1>Join this SnapLoop trip</h1>
-    <p>If SnapLoop is installed, open the invite directly in the app.</p>
+    <h1>You're invited to a SnapLoop event</h1>
+    <p>If SnapLoop is installed, open the invite in the app. You will still review and accept the event before joining.</p>
     <a id="open" class="button" href="#">Open SnapLoop</a>
-    <a id="store" class="button secondary" href="#" hidden>Download SnapLoop</a>
-    <p id="dev" class="small">SnapLoop is currently in development. The App Store download button will appear here when the production listing is live.</p>
+    <a id="store" class="button secondary" href="#" hidden>Get SnapLoop</a>
+    <p id="dev" class="small">SnapLoop is currently in development. App Store fallback will be enabled when the production listing is live.</p>
   </main>
 <script>
 (() => {
-  const path = window.location.pathname;
-  const match = path.match(/^\/(e|c)\/([^/]+)/);
+  const match = window.location.pathname.match(/^\/(e|c)\/([^/]+)/);
   const open = document.getElementById("open");
-
-  if (!match) {
-    open.textContent = "Open SnapLoop";
-    open.href = "snaploop://";
-    return;
-  }
-
+  if (!match) { open.href = "snaploop://"; return; }
   const kind = match[1];
   const value = encodeURIComponent(match[2]);
   open.href = `snaploop://${kind}/${value}`;
 
-  // Once the App Store ID exists, set this to the real listing URL and the
-  // download button becomes available without changing invite URLs.
   const APP_STORE_URL = "";
   if (APP_STORE_URL) {
     const store = document.getElementById("store");
