@@ -81,9 +81,6 @@ final class PhoneAuthModel: ObservableObject {
                 try await env.users.save(reconciledUser)
             }
 
-            // Assign session state only after all reads succeed, preventing a
-            // half-switched account from inheriting the previous account's face
-            // profile or active event on a shared device.
             session.beginAuthenticatedSession(user: reconciledUser, faceProfile: faceProfile)
         } catch let error as AppError {
             errorMessage = error.userMessage
@@ -140,7 +137,11 @@ struct PhoneAuthFlowView: View {
     }
 
     private var phoneEntry: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Mobile number")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             HStack(spacing: 10) {
                 Menu {
                     ForEach(PhoneCountry.supported) { country in
@@ -149,12 +150,18 @@ struct PhoneAuthFlowView: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 5) {
-                        Text(model.selectedCountry.regionCode)
-                        Text(model.selectedCountry.callingCode)
-                        Image(systemName: "chevron.down").font(.caption2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Country")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 5) {
+                            Text(model.selectedCountry.regionCode).bold()
+                            Text(model.selectedCountry.callingCode).bold()
+                            Image(systemName: "chevron.down").font(.caption2)
+                        }
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 15)
+                    .padding(.horizontal, 12)
+                    .frame(height: 58)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
                 }
 
@@ -162,11 +169,12 @@ struct PhoneAuthFlowView: View {
                     .keyboardType(.phonePad)
                     .textContentType(.telephoneNumber)
                     .padding()
+                    .frame(height: 58)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
             }
 
-            Text("Country defaults from your iPhone region. You can also paste a full +country-code number.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text("Defaults from your iPhone region. You can also paste a full +country-code number.")
+                .font(.caption2).foregroundStyle(.secondary)
 
             Button { Task { await model.sendCode() } } label: {
                 Group { if model.isBusy { ProgressView() } else { Text("Send Code") } }
@@ -175,7 +183,7 @@ struct PhoneAuthFlowView: View {
             .buttonStyle(.borderedProminent)
             .tint(Theme.coral)
             .controlSize(.large)
-            .disabled(model.isBusy || model.phoneNumber.isEmpty)
+            .disabled(model.isBusy || model.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
 
