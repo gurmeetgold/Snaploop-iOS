@@ -19,6 +19,9 @@ Pods/
 # Firebase secrets — never commit real config
 GoogleService-Info.plist
 
+# Face Engine v5 model is installed locally by scripts/install_face_model_v5.sh
+Sources/Resources/Models/SnapLoopFaceEmbedding.mlmodel
+
 # macOS
 .DS_Store
 
