@@ -21,44 +21,29 @@ final class SharedAlbumModel: ObservableObject {
 
     func ownerLabel(for userId: String) -> String {
         guard let participant = participants.first(where: { $0.userId == userId }) else {
-            return "Trip member"
+            return "Event member"
         }
         if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             return name
         }
         if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
-        return "Trip member"
+        return "Event member"
     }
 
     var contributorCount: Int { Set(photos.map(\.ownerUserId)).count }
 }
 
-enum SharedFilter: String, CaseIterable, Identifiable {
-    case everyone, videos, favorites
-    var id: String { rawValue }
-    var title: String { self == .everyone ? "Everyone" : rawValue.capitalized }
-    var systemImage: String {
-        switch self {
-        case .everyone: return "person.2.fill"
-        case .videos: return "play.rectangle"
-        case .favorites: return "star"
-        }
-    }
-}
-
 struct SharedAlbumView: View {
     @EnvironmentObject private var env: AppEnvironment
     @StateObject private var model: SharedAlbumModel
-    @State private var filter: SharedFilter = .everyone
 
     init(event: Event) {
         _model = StateObject(wrappedValue: SharedAlbumModel(event: event))
     }
 
     private let columns = [
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8)
+        GridItem(.flexible(minimum: 120), spacing: 10),
+        GridItem(.flexible(minimum: 120), spacing: 10)
     ]
 
     var body: some View {
@@ -66,30 +51,19 @@ struct SharedAlbumView: View {
             VStack(alignment: .leading, spacing: 16) {
                 statsCard.padding(.horizontal)
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(SharedFilter.allCases) { f in
-                            FilterChip(title: f.title, systemImage: f.systemImage, isSelected: filter == f) {
-                                filter = f
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                }
-
                 if model.photos.isEmpty {
                     ContentUnavailableViewCompat(
                         title: "No shared photos yet",
-                        message: "Photos show up here as people sync their cameras.",
+                        message: "Matched photo previews show up here as event members sync their cameras.",
                         systemImage: "square.grid.2x2"
                     )
                     .frame(minHeight: 280)
                 } else {
-                    LazyVGrid(columns: columns, spacing: 8) {
-                        ForEach(model.photos) {
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(model.photos) { match in
                             PhotoCard(
-                                match: $0,
-                                ownerLabel: model.ownerLabel(for: $0.ownerUserId)
+                                match: match,
+                                ownerLabel: model.ownerLabel(for: match.ownerUserId)
                             )
                         }
                     }
@@ -110,7 +84,7 @@ struct SharedAlbumView: View {
 
     private var statsCard: some View {
         HStack(spacing: 0) {
-            statTile(value: "\(model.photos.count)", label: "Photos & Videos", icon: "photo.stack")
+            statTile(value: "\(model.photos.count)", label: "Shared Previews", icon: "photo.stack")
             Divider().frame(height: 36)
             statTile(value: "\(model.contributorCount)", label: "Contributors", icon: "person.2")
         }
