@@ -3,25 +3,15 @@ import Foundation
 import UIKit
 import Vision
 
-/// Interim, DEV-ONLY embedding engine: Apple's `VNGenerateImageFeaturePrint`
-/// over a properly aligned face crop.
-///
-/// Honest framing: the feature-print is still a generic image-similarity
-/// descriptor, NOT an identity-trained face model — that ceiling is unchanged
-/// from V2. What changes is the floor: it now receives eye-aligned, correctly
-/// oriented, fixed-size crops instead of loose, sometimes-rotated squares, so
-/// same-person separation improves meaningfully even though the descriptor is
-/// the same primitive. This exists to (a) make the app testable end-to-end
-/// before a real model is dropped in, and (b) give the benchmark harness a
-/// baseline to measure the real model against. `isIdentityGrade` is false, so
-/// scanning treats results as development-grade exactly like V3 did.
+/// Legacy development baseline only. v5 never selects this automatically.
 public final class AlignedVisionFeaturePrintEngine: FaceEmbeddingEngine, @unchecked Sendable {
-
+    public let identifier = "vision-feature-print-aligned-baseline"
     public let modelVersion: Int
     public let expectedInputSize: Int
+    public var isAvailable: Bool { true }
     public var isIdentityGrade: Bool { false }
 
-    public init(modelVersion: Int = FaceModelPolicy.currentVersion, inputSize: Int = 160) {
+    public init(modelVersion: Int = 4, inputSize: Int = 160) {
         self.modelVersion = modelVersion
         self.expectedInputSize = inputSize
     }
