@@ -32,35 +32,26 @@ public enum EventCategory: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// Lifecycle state persisted on the event. Distinct from the *computed*
-/// `EventLifecycle.Status` (which derives from the clock): `status` records an
-/// explicit organizer action ("End Event") that can end an event early,
-/// independent of its dates.
+/// Persisted organizer-controlled lifecycle state. Date-based lifecycle is
+/// computed separately by `EventLifecycle`.
 public enum EventStatus: String, Codable, Sendable {
-    case active            // running normally
-    case endedByOrganizer  // organizer tapped "End Event" before the date
-    case expired           // past end + grace (set by a scheduled cleanup job)
+    case active
+    case endedByOrganizer
+    case deletedByOrganizer
+    case expired
 }
 
-/// An event — the container that scopes photo collection to a time window and a
-/// set of participants. The `id`, `joinCode`, and `inviteToken` are **stable
-/// for the life of the event** and never change when name/dates/cover are
-/// edited (treat it like a Google Doc: stable ID, stable URL).
 public struct Event: Identifiable, Equatable, Codable, Sendable {
-    public let id: String                 // stable, server-assigned, never reused
-    public let joinCode: String           // stable short code (also shown as QR)
-    public let inviteToken: String        // stable opaque token used in the invite URL
+    public let id: String
+    public let joinCode: String
+    public let inviteToken: String
     public let creatorUserId: String
 
-    // Mutable presentation details — editing these must NOT touch the identity
-    // fields above.
     public var name: String
     public var category: EventCategory
-    public var coverImagePath: String?    // Storage path, optional
+    public var coverImagePath: String?
     public var locationName: String?
 
-    // Time window. `startsAt` may be in the past ("Catch-up Scan"). Lifecycle
-    // math treats these as precise instants; scanning treats the range inclusively.
     public var startsAt: Date
     public var endsAt: Date
 
@@ -98,15 +89,9 @@ public struct Event: Identifiable, Equatable, Codable, Sendable {
         self.updatedAt = updatedAt ?? createdAt
     }
 
-    /// The inclusive date interval `[startsAt, endsAt]` used to filter the photo
-    /// library. Callers scan only assets created inside this range.
     public var dateRange: ClosedRange<Date> { startsAt...endsAt }
 }
 
-/// A participant's membership in an event, plus the reference embedding used to
-/// match *this participant* across everyone's photos. Embeddings are copied
-/// into the event roster (with the profile version they came from) so the event
-/// is self-contained and a later profile change can be detected.
 public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
     public var id: String { userId }
     public let userId: String
@@ -136,8 +121,6 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
     }
 
     public var effectiveEmbeddings: [FaceEmbedding] {
-        faceTemplates.isEmpty
-            ? [faceEmbedding]
-            : faceTemplates.map(\.embedding)
+        faceTemplates.isEmpty ? [faceEmbedding] : faceTemplates.map(\.embedding)
     }
 }
