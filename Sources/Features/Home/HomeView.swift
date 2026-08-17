@@ -19,7 +19,8 @@ final class HomeModel: ObservableObject {
             let loaded = try await env.events.events(forUserId: userId)
             var roles: [String: EventMember.Role] = [:]
             for event in loaded {
-                if let mine = try? await env.events.members(eventId: event.id).first(where: { $0.userId == userId }) {
+                if let eventMembers = try? await env.events.members(eventId: event.id),
+                   let mine = eventMembers.first(where: { $0.userId == userId }) {
                     roles[event.id] = mine.role
                 } else if event.creatorUserId == userId {
                     roles[event.id] = .organizer
@@ -255,7 +256,7 @@ private struct EventCard: View {
         switch role {
         case .organizer: return "ORGANIZER"
         case .participant: return "MEMBER"
-        case .none: return event.creatorUserId.isEmpty ? "MEMBER" : "MEMBER"
+        case .none: return "MEMBER"
         }
     }
 
