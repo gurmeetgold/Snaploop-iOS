@@ -53,9 +53,10 @@ public struct CameraSyncCoordinator {
         }
 
         let assets = try await photoLibrary.assets(in: event.dateRange)
-        // Account + event + descriptor generation isolation. A different user on
-        // the same iPhone or a future model version gets an independent scan.
-        let scanStateKey = [event.id, currentUserId, "face-v\(FaceModelPolicy.currentVersion)"]
+        // Account + event + scan-generation isolation. A different user on the
+        // same iPhone or any recognition-pipeline revision gets an independent
+        // scan state. v5.1 intentionally rescans assets processed by v5.0.
+        let scanStateKey = [event.id, currentUserId, FaceModelPolicy.scanGeneration]
             .joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
         let plan = ScanPlanner(config: values).plan(assets: assets, event: event, state: state)
