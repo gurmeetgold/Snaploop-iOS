@@ -32,6 +32,8 @@ targets:
           - CFBundleURLName: SnapLoop Invite
             CFBundleURLSchemes:
               - snaploop
+        UIBackgroundModes:
+          - remote-notification
 
     sources:
       - path: Sources
@@ -58,6 +60,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop looks through your photos to find pictures of you from your trips. Matching happens on your device; only matched thumbnails are shared with trip members."
         INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the front camera to set up your face and can use the camera to scan trip QR codes."
+        INFOPLIST_KEY_NSContactsUsageDescription: "SnapLoop lets an organizer choose a contact to send that person a trip invitation. SnapLoop does not upload your address book."
 
   SnapLoopTests:
     type: bundle.unit-test
