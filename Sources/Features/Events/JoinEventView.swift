@@ -2,17 +2,17 @@ import SwiftUI
 
 @MainActor
 final class JoinEventModel: ObservableObject {
-    enum Phase: Equatable { case loading, ready(Event), needsFaceSetup(Event), error(String), joined }
+    enum Phase: Equatable { case loading, ready(Event), needsFaceSetup(Event), error(String), joined, declined }
     @Published var phase: Phase = .loading
     @Published var participantCount = 0
     @Published var isJoining = false
+    @Published var isDeclining = false
 
     private var env: AppEnvironment?
     private var session: AppSession?
     init() {}
     func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
 
-    /// Resolve the route to an event and show the Join screen.
     func load(route: DeepLinkRoute) async {
         guard let env else { return }
         phase = .loading
@@ -25,12 +25,7 @@ final class JoinEventModel: ObservableObject {
                 event = try await env.events.fetchEvent(joinCode: code)
             }
             participantCount = (try? await env.events.members(eventId: event.id).count) ?? 0
-            // Route through face setup first if needed (Phase 1 dependency).
-            if session?.hasFaceProfile == true {
-                phase = .ready(event)
-            } else {
-                phase = .needsFaceSetup(event)
-            }
+            phase = session?.hasFaceProfile == true ? .ready(event) : .needsFaceSetup(event)
         } catch let error as AppError {
             phase = .error(error.userMessage)
         } catch {
@@ -40,7 +35,8 @@ final class JoinEventModel: ObservableObject {
 
     func join(event: Event) async {
         guard let env, let user = session?.user, let profile = session?.faceProfile else { return }
-        isJoining = true; defer { isJoining = false }
+        isJoining = true
+        defer { isJoining = false }
         do {
             let svc = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
             try await svc.join(event: event, user: user, faceProfile: profile)
@@ -51,6 +47,17 @@ final class JoinEventModel: ObservableObject {
             phase = .error(AppError.unknown("\(error)").userMessage)
         }
     }
+
+    func decline(event: Event) async {
+        isDeclining = true
+        defer { isDeclining = false }
+        do {
+            try await EventInviteClient.decline(eventId: event.id)
+            phase = .declined
+        } catch {
+            phase = .error((error as NSError).localizedDescription)
+        }
+    }
 }
 
 struct JoinEventView: View {
@@ -58,19 +65,30 @@ struct JoinEventView: View {
     let onJoined: (Event) -> Void
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var model = JoinEventModel()
+
+    private var isPhoneInvitation: Bool {
+        if case .joinEventByToken = route { return true }
+        return false
+    }
 
     var body: some View {
         Group {
             switch model.phase {
             case .loading:
                 ProgressView("Loading event…")
-            case .ready(let event), .needsFaceSetup(let event):
-                joinCard(event)
+            case .ready(let event):
+                joinCard(event, needsFaceSetup: false)
+            case .needsFaceSetup(let event):
+                joinCard(event, needsFaceSetup: true)
             case .error(let message):
                 ContentUnavailableViewCompat(title: "Couldn't open this invite", message: message)
             case .joined:
                 ProgressView()
+            case .declined:
+                ContentUnavailableViewCompat(title: "Invitation declined", message: "You have not joined this trip.")
+                    .toolbar { Button("Done") { dismiss() } }
             }
         }
         .task {
@@ -79,7 +97,8 @@ struct JoinEventView: View {
         }
     }
 
-    private func joinCard(_ event: Event) -> some View {
+    @ViewBuilder
+    private func joinCard(_ event: Event, needsFaceSetup: Bool) -> some View {
         VStack(spacing: 20) {
             Image(systemName: event.category.systemImage)
                 .font(.system(size: 44)).foregroundStyle(.tint)
@@ -91,18 +110,35 @@ struct JoinEventView: View {
 
             consentBox
 
-            Button {
-                Task {
-                    await model.join(event: event)
-                    if case .joined = model.phase { onJoined(event) }
+            if needsFaceSetup {
+                NavigationLink {
+                    FaceSetupView(onSaved: {
+                        Task { await model.load(route: route) }
+                    })
+                } label: {
+                    Text("Set Up Your Face to Continue").frame(maxWidth: .infinity)
                 }
-            } label: {
-                Text(session.hasFaceProfile ? "Join Event" : "Set up your face & join")
-                    .frame(maxWidth: .infinity)
+                .buttonStyle(.borderedProminent).controlSize(.large)
+            } else {
+                Button {
+                    Task {
+                        await model.join(event: event)
+                        if case .joined = model.phase { onJoined(event) }
+                    }
+                } label: {
+                    Group { if model.isJoining { ProgressView() } else { Text("Accept & Join Event") } }
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .disabled(model.isJoining || model.isDeclining)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(model.isJoining)
+
+            if isPhoneInvitation {
+                Button("Decline Invitation", role: .destructive) {
+                    Task { await model.decline(event: event) }
+                }
+                .disabled(model.isJoining || model.isDeclining)
+            }
         }
         .padding()
     }
