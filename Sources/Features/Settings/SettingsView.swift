@@ -88,7 +88,7 @@ struct SettingsView: View {
             }
 
             Section {
-                Text("SnapLoop finds your photos from trips on-device. Your photos stay on your phone unless you're in them.")
+                Text("SnapLoop finds confident photo matches from your events on-device. Only matched optimized previews are shared with event members in the current MVP.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
