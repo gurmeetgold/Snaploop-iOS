@@ -96,13 +96,24 @@ exports.inviteByPhone = onCall(async (request) => {
 
 exports.nextPendingInvite = onCall(async (request) => {
   const uid = requireAuth(request);
+
+  // Do not combine equality filtering with createdAt ordering here. Keeping this
+  // as a single-field query avoids a needless composite Firestore index for the
+  // MVP. The small result set is sorted in memory instead.
   const snap = await db.collection(`users/${uid}/pendingInvites`)
     .where("status", "==", "invited")
-    .orderBy("createdAt", "asc")
-    .limit(10)
+    .limit(20)
     .get();
 
-  for (const doc of snap.docs) {
+  const docs = [...snap.docs].sort((a, b) => {
+    const at = a.data().createdAt;
+    const bt = b.data().createdAt;
+    const am = at && typeof at.toMillis === "function" ? at.toMillis() : 0;
+    const bm = bt && typeof bt.toMillis === "function" ? bt.toMillis() : 0;
+    return am - bm;
+  });
+
+  for (const doc of docs) {
     const invite = doc.data();
     const eventId = invite.eventId || doc.id;
     const memberSnap = await db.doc(`events/${eventId}/members/${uid}`).get();
