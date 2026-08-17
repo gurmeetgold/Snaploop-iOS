@@ -4,13 +4,14 @@ import UIKit
 
 @MainActor
 final class FaceMatchingTestModel: ObservableObject {
-
     struct Result {
         let facesFound: Int
         let bestSimilarity: Double?
         let secondTemplateSimilarity: Double?
         let threshold: Double
         let passes: Bool
+        let engine: String
+        let modelVersion: Int
     }
 
     @Published var selectedItem: PhotosPickerItem?
@@ -19,17 +20,15 @@ final class FaceMatchingTestModel: ObservableObject {
     @Published var result: Result?
     @Published var errorMessage: String?
 
-    func loadAndTest(
-        env: AppEnvironment,
-        session: AppSession
-    ) async {
-        guard let selectedItem else {
+    func loadAndTest(env: AppEnvironment, session: AppSession) async {
+        guard let selectedItem else { return }
+        guard env.faceDetection.isReadyForMatching else {
+            errorMessage = "Face Engine v5 model is not installed in this build."
             return
         }
-
         guard let profile = session.faceProfile,
               profile.version == FaceModelPolicy.currentVersion else {
-            errorMessage = "Update Face Setup first."
+            errorMessage = "Redo Face Setup with Face Engine v5 first."
             return
         }
 
@@ -39,67 +38,51 @@ final class FaceMatchingTestModel: ObservableObject {
         defer { isRunning = false }
 
         do {
-            guard let data = try await selectedItem
-                .loadTransferable(type: Data.self) else {
+            guard let data = try await selectedItem.loadTransferable(type: Data.self) else {
                 throw AppError.faceEmbeddingFailed
             }
-
             previewData = data
+            let faces = try await env.faceDetection.detectFaces(in: data)
 
-            let faces = try await env.faceDetection
-                .detectFaces(in: data)
-
-            var allSimilarities: [Double] = []
-
+            var all: [Double] = []
             for face in faces {
                 for template in profile.effectiveEmbeddings {
-                    if let similarity = face.embedding
-                        .cosineSimilarity(to: template) {
-                        allSimilarities.append(similarity)
+                    if let score = face.embedding.cosineSimilarity(to: template) {
+                        all.append(score)
                     }
                 }
             }
+            all.sort(by: >)
 
-            allSimilarities.sort(by: >)
-
-            let best = allSimilarities.first
-            let second =
-                allSimilarities.count > 1
-                ? allSimilarities[1]
-                : nil
-
-            let threshold = env.config.current
-                .matchConfidenceThreshold
+            let best = all.first
+            let second = all.count > 1 ? all[1] : nil
+            let threshold = env.config.current.matchConfidenceThreshold
+            let supportThreshold = threshold - FaceModelPolicy.supportingTemplateSlack
+            let supported = second.map { $0 >= supportThreshold } ?? false
+            let strong = (best ?? -1) >= threshold + FaceModelPolicy.strongSingleTemplateBonus
+            let passes = (best ?? -1) >= threshold && (supported || strong)
 
             result = Result(
                 facesFound: faces.count,
                 bestSimilarity: best,
                 secondTemplateSimilarity: second,
                 threshold: threshold,
-                passes: (best ?? -1) >= threshold
+                passes: passes,
+                engine: env.faceDetection.engineIdentifier,
+                modelVersion: env.faceDetection.modelVersion
             )
-
         } catch let error as AppError {
             errorMessage = error.userMessage
         } catch {
-            errorMessage = (error as NSError)
-                .localizedDescription
+            errorMessage = (error as NSError).localizedDescription
         }
     }
 }
 
-/// User-visible confidence check.
-///
-/// This is intentionally a diagnostic before release: choose a gallery photo
-/// that contains you (including a group photo) and SnapLoop shows whether the
-/// current local descriptor can find you confidently. This is how we validate
-/// thresholds against real-world photos instead of guessing.
 struct FaceMatchingTestView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
-
-    @StateObject private var model =
-        FaceMatchingTestModel()
+    @StateObject private var model = FaceMatchingTestModel()
 
     var body: some View {
         ScrollView {
@@ -108,79 +91,41 @@ struct FaceMatchingTestView: View {
                     .font(.system(size: 52))
                     .foregroundStyle(Theme.violetGradient)
 
-                Text("Test My Face Setup")
-                    .font(.title2)
-                    .bold()
+                Text("Test My Face Setup").font(.title2).bold()
 
-                Text(
-                    "Choose a photo from your gallery that contains you. A group photo is fine. SnapLoop will scan every face and tell you whether it finds a confident match to your saved Face Setup."
-                )
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                Text("Choose a photo containing you. Group photos are fine. This test uses the v5 identity embedding model, not Apple's generic feature print.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
 
-                if let data = model.previewData,
-                   let image = UIImage(data: data) {
+                if let data = model.previewData, let image = UIImage(data: data) {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
                         .frame(maxHeight: 280)
-                        .clipShape(
-                            RoundedRectangle(
-                                cornerRadius: 18
-                            )
-                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
                 }
 
-                PhotosPicker(
-                    selection: $model.selectedItem,
-                    matching: .images,
-                    photoLibrary: .shared()
-                ) {
-                    Label(
-                        "Choose Test Photo",
-                        systemImage: "photo.badge.magnifyingglass"
-                    )
-                    .frame(maxWidth: .infinity)
+                PhotosPicker(selection: $model.selectedItem, matching: .images, photoLibrary: .shared()) {
+                    Label("Choose Test Photo", systemImage: "photo.badge.magnifyingglass")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .onChange(
-                    of: model.selectedItem
-                ) { _, _ in
-                    Task {
-                        await model.loadAndTest(
-                            env: env,
-                            session: session
-                        )
-                    }
+                .onChange(of: model.selectedItem) { _, _ in
+                    Task { await model.loadAndTest(env: env, session: session) }
                 }
 
-                if model.isRunning {
-                    ProgressView(
-                        "Checking every face…"
-                    )
-                }
-
-                if let result = model.result {
-                    resultCard(result)
-                }
-
+                if model.isRunning { ProgressView("Aligning and checking every face…") }
+                if let result = model.result { resultCard(result) }
                 if let error = model.errorMessage {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
+                    Text(error).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
                 }
 
-                if FaceModelPolicy.usesDevelopmentDescriptor {
-                    Text(
-                        "This test currently measures the DEBUG Vision descriptor. We will repeat the same test suite after installing the dedicated release face model."
-                    )
+                Text("Evaluation build: do not change the threshold from genuine photos alone. We need wrong-person scores too.")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .multilineTextAlignment(.center)
-                }
             }
             .padding(24)
         }
@@ -188,75 +133,30 @@ struct FaceMatchingTestView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func resultCard(
-        _ result: FaceMatchingTestModel.Result
-    ) -> some View {
-        VStack(spacing: 10) {
-            Image(
-                systemName:
-                    result.passes
-                    ? "checkmark.circle.fill"
-                    : "exclamationmark.triangle.fill"
-            )
-            .font(.system(size: 40))
-            .foregroundStyle(
-                result.passes
-                    ? Color.green
-                    : Color.orange
-            )
+    private func resultCard(_ result: FaceMatchingTestModel.Result) -> some View {
+        VStack(spacing: 9) {
+            Image(systemName: result.passes ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(result.passes ? Color.green : Color.orange)
 
-            Text(
-                result.passes
-                    ? "Likely matched to you"
-                    : "No confident match yet"
-            )
-            .font(.headline)
-
-            Text(
-                "Faces found: \(result.facesFound)"
-            )
-
-            if let similarity =
-                result.bestSimilarity {
-                Text(
-                    String(
-                        format:
-                            "Best similarity: %.3f · threshold: %.3f",
-                        similarity,
-                        result.threshold
-                    )
-                )
-                .font(.system(
-                    .caption,
-                    design: .monospaced
-                ))
-
-                if let second =
-                    result.secondTemplateSimilarity {
-                    Text(
-                        String(
-                            format:
-                                "2nd template: %.3f",
-                            second
-                        )
-                    )
-                    .font(.system(
-                        .caption2,
-                        design: .monospaced
-                    ))
-                }
-            } else {
-                Text("No comparable face descriptor.")
-                    .font(.caption)
-            }
+            Text(result.passes ? "Identity evidence passes" : "No confident match yet").font(.headline)
+            Text("Faces found: \(result.facesFound)")
+            metric("Best", result.bestSimilarity)
+            metric("2nd template", result.secondTemplateSimilarity)
+            Text(String(format: "Threshold: %.3f", result.threshold)).font(.system(.caption, design: .monospaced))
+            Text("Engine: \(result.engine)").font(.system(.caption2, design: .monospaced))
+            Text("Model version: \(result.modelVersion)").font(.system(.caption2, design: .monospaced))
         }
         .padding()
         .frame(maxWidth: .infinity)
-        .background(
-            .thinMaterial,
-            in: RoundedRectangle(
-                cornerRadius: 18
-            )
-        )
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func metric(_ label: String, _ value: Double?) -> some View {
+        Group {
+            if let value { Text(String(format: "\(label): %.3f", value)) }
+            else { Text("\(label): —") }
+        }
+        .font(.system(.caption, design: .monospaced))
     }
 }
