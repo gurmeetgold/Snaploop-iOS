@@ -1,7 +1,7 @@
 {
   "name": "snaploop-functions",
   "private": true,
-  "main": "index.js",
+  "main": "bootstrap.js",
   "engines": {
     "node": "22"
   },
