@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 final class CreateEventModel: ObservableObject {
     @Published var name = ""
-    @Published var category: EventCategory = .trip
+    @Published var category: EventCategory = .other
     @Published var startsAt = Date()
     @Published var endsAt = Date().addingTimeInterval(3 * 86_400)
     @Published var locationName = ""
@@ -17,7 +17,6 @@ final class CreateEventModel: ObservableObject {
         self.env = env; self.session = session
     }
 
-    /// Creates the event and returns it, or surfaces human error copy.
     func create() async -> Event? {
         guard let env, let session else { return nil }
         guard let user = session.user, let profile = session.faceProfile else {
@@ -48,7 +47,6 @@ struct CreateEventView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: CreateEventModel
-    /// Called with the created event so the caller can present its dashboard/share.
     let onCreated: (Event) -> Void
 
     init(onCreated: @escaping (Event) -> Void) {
@@ -60,7 +58,7 @@ struct CreateEventView: View {
         NavigationStack {
             Form {
                 Section("Event") {
-                    TextField("Name (e.g. Weekend in Montreal)", text: $model.name)
+                    TextField("Name (e.g. Family Reunion, Goa Trip)", text: $model.name)
                     Picker("Type", selection: $model.category) {
                         ForEach(EventCategory.allCases, id: \.self) { c in
                             Label(c.displayName, systemImage: c.systemImage).tag(c)
