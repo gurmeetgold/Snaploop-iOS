@@ -31,7 +31,19 @@ struct RootView: View {
             await bootstrapPersistedSessionIfNeeded()
         }
         .onOpenURL { url in
-            if let route = DeepLinkRouter.route(for: url) { session.pendingRoute = route }
+            captureInvite(url)
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { captureInvite(url) }
+        }
+    }
+
+    @MainActor
+    private func captureInvite(_ url: URL) {
+        if let route = DeepLinkRouter.route(for: url) {
+            // Keep the route even if authentication/Face Setup is not ready.
+            // It is replayed once the signed-in MainTabView becomes available.
+            session.pendingRoute = route
         }
     }
 
@@ -39,7 +51,6 @@ struct RootView: View {
     private func bootstrapPersistedSessionIfNeeded() async {
         guard !didBootstrapSession else { return }
         didBootstrapSession = true
-
         guard session.user == nil, let uid = environment.auth.currentUserId else { return }
         isBootstrappingSession = true
         defer { isBootstrappingSession = false }
@@ -47,57 +58,37 @@ struct RootView: View {
         do {
             var user = try await environment.users.fetch(userId: uid)
             let storedFaceProfile = try await environment.faceProfiles.load(userId: uid)
-
-            // Version 1 was the old placeholder descriptor. Never silently mix
-            // descriptor generations; force one clean Face Setup refresh.
             let faceProfile = storedFaceProfile?.version == FaceModelPolicy.currentVersion
-                ? storedFaceProfile
-                : nil
+                ? storedFaceProfile : nil
 
             if (faceProfile != nil) != user.hasFaceProfile {
                 user.hasFaceProfile = faceProfile != nil
                 try await environment.users.save(user)
             }
-
-            session.user = user
-            session.faceProfile = faceProfile
+            session.beginAuthenticatedSession(user: user, faceProfile: faceProfile)
         } catch {
-            // Firebase Auth may have survived while the SnapLoop user document
-            // was deleted or is unavailable. Return to a clean signed-out state
-            // instead of leaving the UI in a half-authenticated session.
             try? environment.auth.signOut()
-            session.user = nil
-            session.faceProfile = nil
+            session.clearAuthenticatedSession()
         }
     }
 }
 
 struct MainTabView: View {
     @State private var selectedTab = Tab.home
-
     enum Tab { case home, trips, shared, requests, you }
 
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack { HomeView(showsGreeting: true) }
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(Tab.home)
-
+                .tabItem { Label("Home", systemImage: "house.fill") }.tag(Tab.home)
             NavigationStack { HomeView(showsGreeting: false) }
-                .tabItem { Label("Trips", systemImage: "suitcase.fill") }
-                .tag(Tab.trips)
-
+                .tabItem { Label("Trips", systemImage: "suitcase.fill") }.tag(Tab.trips)
             NavigationStack { ActiveEventScopedView(kind: .shared) }
-                .tabItem { Label("Shared", systemImage: "person.2.fill") }
-                .tag(Tab.shared)
-
+                .tabItem { Label("Shared", systemImage: "person.2.fill") }.tag(Tab.shared)
             NavigationStack { ActiveEventScopedView(kind: .requests) }
-                .tabItem { Label("Requests", systemImage: "bell.fill") }
-                .tag(Tab.requests)
-
+                .tabItem { Label("Requests", systemImage: "bell.fill") }.tag(Tab.requests)
             NavigationStack { SettingsView() }
-                .tabItem { Label("You", systemImage: "person.crop.circle.fill") }
-                .tag(Tab.you)
+                .tabItem { Label("You", systemImage: "person.crop.circle.fill") }.tag(Tab.you)
         }
         .tint(Theme.coral)
     }
