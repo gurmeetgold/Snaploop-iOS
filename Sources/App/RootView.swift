@@ -5,6 +5,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var session: AppSession
+    @Environment(\.scenePhase) private var scenePhase
     @State private var didBootstrapSession = false
     @State private var isBootstrappingSession = false
 
@@ -33,6 +34,10 @@ struct RootView: View {
         }
         .onChange(of: session.user?.id) { _, userId in
             guard userId != nil else { return }
+            Task { await loadPendingInviteIfNeeded() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
             Task { await loadPendingInviteIfNeeded() }
         }
         .onOpenURL { url in
