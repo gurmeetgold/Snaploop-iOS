@@ -1,21 +1,7 @@
 import Foundation
 
 /// Orchestrates one "Sync My Camera" pass, on demand, for a single event.
-///
-/// This is the seam where all the pure engines meet the device services:
-///   plan (ScanPlanner) → load image → detect faces → match (FaceMatcher)
-///   → encode thumbnail → upload → record scan state.
-///
-/// Rules it upholds (all delegated to the pure pieces it composes):
-///   • Only this device's own library, only the event's date window.
-///   • Never rescans an asset already in `ScanState`.
-///   • Only matched photos upload; only thumbnail + metadata, never originals.
-///   • Refuses to run when the event's lifecycle forbids syncing.
-///
-/// Every asset in the batch is marked scanned whether or not it matched, so a
-/// non-matching photo is never re-processed.
 public struct CameraSyncCoordinator {
-
     private let config: ConfigProviding
     private let clock: Clock
     private let photoLibrary: PhotoLibraryService
@@ -42,20 +28,14 @@ public struct CameraSyncCoordinator {
         self.scanStateStore = scanStateStore
     }
 
-    /// Outcome of one pass — enough for the UI to say something human
-    /// ("Found 3 new photos of you", "You're all caught up").
     public struct Summary: Equatable, Sendable {
-        public let scanned: Int          // assets processed this pass
-        public let matchedPhotos: Int    // photos with ≥1 participant appearance
-        public let remaining: Int        // eligible assets left for the next pass
-        public let alreadyCaughtUp: Bool // nothing new to scan at all
-
+        public let scanned: Int
+        public let matchedPhotos: Int
+        public let remaining: Int
+        public let alreadyCaughtUp: Bool
         public var hasMore: Bool { remaining > 0 }
     }
 
-    /// Runs a single incremental pass for `event` on behalf of `currentUserId`.
-    /// `onProgress` is called on the calling actor as the pass advances so the
-    /// UI can render staged status.
     public func sync(
         event: Event,
         participants: [EventParticipant],
@@ -64,43 +44,21 @@ public struct CameraSyncCoordinator {
     ) async throws -> Summary {
         let values = config.current
         onProgress?(SyncProgress(phase: .preparing))
+        guard EventLifecycle.canSync(event, clock: clock, config: values) else { throw AppError.eventExpired }
+        guard faceDetection.isReadyForMatching else { throw AppError.faceRecognitionNotReady }
 
-        // Lifecycle gate.
-        guard EventLifecycle.canSync(event, clock: clock, config: values) else {
-            throw AppError.eventExpired
-        }
-
-        // Never let a placeholder identity service consume the real camera
-        // library. Otherwise photos with zero stub matches would be permanently
-        // marked scanned before the production model exists.
-        guard faceDetection.isReadyForMatching else {
-            throw AppError.faceRecognitionNotReady
-        }
-
-        // Permission gate.
         if !photoLibrary.authorizationStatus().canRead {
             let status = await photoLibrary.requestAuthorization()
             guard status.canRead else { throw AppError.photoLibraryAccessDenied }
         }
 
-        // Plan the batch.
         let assets = try await photoLibrary.assets(in: event.dateRange)
-
-        // Scan state must be scoped by BOTH account and descriptor generation.
-        // This matters when two test users share one iPhone, and it guarantees a
-        // future face-model upgrade automatically re-scans eligible photos.
-        let scanStateKey = [
-            event.id,
-            currentUserId,
-            "face-v\(FaceModelPolicy.currentVersion)"
-        ].joined(separator: "::")
-
+        // Account + event + descriptor generation isolation. A different user on
+        // the same iPhone or a future model version gets an independent scan.
+        let scanStateKey = [event.id, currentUserId, "face-v\(FaceModelPolicy.currentVersion)"]
+            .joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
-        let plan = ScanPlanner(config: values).plan(
-            assets: assets,
-            event: event,
-            state: state
-        )
+        let plan = ScanPlanner(config: values).plan(assets: assets, event: event, state: state)
 
         if plan.isEmpty {
             state.lastSyncedAt = clock.now()
@@ -124,16 +82,14 @@ public struct CameraSyncCoordinator {
                     values: values
                 )
                 if matched { matchedCount += 1 }
-                // Mark scanned whether or not it matched — never reprocess it.
                 processedIds.append(asset.id)
                 onProgress?(SyncProgress(
                     phase: .scanning,
                     checked: processedIds.count,
                     matched: matchedCount,
-                    remaining: (totalThisPass - processedIds.count) + plan.remaining))
+                    remaining: (totalThisPass - processedIds.count) + plan.remaining
+                ))
             } catch {
-                // One bad asset must not abort the whole pass. Leave it
-                // unmarked so a later pass retries it, and move on.
                 Log.scanner.error("Skipping asset during sync: \(String(describing: error), privacy: .public)")
             }
         }
@@ -144,15 +100,10 @@ public struct CameraSyncCoordinator {
         state.lastSyncedAt = clock.now()
         scanStateStore.save(state)
 
-        return Summary(
-            scanned: processedIds.count,
-            matchedPhotos: matchedCount,
-            remaining: plan.remaining,
-            alreadyCaughtUp: false
-        )
+        return Summary(scanned: processedIds.count, matchedPhotos: matchedCount,
+                       remaining: plan.remaining, alreadyCaughtUp: false)
     }
 
-    /// Processes one asset. Returns whether it matched at least one participant.
     private func process(
         asset: PhotoAsset,
         event: Event,
@@ -161,13 +112,14 @@ public struct CameraSyncCoordinator {
         matcher: FaceMatcher,
         values: RemoteConfigValues
     ) async throws -> Bool {
-        // Load a working image sized for detection (thumbnail size is plenty for
-        // on-device face detection at MVP quality).
+        // v5.1 uses a 2048px recognition working image. The old 1024px input
+        // discarded too many pixels from distant faces before Vision even saw
+        // them. Upload thumbnails remain independently capped at the configured
+        // size, so this does not increase cloud thumbnail size.
         let working = try await photoLibrary.imageData(
             for: asset.id,
-            maxPixelSize: max(values.thumbnailMaxPixelSize, 1024)
+            maxPixelSize: max(values.thumbnailMaxPixelSize, 2048)
         )
-
         let faces = try await faceDetection.detectFaces(in: working)
         let appearances = matcher.appearances(in: faces, participants: participants)
         guard !appearances.isEmpty else { return false }
@@ -177,7 +129,6 @@ public struct CameraSyncCoordinator {
             maxPixelSize: values.thumbnailMaxPixelSize,
             quality: values.thumbnailJPEGQuality
         )
-
         let match = PhotoMatch(
             eventId: event.id,
             ownerUserId: currentUserId,
@@ -186,7 +137,6 @@ public struct CameraSyncCoordinator {
             capturedAt: asset.creationDate,
             matchedAt: clock.now()
         )
-
         try await matches.upload(match: match, thumbnailJPEG: thumbnail)
         return true
     }
