@@ -8,26 +8,33 @@ final class PhoneAuthModel: ObservableObject {
     }
 
     @Published var stage: Stage = .enterPhone
+    @Published var selectedCountry: PhoneCountry = .localeDefault
     @Published var phoneNumber = ""
+    @Published var normalizedPhoneNumber: String?
     @Published var code = ""
     @Published var isBusy = false
     @Published var errorMessage: String?
 
     private var env: AppEnvironment?
     private var session: AppSession?
-    func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
+
+    func configure(env: AppEnvironment, session: AppSession) {
+        self.env = env
+        self.session = session
+    }
 
     func sendCode() async {
         guard let env else { return }
-        let trimmed = phoneNumber.trimmingCharacters(in: .whitespaces)
-        guard trimmed.count >= 8 else {
+        guard let e164 = PhoneNumberNormalizer.e164(localInput: phoneNumber, country: selectedCountry) else {
             errorMessage = AppError.invalidPhoneNumber.userMessage
             return
         }
-        isBusy = true; errorMessage = nil
+        normalizedPhoneNumber = e164
+        isBusy = true
+        errorMessage = nil
         defer { isBusy = false }
         do {
-            let verificationId = try await env.auth.startPhoneVerification(phoneNumber: trimmed)
+            let verificationId = try await env.auth.startPhoneVerification(phoneNumber: e164)
             stage = .enterCode(verificationId: verificationId)
         } catch let error as AppError {
             errorMessage = error.userMessage
@@ -38,21 +45,24 @@ final class PhoneAuthModel: ObservableObject {
 
     func verifyCode() async {
         guard let env, let session, case .enterCode(let verificationId) = stage else { return }
-        isBusy = true; errorMessage = nil
+        isBusy = true
+        errorMessage = nil
         defer { isBusy = false }
 
         do {
             let uid = try await env.auth.confirmVerification(verificationId: verificationId, code: code)
-            let normalizedPhone = phoneNumber.trimmingCharacters(in: .whitespaces)
+            let canonicalPhone = normalizedPhoneNumber
+                ?? PhoneNumberNormalizer.e164(localInput: phoneNumber, country: selectedCountry)
+                ?? phoneNumber
 
             let user: User
             do {
                 user = try await env.users.fetch(userId: uid)
             } catch let error as AppError {
-                if case .backend(let code, _) = error, code == "user_not_found" {
+                if case .backend(let backendCode, _) = error, backendCode == "user_not_found" {
                     let created = User(
                         id: uid,
-                        phoneNumber: normalizedPhone,
+                        phoneNumber: canonicalPhone,
                         displayName: nil,
                         hasFaceProfile: false,
                         createdAt: env.clock.now()
@@ -65,17 +75,16 @@ final class PhoneAuthModel: ObservableObject {
             }
 
             let faceProfile = try await env.faceProfiles.load(userId: uid)
-
-            // Reconcile the denormalized flag if a profile exists but the user
-            // document was left stale by a previous interrupted write.
             var reconciledUser = user
             if (faceProfile != nil) != user.hasFaceProfile {
                 reconciledUser.hasFaceProfile = faceProfile != nil
                 try await env.users.save(reconciledUser)
             }
 
-            session.user = reconciledUser
-            session.faceProfile = faceProfile
+            // Assign session state only after all reads succeed, preventing a
+            // half-switched account from inheriting the previous account's face
+            // profile or active event on a shared device.
+            session.beginAuthenticatedSession(user: reconciledUser, faceProfile: faceProfile)
         } catch let error as AppError {
             errorMessage = error.userMessage
         } catch {
@@ -86,6 +95,7 @@ final class PhoneAuthModel: ObservableObject {
     func useADifferentNumber() {
         stage = .enterPhone
         code = ""
+        normalizedPhoneNumber = nil
         errorMessage = nil
     }
 }
@@ -131,11 +141,32 @@ struct PhoneAuthFlowView: View {
 
     private var phoneEntry: some View {
         VStack(spacing: 12) {
-            TextField("Phone number", text: $model.phoneNumber)
-                .keyboardType(.phonePad)
-                .textContentType(.telephoneNumber)
-                .padding()
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            HStack(spacing: 10) {
+                Menu {
+                    ForEach(PhoneCountry.supported) { country in
+                        Button("\(country.name)  \(country.callingCode)") {
+                            model.selectedCountry = country
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(model.selectedCountry.regionCode)
+                        Text(model.selectedCountry.callingCode)
+                        Image(systemName: "chevron.down").font(.caption2)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 15)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                }
+
+                TextField("Phone number", text: $model.phoneNumber)
+                    .keyboardType(.phonePad)
+                    .textContentType(.telephoneNumber)
+                    .padding()
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            }
+
+            Text("Country defaults from your iPhone region. You can also paste a full +country-code number.")
+                .font(.caption).foregroundStyle(.secondary)
 
             Button { Task { await model.sendCode() } } label: {
                 Group { if model.isBusy { ProgressView() } else { Text("Send Code") } }
@@ -150,8 +181,13 @@ struct PhoneAuthFlowView: View {
 
     private var codeEntry: some View {
         VStack(spacing: 12) {
-            Text("Enter the code we sent you")
-                .font(.subheadline).foregroundStyle(.secondary)
+            if let normalized = model.normalizedPhoneNumber {
+                Text("Enter the code sent to \(normalized)")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            } else {
+                Text("Enter the code we sent you")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
             TextField("6-digit code", text: $model.code)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
