@@ -25,6 +25,7 @@ struct StubPhotoLibraryService: PhotoLibraryService {
 }
 
 struct StubFaceDetectionService: FaceDetectionService {
+    var isReadyForMatching: Bool { false }
     func detectFaces(in imageData: Data) async throws -> [DetectedFace] { [] }
     func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding {
         FaceEmbedding(normalized: [1, 0, 0])
@@ -206,5 +207,44 @@ final class InMemoryMatchRepository: MatchRepository, @unchecked Sendable {
     }
     func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL {
         URL(string: "https://example.invalid/original/\(match.id)")!
+    }
+}
+
+
+public final class InMemoryBiometricConsentStore:
+    BiometricConsentStore,
+    @unchecked Sendable {
+
+    private var records: [String: BiometricConsentRecord] = [:]
+    private let lock = NSLock()
+
+    public init() {}
+
+    public func load(
+        userId: String
+    ) async throws -> BiometricConsentRecord? {
+        lock.lock()
+        defer { lock.unlock() }
+        return records[userId]
+    }
+
+    public func save(
+        _ record: BiometricConsentRecord
+    ) async throws {
+        lock.lock()
+        records[record.userId] = record
+        lock.unlock()
+    }
+
+    public func withdraw(
+        userId: String,
+        at date: Date
+    ) async throws {
+        lock.lock()
+        if var record = records[userId] {
+            record.withdrawnAt = date
+            records[userId] = record
+        }
+        lock.unlock()
     }
 }

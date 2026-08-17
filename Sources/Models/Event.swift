@@ -111,21 +111,33 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
     public var id: String { userId }
     public let userId: String
     public var displayName: String?
+    public var phoneNumber: String?
     public var faceEmbedding: FaceEmbedding
+    public var faceTemplates: [FaceTemplate]
     public var faceProfileVersion: Int
     public let joinedAt: Date
 
     public init(
         userId: String,
         displayName: String?,
+        phoneNumber: String? = nil,
         faceEmbedding: FaceEmbedding,
+        faceTemplates: [FaceTemplate] = [],
         faceProfileVersion: Int,
         joinedAt: Date
     ) {
         self.userId = userId
         self.displayName = displayName
+        self.phoneNumber = phoneNumber
         self.faceEmbedding = faceEmbedding
+        self.faceTemplates = faceTemplates
         self.faceProfileVersion = faceProfileVersion
         self.joinedAt = joinedAt
+    }
+
+    public var effectiveEmbeddings: [FaceEmbedding] {
+        faceTemplates.isEmpty
+            ? [faceEmbedding]
+            : faceTemplates.map(\.embedding)
     }
 }

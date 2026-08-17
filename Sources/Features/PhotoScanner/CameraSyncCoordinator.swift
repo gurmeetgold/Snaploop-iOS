@@ -70,6 +70,13 @@ public struct CameraSyncCoordinator {
             throw AppError.eventExpired
         }
 
+        // Never let a placeholder identity service consume the real camera
+        // library. Otherwise photos with zero stub matches would be permanently
+        // marked scanned before the production model exists.
+        guard faceDetection.isReadyForMatching else {
+            throw AppError.faceRecognitionNotReady
+        }
+
         // Permission gate.
         if !photoLibrary.authorizationStatus().canRead {
             let status = await photoLibrary.requestAuthorization()
@@ -78,8 +85,22 @@ public struct CameraSyncCoordinator {
 
         // Plan the batch.
         let assets = try await photoLibrary.assets(in: event.dateRange)
-        var state = scanStateStore.load(eventId: event.id)
-        let plan = ScanPlanner(config: values).plan(assets: assets, event: event, state: state)
+
+        // Scan state must be scoped by BOTH account and descriptor generation.
+        // This matters when two test users share one iPhone, and it guarantees a
+        // future face-model upgrade automatically re-scans eligible photos.
+        let scanStateKey = [
+            event.id,
+            currentUserId,
+            "face-v\(FaceModelPolicy.currentVersion)"
+        ].joined(separator: "::")
+
+        var state = scanStateStore.load(eventId: scanStateKey)
+        let plan = ScanPlanner(config: values).plan(
+            assets: assets,
+            event: event,
+            state: state
+        )
 
         if plan.isEmpty {
             state.lastSyncedAt = clock.now()

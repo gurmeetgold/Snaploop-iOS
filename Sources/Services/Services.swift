@@ -56,6 +56,11 @@ public enum PhotoAuthorization: Equatable, Sendable {
 /// On-device face pipeline: Vision for detection + a Core ML model for
 /// embeddings. Runs entirely on the device — never a cloud vision/LLM call.
 public protocol FaceDetectionService: Sendable {
+    /// False for placeholder implementations. Sync refuses to consume a camera
+    /// library until a real identity model is installed, so photos are never
+    /// incorrectly marked as scanned by a stub.
+    var isReadyForMatching: Bool { get }
+
     /// Detects faces in image data and returns an embedding + size for each.
     func detectFaces(in imageData: Data) async throws -> [DetectedFace]
     /// Produces a single embedding from a selfie for the user's face profile.
@@ -151,4 +156,19 @@ public protocol UserDirectory: Sendable {
 public protocol ScanStateStore: Sendable {
     func load(eventId: String) -> ScanState
     func save(_ state: ScanState)
+}
+
+public extension FaceDetectionService {
+    var isReadyForMatching: Bool { true }
+}
+
+
+// MARK: - Biometric consent
+
+/// Stores the user's explicit consent record separately from the biometric
+/// template itself so consent can be audited and withdrawn independently.
+public protocol BiometricConsentStore: Sendable {
+    func load(userId: String) async throws -> BiometricConsentRecord?
+    func save(_ record: BiometricConsentRecord) async throws
+    func withdraw(userId: String, at date: Date) async throws
 }

@@ -63,6 +63,13 @@ struct SyncView: View {
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
             Button("Start") { Task { await model.run(event: event) } }
                 .buttonStyle(.borderedProminent).controlSize(.large)
+
+            if FaceModelPolicy.usesDevelopmentDescriptor {
+                Text("Development face matching is enabled for this Xcode build. Use it to validate the complete photo-sharing loop before we install the release identity model.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 

@@ -24,6 +24,14 @@
 				<string>app-1-254317517474-ios-fe19926e3a17d2661f95fb</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>SnapLoop Invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>snaploop</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>

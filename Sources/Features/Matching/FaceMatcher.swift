@@ -1,92 +1,175 @@
 import Foundation
 
-/// Pure, deterministic face matcher. Given the faces detected in a single photo
-/// and the event roster, it decides which participants appear in that photo.
+/// Precision-first multi-template face matcher.
 ///
-/// Design bias: **precision over recall.** Two guards enforce this:
-///   1. A face must clear `matchConfidenceThreshold` similarity, and
-///   2. The best-matching participant must beat the second-best by at least
-///      `matchAmbiguityMargin`. A face that is nearly equidistant between two
-///      people (classic look-alike / sibling case) is assigned to *nobody*.
+/// v3 changes recognition from "one reference selfie vs one detected face" to a
+/// small template ensemble per participant. A candidate must:
 ///
-/// No Vision, Core ML, or I/O here — this is a value transform over embeddings,
-/// which is exactly what makes it exhaustively testable.
+/// 1. clear the absolute threshold,
+/// 2. have enough support across that participant's templates, and
+/// 3. beat the second-best participant by the ambiguity margin.
+///
+/// This deliberately prefers "I don't know" over exposing a photo to the wrong
+/// person.
 public struct FaceMatcher {
 
     public let config: RemoteConfigValues
 
-    public init(config: RemoteConfigValues) {
+    public init(
+        config: RemoteConfigValues
+    ) {
         self.config = config
     }
 
-    /// Which participants appear in a photo, given its detected faces.
-    ///
-    /// - Returns: One `Appearance` per matched participant, each carrying the
-    ///   highest similarity among that participant's winning faces, sorted by
-    ///   confidence descending. Empty if nobody clears the bar.
     public func appearances(
         in faces: [DetectedFace],
         participants: [EventParticipant]
     ) -> [PhotoMatch.Appearance] {
-        guard !faces.isEmpty, !participants.isEmpty else { return [] }
+        guard
+            !faces.isEmpty,
+            !participants.isEmpty
+        else {
+            return []
+        }
 
-        // Best confidence achieved per participant across all qualifying faces.
         var bestConfidence: [String: Double] = [:]
 
         for face in faces {
-            // Precision guard #0: ignore tiny background faces.
-            guard face.sizeFraction >= config.minFaceSizeFraction else { continue }
+            guard
+                face.sizeFraction
+                    >= config.minFaceSizeFraction
+            else {
+                continue
+            }
 
-            guard let winner = assign(face: face, to: participants) else { continue }
+            guard let winner = assign(
+                face: face,
+                to: participants
+            ) else {
+                continue
+            }
 
-            let existing = bestConfidence[winner.participantUserId]
-            if existing == nil || winner.confidence > existing! {
-                bestConfidence[winner.participantUserId] = winner.confidence
+            let existing =
+                bestConfidence[winner.participantUserId]
+
+            if existing == nil
+                || winner.confidence > existing! {
+                bestConfidence[
+                    winner.participantUserId
+                ] = winner.confidence
             }
         }
 
         return bestConfidence
-            .map { PhotoMatch.Appearance(participantUserId: $0.key, confidence: $0.value) }
-            .sorted { $0.confidence > $1.confidence }
+            .map {
+                PhotoMatch.Appearance(
+                    participantUserId: $0.key,
+                    confidence: $0.value
+                )
+            }
+            .sorted {
+                $0.confidence > $1.confidence
+            }
     }
-
-    // MARK: - Single-face assignment
 
     private struct Assignment {
         let participantUserId: String
         let confidence: Double
     }
 
-    /// Assigns one face to at most one participant, applying both precision
-    /// guards. Returns `nil` when the face is below threshold or too ambiguous.
-    private func assign(face: DetectedFace, to participants: [EventParticipant]) -> Assignment? {
-        var best: (id: String, sim: Double)?
-        var secondBestSim: Double = -1
-
-        for participant in participants {
-            // Dimension mismatch (e.g. an embedding from an older model
-            // version) can't be compared — treat as a non-match rather than
-            // guessing. Favors precision.
-            guard let sim = face.embedding.cosineSimilarity(to: participant.faceEmbedding) else { continue }
-
-            if best == nil || sim > best!.sim {
-                secondBestSim = best?.sim ?? secondBestSim
-                best = (participant.userId, sim)
-            } else if sim > secondBestSim {
-                secondBestSim = sim
+    /// Participant-level score from a detected face against multiple enrolled
+    /// templates.
+    ///
+    /// We do not use a simple max. A single lucky template can be noisy.
+    /// Instead the score blends the best result with support from the next
+    /// strongest templates.
+    private func score(
+        face: DetectedFace,
+        participant: EventParticipant
+    ) -> Double? {
+        let similarities = participant.effectiveEmbeddings
+            .compactMap {
+                face.embedding.cosineSimilarity(to: $0)
             }
-        }
+            .sorted(by: >)
 
-        guard let winner = best else { return nil }
-
-        // Guard #1: absolute confidence.
-        guard winner.sim >= config.matchConfidenceThreshold else { return nil }
-
-        // Guard #2: ambiguity margin. Only applies when there's a runner-up.
-        if secondBestSim >= 0, (winner.sim - secondBestSim) < config.matchAmbiguityMargin {
+        guard let best = similarities.first else {
             return nil
         }
 
-        return Assignment(participantUserId: winner.id, confidence: winner.sim)
+        // Old/single-template profiles still work during migration.
+        guard similarities.count >= 2 else {
+            return best
+        }
+
+        let second = similarities[1]
+
+        if similarities.count >= 3 {
+            let third = similarities[2]
+
+            // Best template remains dominant, while second/third template
+            // agreement makes pose-specific lucky matches less influential.
+            return (
+                (best * 0.60)
+                + (second * 0.27)
+                + (third * 0.13)
+            )
+        }
+
+        return (
+            (best * 0.72)
+            + (second * 0.28)
+        )
+    }
+
+    private func assign(
+        face: DetectedFace,
+        to participants: [EventParticipant]
+    ) -> Assignment? {
+        var ranked: [(id: String, score: Double)] = []
+
+        for participant in participants {
+            guard let score = score(
+                face: face,
+                participant: participant
+            ) else {
+                continue
+            }
+
+            ranked.append(
+                (participant.userId, score)
+            )
+        }
+
+        ranked.sort {
+            $0.score > $1.score
+        }
+
+        guard let winner = ranked.first else {
+            return nil
+        }
+
+        guard
+            winner.score
+                >= config.matchConfidenceThreshold
+        else {
+            return nil
+        }
+
+        if ranked.count > 1 {
+            let runnerUp = ranked[1]
+
+            guard
+                (winner.score - runnerUp.score)
+                    >= config.matchAmbiguityMargin
+            else {
+                return nil
+            }
+        }
+
+        return Assignment(
+            participantUserId: winner.id,
+            confidence: winner.score
+        )
     }
 }

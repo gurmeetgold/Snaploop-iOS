@@ -37,4 +37,30 @@ public struct FaceEmbedding: Equatable, Codable, Sendable {
         // Clamp to guard against tiny floating-point overshoot past ±1.
         return Double(min(1, max(-1, dot)))
     }
+
+    /// Builds a normalized centroid from compatible embeddings.
+    ///
+    /// This is useful as a compact compatibility representation while v3 keeps
+    /// the full template set for recognition.
+    public static func centroid(
+        of embeddings: [FaceEmbedding]
+    ) -> FaceEmbedding? {
+        guard let first = embeddings.first else { return nil }
+        let dimension = first.dimension
+
+        guard embeddings.allSatisfy({ $0.dimension == dimension }) else {
+            return nil
+        }
+
+        var sum = Array(repeating: Float(0), count: dimension)
+
+        for embedding in embeddings {
+            for index in 0..<dimension {
+                sum[index] += embedding.vector[index]
+            }
+        }
+
+        return FaceEmbedding(sum)
+    }
+
 }

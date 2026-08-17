@@ -26,7 +26,7 @@ public final class AppSession: ObservableObject {
     }
 
     public var isRegistered: Bool { user != nil }
-    public var hasFaceProfile: Bool { faceProfile != nil }
+    public var hasFaceProfile: Bool { faceProfile?.version == FaceModelPolicy.currentVersion }
 
     /// A dev session so previews and the Phase-2 skeleton have a signed-in user.
     public static func dev() -> AppSession {
@@ -35,7 +35,7 @@ public final class AppSession: ObservableObject {
                         createdAt: Date())
         let profile = FaceProfile(userId: "dev-user",
                                   embedding: FaceEmbedding(normalized: [1, 0, 0]),
-                                  version: 1, updatedAt: Date())
+                                  version: FaceModelPolicy.currentVersion, updatedAt: Date())
         return AppSession(user: user, faceProfile: profile)
     }
 }

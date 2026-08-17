@@ -100,8 +100,8 @@ public struct RemoteConfigValues: Equatable, Sendable {
 
     /// Shipped-in defaults. Deliberately conservative on the matching side.
     public static let `default` = RemoteConfigValues(
-        matchConfidenceThreshold: 0.62,
-        matchAmbiguityMargin: 0.06,
+        matchConfidenceThreshold: 0.90,
+        matchAmbiguityMargin: 0.04,
         minFaceSizeFraction: 0.045,
         maxAssetsPerSyncBatch: 400,
         thumbnailMaxPixelSize: 1024,

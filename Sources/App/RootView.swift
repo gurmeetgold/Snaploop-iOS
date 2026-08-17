@@ -26,7 +26,10 @@ struct RootView: View {
                 PhoneAuthFlowView()
             }
         }
-        .task { await bootstrapPersistedSessionIfNeeded() }
+        .task {
+            await environment.config.refresh()
+            await bootstrapPersistedSessionIfNeeded()
+        }
         .onOpenURL { url in
             if let route = DeepLinkRouter.route(for: url) { session.pendingRoute = route }
         }
@@ -43,7 +46,13 @@ struct RootView: View {
 
         do {
             var user = try await environment.users.fetch(userId: uid)
-            let faceProfile = try await environment.faceProfiles.load(userId: uid)
+            let storedFaceProfile = try await environment.faceProfiles.load(userId: uid)
+
+            // Version 1 was the old placeholder descriptor. Never silently mix
+            // descriptor generations; force one clean Face Setup refresh.
+            let faceProfile = storedFaceProfile?.version == FaceModelPolicy.currentVersion
+                ? storedFaceProfile
+                : nil
 
             if (faceProfile != nil) != user.hasFaceProfile {
                 user.hasFaceProfile = faceProfile != nil

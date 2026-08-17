@@ -1,3 +1,4 @@
+import FirebaseFunctions
 import SwiftUI
 
 struct EventDashboardView: View {
@@ -5,6 +6,7 @@ struct EventDashboardView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @State private var members: [EventMember] = []
+    @State private var participants: [EventParticipant] = []
     @State private var photosOfMe = 0
     @State private var sharedCount = 0
 
@@ -24,6 +26,7 @@ struct EventDashboardView: View {
                 featureGrid
                 statsRow
                 membersRow
+                invitePeopleRow
                 if isOrganizer { organizerControls }
             }
             .padding(.bottom, 24)
@@ -32,11 +35,28 @@ struct EventDashboardView: View {
         .ignoresSafeArea(edges: .top)
         .task {
             session.activeEvent = event
+            if AppEnvironment.useLiveServices {
+                try? await syncRosterIdentities()
+            }
             members = (try? await env.events.members(eventId: event.id)) ?? []
+            participants = (try? await env.events.participants(eventId: event.id)) ?? []
             if let userId = session.user?.id {
                 photosOfMe = ((try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []).count
             }
             sharedCount = ((try? await env.matches.sharedAlbum(eventId: event.id)) ?? []).count
+        }
+    }
+
+    private func syncRosterIdentities() async throws {
+        let functions = Functions.functions()
+        let _: Any = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Any, Error>) in
+            functions.httpsCallable("syncEventRosterIdentities").call([
+                "eventId": event.id
+            ]) { result, error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume(returning: result?.data as Any)
+            }
         }
     }
 
@@ -151,7 +171,7 @@ struct EventDashboardView: View {
                 ForEach(members.prefix(6)) { member in
                     ZStack {
                         Circle().fill(Theme.violetGradient)
-                        Text(String(member.userId.prefix(1)).uppercased())
+                        Text(initial(for: member))
                             .font(.caption).bold().foregroundStyle(.white)
                     }
                     .frame(width: 36, height: 36)
@@ -170,12 +190,71 @@ struct EventDashboardView: View {
         .padding(.horizontal)
     }
 
+
+    private var invitePeopleRow: some View {
+        NavigationLink {
+            ShareEventView(event: event)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "person.badge.plus")
+                    .font(.title3)
+                    .foregroundStyle(Theme.coral)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Invite People")
+                        .font(.headline)
+                        .foregroundStyle(Theme.ink)
+
+                    Text("Share code, link, or QR")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(
+                .background,
+                in: RoundedRectangle(cornerRadius: Theme.cardRadius)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.cardRadius)
+                    .strokeBorder(Theme.separator.opacity(0.4))
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+    }
+
+    private func initial(for member: EventMember) -> String {
+        if member.userId == session.user?.id {
+            if let myName = session.user?.displayName, let first = myName.first {
+                return String(first).uppercased()
+            }
+            if let phone = session.user?.phoneNumber {
+                return String(phone.suffix(2))
+            }
+        }
+
+        if let participant = participants.first(where: { $0.userId == member.userId }) {
+            if let name = participant.displayName, let first = name.first {
+                return String(first).uppercased()
+            }
+            if let phone = participant.phoneNumber {
+                return String(phone.suffix(2))
+            }
+        }
+
+        return "?"
+    }
+
     private var organizerControls: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Organizer").font(.subheadline).bold().foregroundStyle(.secondary)
-            NavigationLink { ShareEventView(event: event) } label: {
-                Label("Invite People / QR Code", systemImage: "person.badge.plus")
-            }
             NavigationLink { Text("Edit flow (Phase 2 create form reused)") } label: {
                 Label("Edit Trip", systemImage: "pencil")
             }

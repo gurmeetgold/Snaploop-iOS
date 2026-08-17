@@ -35,8 +35,8 @@ public struct InviteToken: Equatable, Sendable {
 /// Builds and parses SnapLoop invite links. Kept pure and free of app config so
 /// it can be unit-tested; the base host is the app's Universal Link domain.
 public enum InviteLink {
-    /// The Universal Link host. (Associated Domains entitlement in Phase-2 infra.)
-    public static let host = "snaploop.app"
+    /// Development invite landing host. Before App Store release this changes to the production SnapLoop domain with Associated Domains.
+    public static let host = "snaploop-dev.web.app"
     public static let scheme = "https"
     /// Custom URL scheme fallback (also registered), used by QR in some flows.
     public static let customScheme = "snaploop"

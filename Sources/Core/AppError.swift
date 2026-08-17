@@ -19,6 +19,7 @@ public enum AppError: Error, Equatable, Sendable {
     case noFaceDetectedInSelfie
     case multipleFacesInSelfie
     case faceEmbeddingFailed
+    case faceRecognitionNotReady
 
     // MARK: Events
     case eventNotFound
@@ -65,6 +66,8 @@ public extension AppError {
             return "Make sure it's just you in the photo, then try again."
         case .faceEmbeddingFailed:
             return "Something went wrong setting up your face. Please try again."
+        case .faceRecognitionNotReady:
+            return "Camera matching is being finished for this build. Your photos have not been marked as scanned."
         case .eventNotFound:
             return "We couldn't find that event."
         case .eventExpired:

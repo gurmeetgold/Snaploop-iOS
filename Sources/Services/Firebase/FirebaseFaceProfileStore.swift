@@ -26,9 +26,20 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
     }
 
     public func save(_ profile: FaceProfile) async throws {
+        let templates: [[String: Any]] = profile.templates.map { template in
+            [
+                "id": template.id,
+                "embedding": template.embedding.vector.map(Double.init),
+                "pose": template.pose.rawValue,
+                "quality": template.quality,
+                "createdAt": Timestamp(date: template.createdAt)
+            ]
+        }
+
         let data: [String: Any] = [
             "userId": profile.userId,
             "embedding": profile.embedding.vector.map(Double.init),
+            "templates": templates,
             "version": profile.version,
             "updatedAt": Timestamp(date: profile.updatedAt)
         ]
@@ -80,9 +91,52 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
             throw AppError.decoding("faceProfile/current missing updatedAt")
         }
 
+
+        var templates: [FaceTemplate] = []
+
+        if let rawTemplates = data["templates"] as? [[String: Any]] {
+            templates = rawTemplates.compactMap { item in
+                let vector: [Float]
+
+                if let doubles = item["embedding"] as? [Double] {
+                    vector = doubles.map(Float.init)
+                } else if let numbers = item["embedding"] as? [NSNumber] {
+                    vector = numbers.map(\.floatValue)
+                } else {
+                    return nil
+                }
+
+                guard
+                    let embedding = FaceEmbedding(vector),
+                    let poseRaw = item["pose"] as? String,
+                    let pose = FaceTemplate.Pose(rawValue: poseRaw)
+                else {
+                    return nil
+                }
+
+                let createdAt =
+                    (item["createdAt"] as? Timestamp)?.dateValue()
+                    ?? updatedAt
+
+                let quality =
+                    (item["quality"] as? NSNumber)?.doubleValue
+                    ?? item["quality"] as? Double
+                    ?? 1.0
+
+                return FaceTemplate(
+                    id: item["id"] as? String ?? UUID().uuidString,
+                    embedding: embedding,
+                    pose: pose,
+                    quality: quality,
+                    createdAt: createdAt
+                )
+            }
+        }
+
         return FaceProfile(
             userId: userId,
             embedding: FaceEmbedding(normalized: vector),
+            templates: templates,
             version: version,
             updatedAt: updatedAt
         )

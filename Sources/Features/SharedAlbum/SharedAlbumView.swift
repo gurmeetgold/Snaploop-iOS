@@ -3,14 +3,33 @@ import SwiftUI
 @MainActor
 final class SharedAlbumModel: ObservableObject {
     @Published var photos: [PhotoMatch] = []
+    @Published var participants: [EventParticipant] = []
+
     private var env: AppEnvironment?
     let event: Event
+
     init(event: Event) { self.event = event }
     func configure(env: AppEnvironment) { self.env = env }
+
     func reload() async {
         guard let env else { return }
-        photos = (try? await env.matches.sharedAlbum(eventId: event.id)) ?? []
+        async let photosResult = env.matches.sharedAlbum(eventId: event.id)
+        async let participantsResult = env.events.participants(eventId: event.id)
+        photos = (try? await photosResult) ?? []
+        participants = (try? await participantsResult) ?? []
     }
+
+    func ownerLabel(for userId: String) -> String {
+        guard let participant = participants.first(where: { $0.userId == userId }) else {
+            return "Trip member"
+        }
+        if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
+        if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
+        return "Trip member"
+    }
+
     var contributorCount: Int { Set(photos.map(\.ownerUserId)).count }
 }
 
@@ -27,15 +46,20 @@ enum SharedFilter: String, CaseIterable, Identifiable {
     }
 }
 
-/// The event's shared album — a chronological grid of everyone's matched
-/// photos, with the Everyone / Videos / Favorites filter row and a stats card.
 struct SharedAlbumView: View {
     @EnvironmentObject private var env: AppEnvironment
     @StateObject private var model: SharedAlbumModel
     @State private var filter: SharedFilter = .everyone
-    init(event: Event) { _model = StateObject(wrappedValue: SharedAlbumModel(event: event)) }
 
-    private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+    init(event: Event) {
+        _model = StateObject(wrappedValue: SharedAlbumModel(event: event))
+    }
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
 
     var body: some View {
         ScrollView {
@@ -57,11 +81,17 @@ struct SharedAlbumView: View {
                     ContentUnavailableViewCompat(
                         title: "No shared photos yet",
                         message: "Photos show up here as people sync their cameras.",
-                        systemImage: "square.grid.2x2")
-                        .frame(minHeight: 280)
+                        systemImage: "square.grid.2x2"
+                    )
+                    .frame(minHeight: 280)
                 } else {
                     LazyVGrid(columns: columns, spacing: 8) {
-                        ForEach(model.photos) { PhotoCard(match: $0) }
+                        ForEach(model.photos) {
+                            PhotoCard(
+                                match: $0,
+                                ownerLabel: model.ownerLabel(for: $0.ownerUserId)
+                            )
+                        }
                     }
                     .padding(.horizontal)
                 }
@@ -71,7 +101,10 @@ struct SharedAlbumView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Shared Album")
         .navigationBarTitleDisplayMode(.inline)
-        .task { model.configure(env: env); await model.reload() }
+        .task {
+            model.configure(env: env)
+            await model.reload()
+        }
         .refreshable { await model.reload() }
     }
 

@@ -122,7 +122,7 @@ public final class FirebaseAuthService: AuthService, @unchecked Sendable {
             )
         }
 
-        guard let code = AuthErrorCode.Code(
+        guard let code = AuthErrorCode(
             rawValue: nsError.code
         ) else {
             return .backend(

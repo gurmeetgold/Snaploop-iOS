@@ -30,22 +30,53 @@ struct SettingsView: View {
                 HStack(spacing: 14) {
                     ZStack {
                         Circle().fill(Theme.coralGradient)
-                        Text(String((session.user?.displayName ?? "?").prefix(1)).uppercased())
-                            .font(.title2).bold().foregroundStyle(.white)
+                        Text(profileInitial)
+                            .font(.title2)
+                            .bold()
+                            .foregroundStyle(.white)
                     }
                     .frame(width: 56, height: 56)
+
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(session.user?.displayName ?? "You").font(.headline)
+                        Text(session.user?.displayName ?? "Add your name")
+                            .font(.headline)
+
                         if let phone = session.user?.phoneNumber {
-                            Text(phone).font(.caption).foregroundStyle(.secondary)
+                            Text(phone)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
                 .padding(.vertical, 6)
 
-                NavigationLink { FaceSetupView() } label: {
-                    Label(session.hasFaceProfile ? "Update Face Setup" : "Set Up Your Face",
-                          systemImage: "faceid")
+                NavigationLink {
+                    ProfileNameView()
+                } label: {
+                    Label(
+                        session.user?.displayName == nil ? "Add Your Name" : "Edit Your Name",
+                        systemImage: "person.text.rectangle"
+                    )
+                }
+
+                NavigationLink {
+                    FaceSetupView()
+                } label: {
+                    Label(
+                        session.hasFaceProfile ? "Update Face Setup" : "Set Up Your Face",
+                        systemImage: "faceid"
+                    )
+                }
+
+                if session.hasFaceProfile {
+                    NavigationLink {
+                        FaceMatchingTestView()
+                    } label: {
+                        Label(
+                            "Test My Face Setup",
+                            systemImage: "checkmark.viewfinder"
+                        )
+                    }
                 }
             }
 
@@ -56,25 +87,41 @@ struct SettingsView: View {
             }
 
             Section {
-                Button(role: .destructive) { confirmSignOut = true } label: {
+                Button(role: .destructive) {
+                    confirmSignOut = true
+                } label: {
                     Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
 
                 if let error = model.errorMessage {
-                    Text(error).font(.footnote).foregroundStyle(.red)
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
             }
 
             Section {
                 Text("SnapLoop finds your photos from trips on-device. Your photos stay on your phone unless you're in them.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("You")
-        .confirmationDialog("Sign out of SnapLoop?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+        .confirmationDialog(
+            "Sign out of SnapLoop?",
+            isPresented: $confirmSignOut,
+            titleVisibility: .visible
+        ) {
             Button("Sign Out", role: .destructive) {
                 model.signOut(env: env, session: session)
             }
         }
+    }
+
+    private var profileInitial: String {
+        if let name = session.user?.displayName, let first = name.first {
+            return String(first).uppercased()
+        }
+        return "?"
     }
 }

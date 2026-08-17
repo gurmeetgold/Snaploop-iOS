@@ -1,25 +1,5 @@
 rules_version = '2';
 
-// SnapLoop Storage security rules.
-//
-// PREPARED AHEAD OF THE CODE: no client currently uploads to or reads from
-// Storage — MatchRepository/TransferRepository are still in-memory stubs
-// (AppEnvironment.live() wiring step 4). This defines the path convention and
-// access rules step 4 will implement against, so the schema is locked down
-// before any writes happen.
-//
-// Path convention (matches the *Path fields already on the models):
-//   events/{eventId}/cover.jpg                         <- Event.coverImagePath
-//   events/{eventId}/photos/{photoId}/thumbnail.jpg     <- EventPhoto.thumbnailPath / PhotoMatch.thumbnailPath
-//   events/{eventId}/photos/{photoId}/preview.jpg       <- EventPhoto.previewPath (optional, larger preview)
-//   events/{eventId}/transfers/{transferId}/original    <- TransferJob.temporaryObjectPath
-//
-// Originals are NEVER read directly through these rules — per the Phase 3
-// architecture rule, they move exclusively via a short-TTL signed URL minted
-// by the requestOriginalTransfer Cloud Function (which uses the Admin SDK and
-// bypasses these rules entirely). The transfers path below denies all direct
-// client access on purpose; that denial is not a placeholder to loosen later.
-
 service firebase.storage {
   match /b/{bucket}/o {
 
@@ -27,15 +7,6 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // NOTE (unverified in this environment): Storage rules referencing
-    // Firestore membership via `firestore.get`/`firestore.exists` is a real
-    // Firebase feature ("cross-service rules"), but I could not check its
-    // exact syntax against current docs from here. If the Firebase console
-    // rejects this function syntax, the fallback is to gate these paths on
-    // `isSignedIn()` alone (any authenticated user, not just event members) —
-    // weaker, but thumbnails are non-biometric event photos, not the face
-    // embeddings, so that fallback is a reasonable temporary posture, not a
-    // security hole on par with loosening the transfers path.
     function isMember(eventId) {
       return isSignedIn() &&
         firestore.exists(/databases/(default)/documents/events/$(eventId)/members/$(request.auth.uid));
@@ -46,21 +17,24 @@ service firebase.storage {
         firestore.get(/databases/(default)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
     }
 
-    // Event cover image — any member can view; only the organizer sets it.
     match /events/{eventId}/cover.jpg {
       allow read: if isMember(eventId);
-      allow write: if isOrganizer(eventId);
+      allow write: if isOrganizer(eventId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
     }
 
-    // Matched-photo thumbnails/previews — member-readable. Written by the
-    // owning device at match time (MatchRepository.upload).
-    match /events/{eventId}/photos/{photoId}/{file} {
+    // Thumbnails are readable by event members. Only the source user's device
+    // may write under its own UID folder.
+    match /events/{eventId}/photos/{ownerUserId}/{photoId}/thumbnail.jpg {
       allow read: if isMember(eventId);
-      allow write: if isMember(eventId);
+      allow write: if isMember(eventId)
+        && request.auth.uid == ownerUserId
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
     }
 
-    // Temporary originals — no direct client access, ever. Delivered only via
-    // a signed URL from the requestOriginalTransfer Cloud Function.
+    // Originals are never directly exposed through normal client Storage rules.
     match /events/{eventId}/transfers/{transferId}/{file} {
       allow read, write: if false;
     }

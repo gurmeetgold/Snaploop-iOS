@@ -1,20 +1,51 @@
+import FirebaseStorage
 import SwiftUI
+import UIKit
 
 @MainActor
 final class MyPhotosModel: ObservableObject {
     @Published var photos: [PhotoMatch] = []
+    @Published var participants: [EventParticipant] = []
     @Published var isLoading = false
 
     private var env: AppEnvironment?
     private var session: AppSession?
     let event: Event
+
     init(event: Event) { self.event = event }
-    func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
+
+    func configure(env: AppEnvironment, session: AppSession) {
+        self.env = env
+        self.session = session
+    }
 
     func reload() async {
         guard let env, let userId = session?.user?.id else { return }
-        isLoading = true; defer { isLoading = false }
-        photos = (try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []
+        isLoading = true
+        defer { isLoading = false }
+
+        async let photosResult = env.matches.myPhotos(eventId: event.id, userId: userId)
+        async let participantsResult = env.events.participants(eventId: event.id)
+
+        photos = (try? await photosResult) ?? []
+        participants = (try? await participantsResult) ?? []
+    }
+
+    func ownerLabel(for userId: String) -> String {
+        if userId == session?.user?.id {
+            if let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                return name
+            }
+            if let phone = session?.user?.phoneNumber, !phone.isEmpty { return phone }
+        }
+
+        if let participant = participants.first(where: { $0.userId == userId }) {
+            if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                return name
+            }
+            if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
+        }
+        return "Trip member"
     }
 
     /// "Not Me" — records the correction and drops the photo from this feed.
@@ -25,9 +56,6 @@ final class MyPhotosModel: ObservableObject {
     }
 }
 
-/// Filters for the My Photos / Shared Album grids. Only `.all` and `.videos`
-/// are backed by real data in this phase (Phase 3 spec: "All required for MVP;
-/// Best/Group/Portrait can be stubbed"); the rest show a friendly "coming soon".
 enum PhotoFilter: String, CaseIterable, Identifiable {
     case all, best, group, portrait, videos
     var id: String { rawValue }
@@ -44,23 +72,27 @@ enum PhotoFilter: String, CaseIterable, Identifiable {
     var isImplemented: Bool { self == .all || self == .videos }
 }
 
-/// The personal feed: "[N] photos of you". Grid renders thumbnails only — never
-/// streams originals just from scrolling.
 struct MyPhotosView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @StateObject private var model: MyPhotosModel
     @State private var filter: PhotoFilter = .all
 
-    init(event: Event) { _model = StateObject(wrappedValue: MyPhotosModel(event: event)) }
+    init(event: Event) {
+        _model = StateObject(wrappedValue: MyPhotosModel(event: event))
+    }
 
-    private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+    private let columns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
 
     private var filtered: [PhotoMatch] {
         switch filter {
         case .all: return model.photos
-        case .videos: return []   // no video capture in the MVP match pipeline yet
-        default: return model.photos   // stubbed filters show everything for now
+        case .videos: return []
+        default: return model.photos
         }
     }
 
@@ -87,15 +119,24 @@ struct MyPhotosView: View {
                         message: filter.isImplemented
                             ? "Tap Sync My Camera — and as others sync theirs, your photos will show up here."
                             : "We're still working on this filter.",
-                        systemImage: "person.crop.square")
-                        .frame(minHeight: 280)
+                        systemImage: "person.crop.square"
+                    )
+                    .frame(minHeight: 280)
                 } else {
                     LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(filtered) { match in
                             NavigationLink {
-                                PhotoDetailView(match: match) { Task { await model.markNotMe(match) } }
+                                PhotoDetailView(
+                                    match: match,
+                                    ownerLabel: model.ownerLabel(for: match.ownerUserId)
+                                ) {
+                                    Task { await model.markNotMe(match) }
+                                }
                             } label: {
-                                PhotoCard(match: match)
+                                PhotoCard(
+                                    match: match,
+                                    ownerLabel: model.ownerLabel(for: match.ownerUserId)
+                                )
                             }
                         }
                     }
@@ -107,15 +148,17 @@ struct MyPhotosView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("\(model.photos.count) photos of you")
         .navigationBarTitleDisplayMode(.inline)
-        .task { model.configure(env: env, session: session); await model.reload() }
+        .task {
+            model.configure(env: env, session: session)
+            await model.reload()
+        }
         .refreshable { await model.reload() }
     }
 }
 
-/// A grid cell in the photo-card style from the designs: rounded thumbnail,
-/// bottom-left avatar + attribution, top-right favorite heart.
 struct PhotoCard: View {
     let match: PhotoMatch
+    var ownerLabel: String = "Trip member"
     var isFavorite = false
 
     var body: some View {
@@ -124,8 +167,10 @@ struct PhotoCard: View {
             LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
             HStack(spacing: 4) {
                 Circle().fill(Theme.violetGradient).frame(width: 16, height: 16)
-                Text(match.ownerUserId)
-                    .font(.caption2).bold().foregroundStyle(.white)
+                Text(ownerLabel)
+                    .font(.caption2)
+                    .bold()
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                 Spacer()
             }
@@ -142,27 +187,78 @@ struct PhotoCard: View {
     }
 }
 
-/// Placeholder thumbnail cell. Real image loading (from Storage `thumbnailPath`)
-/// is wired with the Firebase layer; the contract — thumbnails only, never
-/// originals — is fixed here.
-struct ThumbnailCell: View {
-    let path: String?
-    var body: some View {
-        Rectangle()
-            .fill(Theme.violetGradient.opacity(0.25))
-            .aspectRatio(1, contentMode: .fill)
-            .overlay {
-                Image(systemName: path == nil ? "photo" : "photo.fill")
-                    .foregroundStyle(.secondary)
+@MainActor
+private final class StorageThumbnailLoader: ObservableObject {
+    @Published var image: UIImage?
+    @Published var failed = false
+
+    private static let cache = NSCache<NSString, UIImage>()
+
+    func load(path: String?) async {
+        guard let path, !path.isEmpty else { return }
+        if let cached = Self.cache.object(forKey: path as NSString) {
+            image = cached
+            return
+        }
+
+        do {
+            let data: Data = try await withCheckedThrowingContinuation { continuation in
+                Storage.storage().reference(withPath: path).getData(maxSize: 5 * 1024 * 1024) { data, error in
+                    if let error { continuation.resume(throwing: error); return }
+                    guard let data else {
+                        continuation.resume(throwing: AppError.originalUnavailable)
+                        return
+                    }
+                    continuation.resume(returning: data)
+                }
             }
-            .clipped()
+
+            guard let decoded = UIImage(data: data) else {
+                failed = true
+                return
+            }
+            Self.cache.setObject(decoded, forKey: path as NSString)
+            image = decoded
+        } catch {
+            failed = true
+        }
     }
 }
 
-/// Photo detail with attribution + actions.
+struct ThumbnailCell: View {
+    let path: String?
+    @StateObject private var loader = StorageThumbnailLoader()
+
+    var body: some View {
+        Group {
+            if let image = loader.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle()
+                    .fill(Theme.violetGradient.opacity(0.25))
+                    .overlay {
+                        if loader.failed {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ProgressView()
+                        }
+                    }
+            }
+        }
+        .aspectRatio(1, contentMode: .fill)
+        .clipped()
+        .task(id: path) { await loader.load(path: path) }
+    }
+}
+
 struct PhotoDetailView: View {
     let match: PhotoMatch
+    let ownerLabel: String
     let onNotMe: () -> Void
+
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
@@ -175,21 +271,28 @@ struct PhotoDetailView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16))
 
             VStack(spacing: 4) {
-                Text("Taken by \(match.ownerUserId)")   // resolved to display name in Firebase layer
+                Text("Taken by \(ownerLabel)")
                     .font(.subheadline)
                 Text(DateFormatting.longDate(match.capturedAt))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 28) {
                 actionButton("Download", "arrow.down.circle") { Task { await requestDownload() } }
-                actionButton("Share", "square.and.arrow.up") { /* share */ }
-                actionButton("Favorite", "heart") { /* favorite */ }
+                actionButton("Share", "square.and.arrow.up") { }
+                actionButton("Favorite", "heart") { }
                 actionButton("Not Me", "person.crop.circle.badge.xmark", role: .destructive) {
-                    onNotMe(); dismiss()
+                    onNotMe()
+                    dismiss()
                 }
             }
-            if let requestState { Text(requestState).font(.caption).foregroundStyle(.secondary) }
+
+            if let requestState {
+                Text(requestState)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
         }
         .padding()
@@ -200,12 +303,19 @@ struct PhotoDetailView: View {
     private func requestDownload() async {
         guard let userId = session.user?.id else { return }
         let job = try? await env.transfers.requestTransfer(
-            eventId: match.eventId, photo: match, requestingUserId: userId)
-        requestState = job?.userStatus(sourceName: match.ownerUserId)
+            eventId: match.eventId,
+            photo: match,
+            requestingUserId: userId
+        )
+        requestState = job?.userStatus(sourceName: ownerLabel)
     }
 
-    private func actionButton(_ title: String, _ icon: String, role: ButtonRole? = nil,
-                              action: @escaping () -> Void) -> some View {
+    private func actionButton(
+        _ title: String,
+        _ icon: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(role: role, action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon).font(.title3)

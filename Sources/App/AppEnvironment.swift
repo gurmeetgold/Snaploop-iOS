@@ -1,8 +1,6 @@
 import Foundation
 
-/// The dependency-injection container for the app. Holds one instance of each
-/// service behind its protocol; every feature reads its dependencies from here
-/// and never constructs a concrete service itself.
+/// The dependency-injection container for SnapLoop.
 @MainActor
 public final class AppEnvironment: ObservableObject {
 
@@ -17,6 +15,7 @@ public final class AppEnvironment: ObservableObject {
     public let transfers: TransferRepository
     public let scanStateStore: ScanStateStore
     public let faceProfiles: FaceProfileStore
+    public let biometricConsent: BiometricConsentStore
     public let users: UserDirectory
     public let quality: QualityScoring
     public let analytics: AnalyticsService
@@ -33,6 +32,7 @@ public final class AppEnvironment: ObservableObject {
         transfers: TransferRepository,
         scanStateStore: ScanStateStore,
         faceProfiles: FaceProfileStore,
+        biometricConsent: BiometricConsentStore,
         users: UserDirectory,
         quality: QualityScoring,
         analytics: AnalyticsService
@@ -48,13 +48,18 @@ public final class AppEnvironment: ObservableObject {
         self.transfers = transfers
         self.scanStateStore = scanStateStore
         self.faceProfiles = faceProfiles
+        self.biometricConsent = biometricConsent
         self.users = users
         self.quality = quality
         self.analytics = analytics
     }
 
     public func makeErasureService() -> ErasureService {
-        ErasureService(events: events, faceProfiles: faceProfiles, users: users)
+        ErasureService(
+            events: events,
+            faceProfiles: faceProfiles,
+            users: users
+        )
     }
 
     public func makeSyncCoordinator() -> CameraSyncCoordinator {
@@ -68,18 +73,13 @@ public final class AppEnvironment: ObservableObject {
             scanStateStore: scanStateStore
         )
     }
-    /// Whether this run should use real backend services.
+
+    /// Normal runs use Firebase/live services.
     ///
-    /// SnapLoop now defaults to LIVE services so normal development and testing
-    /// use Firebase automatically.
-    ///
-    /// To explicitly run against local/in-memory stub services, set:
-    ///
+    /// To explicitly use in-memory development stubs, set:
     ///     SNAPLOOP_DEV=1
-    ///
-    /// in the Xcode scheme environment variables.
     public static var useLiveServices: Bool {
-        ProcessInfo.processInfo.environment["SNAPLOOP_LIVE"] != "1"
+        ProcessInfo.processInfo.environment["SNAPLOOP_DEV"] != "1"
     }
 
     public static func current() -> AppEnvironment {
@@ -99,29 +99,46 @@ public final class AppEnvironment: ObservableObject {
             transfers: InMemoryTransferRepository(),
             scanStateStore: InMemoryScanStateStore(),
             faceProfiles: InMemoryFaceProfileStore(),
+            biometricConsent: InMemoryBiometricConsentStore(),
             users: InMemoryUserDirectory(),
             quality: StubQualityScoring(),
             analytics: InMemoryAnalytics()
         )
     }
 
-    /// Live environment. Auth + user directory + private face-profile storage
-    /// are now Firebase-backed. Events/matches/transfers remain deliberately
-    /// stubbed until their trusted server-side operations are added.
+    /// Current live state:
+    /// ✅ Firebase Auth
+    /// ✅ Firestore UserDirectory
+    /// ✅ Firestore FaceProfileStore
+    /// ✅ Firestore + Cloud Functions EventRepository
+    ///
+    /// PhotoKit, Remote Config, Firestore match metadata, and Storage thumbnails
+    /// are live. The production face identity model and original-transfer
+    /// orchestration remain separate release slices.
     public static func live() -> AppEnvironment {
         FirebaseBootstrap.configureIfNeeded()
+
+        let faceService: FaceDetectionService
+
+        #if DEBUG
+        faceService = VisionDevelopmentFaceDetectionService()
+        #else
+        faceService = StubFaceDetectionService()
+        #endif
+
         return AppEnvironment(
-            config: StaticConfigProvider(.default),
+            config: FirebaseRemoteConfigProvider(),
             clock: SystemClock(),
             auth: FirebaseAuthService(),
-            photoLibrary: StubPhotoLibraryService(),
-            faceDetection: StubFaceDetectionService(),
+            photoLibrary: PhotoKitPhotoLibraryService(),
+            faceDetection: faceService,
             thumbnailEncoder: ImageIOThumbnailEncoder(),
-            events: InMemoryEventRepository(),
-            matches: InMemoryMatchRepository(),
+            events: FirebaseEventRepository(),
+            matches: FirebaseMatchRepository(),
             transfers: InMemoryTransferRepository(),
             scanStateStore: UserDefaultsScanStateStore(),
             faceProfiles: FirebaseFaceProfileStore(),
+            biometricConsent: FirebaseBiometricConsentStore(),
             users: FirebaseUserDirectory(),
             quality: StubQualityScoring(),
             analytics: InMemoryAnalytics()
