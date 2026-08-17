@@ -15,22 +15,16 @@ final class HomeModel: ObservableObject {
         events = (try? await env.events.events(forUserId: userId)) ?? []
     }
 
-    /// Total matched photos of the user across every joined event — the Home
-    /// insight banner's headline number.
     func totalPhotosOfMe() async -> Int {
         guard let env, let userId = session?.user?.id else { return 0 }
         var total = 0
-        for event in events {
+        for event in events where event.status != .deletedByOrganizer {
             total += ((try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []).count
         }
         return total
     }
 }
 
-/// Home: the trip list, plus (when `showsGreeting`) the greeting header,
-/// Create/Join cards, and an insight banner — matching the product's Home
-/// screen. The Trips tab reuses this same view with the greeting section
-/// collapsed, so there's exactly one source of truth for "your trips".
 struct HomeView: View {
     var showsGreeting: Bool = true
 
@@ -42,50 +36,48 @@ struct HomeView: View {
     @State private var joinRoute: DeepLinkRoute?
     @State private var photosOfMe = 0
 
+    private var visibleEvents: [Event] {
+        model.events.filter { $0.status != .deletedByOrganizer }
+    }
+
+    private var deletedEvents: [Event] {
+        model.events.filter { $0.status == .deletedByOrganizer }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if showsGreeting {
                     greeting
                     createJoinRow
-                    if !model.events.isEmpty {
+                    if !visibleEvents.isEmpty {
                         InsightBanner(value: "\(photosOfMe)", label: "photos found of you", systemImage: "sparkles")
                     }
                 }
 
-                HStack {
-                    Text(showsGreeting ? "Your Trips" : "All Trips").font(.title3).bold()
-                    Spacer()
-                }
-                .padding(.horizontal)
+                sectionHeader(showsGreeting ? "Your Events" : "All Events")
 
-                if model.events.isEmpty {
+                if visibleEvents.isEmpty {
                     emptyState.padding(.horizontal)
                 } else {
-                    VStack(spacing: 12) {
-                        ForEach(model.events) { event in
-                            NavigationLink {
-                                EventDashboardView(event: event)
-                            } label: {
-                                TripCard(event: event)
-                            }
-                            .buttonStyle(.plain)
-                            .simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
-                        }
-                    }
-                    .padding(.horizontal)
+                    eventList(visibleEvents)
+                }
+
+                if !deletedEvents.isEmpty {
+                    sectionHeader("Deleted")
+                    eventList(deletedEvents)
                 }
             }
             .padding(.vertical)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle(showsGreeting ? "" : "Trips")
+        .navigationTitle(showsGreeting ? "" : "Events")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !showsGreeting {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button { showCreate = true } label: { Label("Create Trip", systemImage: "plus") }
+                        Button { showCreate = true } label: { Label("Create Event", systemImage: "plus") }
                         Button { showJoin = true } label: { Label("Join with Code", systemImage: "qrcode.viewfinder") }
                     } label: { Image(systemName: "plus.circle.fill") }
                 }
@@ -107,16 +99,43 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $showJoin) {
-            EnterCodeView { route in showJoin = false; joinRoute = route }
+            EnterCodeView { route in
+                showJoin = false
+                joinRoute = route
+            }
         }
         .sheet(item: $joinRoute) { route in
             NavigationStack {
                 JoinEventView(route: route) { event in
-                    joinRoute = nil; session.activeEvent = event
+                    joinRoute = nil
+                    session.activeEvent = event
                     Task { await model.reload() }
                 }
             }
         }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title).font(.title3).bold()
+            Spacer()
+        }
+        .padding(.horizontal)
+    }
+
+    private func eventList(_ events: [Event]) -> some View {
+        VStack(spacing: 12) {
+            ForEach(events) { event in
+                NavigationLink {
+                    EventDashboardView(event: event)
+                } label: {
+                    EventCard(event: event, currentUserId: session.user?.id)
+                }
+                .buttonStyle(.plain)
+                .simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
+            }
+        }
+        .padding(.horizontal)
     }
 
     private var greeting: some View {
@@ -135,12 +154,12 @@ struct HomeView: View {
     private var createJoinRow: some View {
         HStack(spacing: 12) {
             Button { showCreate = true } label: {
-                actionCard(title: "Create Trip", subtitle: "Start a new adventure",
-                          icon: "plus", gradient: Theme.coralGradient)
+                actionCard(title: "Create Event", subtitle: "Party, trip, family & more",
+                           icon: "plus", gradient: Theme.coralGradient)
             }
             Button { showJoin = true } label: {
-                actionCard(title: "Join Trip", subtitle: "Enter a trip code",
-                          icon: "person.2.fill", gradient: Theme.skyGradient)
+                actionCard(title: "Join Event", subtitle: "Enter an event code",
+                           icon: "person.2.fill", gradient: Theme.skyGradient)
             }
         }
         .buttonStyle(.plain)
@@ -165,8 +184,8 @@ struct HomeView: View {
         VStack(spacing: 16) {
             Image(systemName: "photo.on.rectangle.angled")
                 .font(.system(size: 44)).foregroundStyle(.secondary)
-            Text("You're not in any trips yet.").font(.headline)
-            Text("Create a trip for your event, or join one with a code.")
+            Text("You're not in any events yet.").font(.headline)
+            Text("Create an event, or join one with a code.")
                 .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -174,20 +193,38 @@ struct HomeView: View {
     }
 }
 
-/// A trip row card: cover image, name, status pill, dates, participant avatars.
-private struct TripCard: View {
+private struct EventCard: View {
     let event: Event
+    let currentUserId: String?
     @EnvironmentObject private var env: AppEnvironment
 
-    private var status: EventLifecycle.Status {
+    private var lifecycle: EventLifecycle.Status {
         EventLifecycle.status(for: event, clock: env.clock, config: env.config.current)
     }
+
+    private var roleLabel: String {
+        event.creatorUserId == currentUserId ? "ORGANIZER" : "MEMBER"
+    }
+
     private var statusLabel: String {
-        switch status {
-        case .upcoming: return "UPCOMING"
-        case .active: return "LIVE"
-        case .grace: return "WRAPPING UP"
+        switch event.status {
+        case .endedByOrganizer: return "ENDED"
+        case .deletedByOrganizer: return "DELETED"
         case .expired: return "COMPLETED"
+        case .active:
+            switch lifecycle {
+            case .upcoming: return "UPCOMING"
+            case .active: return "LIVE"
+            case .grace: return "WRAPPING UP"
+            case .expired: return "COMPLETED"
+            }
+        }
+    }
+
+    private var statusTint: Color {
+        switch event.status {
+        case .endedByOrganizer, .deletedByOrganizer, .expired: return .gray
+        case .active: return Theme.tint(for: lifecycle)
         }
     }
 
@@ -201,10 +238,12 @@ private struct TripCard: View {
             .frame(width: 72, height: 72)
             .clipShape(RoundedRectangle(cornerRadius: 14))
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(event.name).font(.headline).foregroundStyle(Theme.ink)
-                    StatusPill(text: statusLabel, tint: Theme.tint(for: status))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(event.name).font(.headline).foregroundStyle(Theme.ink)
+                HStack(spacing: 6) {
+                    Text(roleLabel)
+                        .font(.caption2).bold().foregroundStyle(.secondary)
+                    StatusPill(text: statusLabel, tint: statusTint)
                 }
                 Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
                     .font(.caption).foregroundStyle(.secondary)
@@ -218,7 +257,6 @@ private struct TripCard: View {
     }
 }
 
-/// Manual "Enter Code" entry (the secondary in-person join path).
 struct EnterCodeView: View {
     let onResolved: (DeepLinkRoute) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -228,14 +266,14 @@ struct EnterCodeView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Enter trip code or link") {
+                Section("Enter event code or link") {
                     TextField("e.g. ABC-234", text: $text)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                 }
                 if let error { Text(error).foregroundStyle(.red).font(.footnote) }
             }
-            .navigationTitle("Join Trip")
+            .navigationTitle("Join Event")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -245,7 +283,8 @@ struct EnterCodeView: View {
                         } else {
                             error = AppError.invalidJoinCode.userMessage
                         }
-                    }.disabled(text.isEmpty)
+                    }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
