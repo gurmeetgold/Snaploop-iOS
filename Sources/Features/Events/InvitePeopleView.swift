@@ -4,17 +4,13 @@ import SwiftUI
 
 struct ContactPhonePicker: UIViewControllerRepresentable {
     let onPhone: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     final class Coordinator: NSObject, CNContactPickerDelegate {
         let parent: ContactPhonePicker
         init(parent: ContactPhonePicker) { self.parent = parent }
         func contactPicker(_ picker: CNContactPickerViewController, didSelect contactProperty: CNContactProperty) {
-            if let phone = contactProperty.value as? CNPhoneNumber {
-                parent.onPhone(phone.stringValue)
-            }
+            if let phone = contactProperty.value as? CNPhoneNumber { parent.onPhone(phone.stringValue) }
         }
-        func contactPickerDidCancel(_ picker: CNContactPickerViewController) {}
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -32,17 +28,14 @@ struct ContactPhonePicker: UIViewControllerRepresentable {
 struct MessageInviteComposer: UIViewControllerRepresentable {
     let recipients: [String]
     let body: String
-    @Environment(\.dismiss) private var dismiss
 
     final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
-        let parent: MessageInviteComposer
-        init(parent: MessageInviteComposer) { self.parent = parent }
         func messageComposeViewController(_ controller: MFMessageComposeViewController, didFinishWith result: MessageComposeResult) {
             controller.dismiss(animated: true)
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIViewController(context: Context) -> MFMessageComposeViewController {
         let controller = MFMessageComposeViewController()
         controller.messageComposeDelegate = context.coordinator
@@ -53,69 +46,81 @@ struct MessageInviteComposer: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: MFMessageComposeViewController, context: Context) {}
 }
 
-/// MVP organizer-assisted invite. The HTTPS token is stable: an installed app
-/// can route it into the exact Join screen; otherwise Firebase Hosting can show
-/// the download/landing experience. Existing-account lookup + silent in-app
-/// delivery intentionally remains server-authoritative rather than scraping the
-/// users collection from a client.
 struct InvitePeopleView: View {
     let event: Event
+    @State private var country: PhoneCountry = .localeDefault
     @State private var phone = ""
+    @State private var smsRecipient = ""
     @State private var showContacts = false
     @State private var showMessage = false
+    @State private var isSending = false
+    @State private var message: String?
     @State private var errorMessage: String?
+    @State private var statuses: [EventInviteStatusRow] = []
 
     private var token: InviteToken { InviteToken(event.inviteToken) ?? InviteToken(unchecked: event.inviteToken) }
     private var inviteURL: URL { InviteLink.url(forToken: token) }
-    private var messageBody: String {
-        "Join \(event.name) on SnapLoop: \(inviteURL.absoluteString)"
-    }
+    private var messageBody: String { "Join \(event.name) on SnapLoop: \(inviteURL.absoluteString)" }
 
     var body: some View {
         Form {
             Section("Add a person") {
-                TextField("Phone number", text: $phone)
-                    .keyboardType(.phonePad)
-                    .textContentType(.telephoneNumber)
-
-                Button {
-                    showContacts = true
-                } label: {
+                HStack {
+                    Menu {
+                        ForEach(PhoneCountry.supported) { value in
+                            Button("\(value.name)  \(value.callingCode)") { country = value }
+                        }
+                    } label: {
+                        Text("\(country.regionCode) \(country.callingCode)")
+                    }
+                    TextField("Phone number", text: $phone)
+                        .keyboardType(.phonePad)
+                        .textContentType(.telephoneNumber)
+                }
+                Button { showContacts = true } label: {
                     Label("Choose from Contacts", systemImage: "person.crop.circle.badge.plus")
                 }
             }
 
             Section {
                 Button {
-                    let trimmed = phone.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard trimmed.filter(\.isNumber).count >= 8 else {
-                        errorMessage = "Enter or choose a valid phone number."
-                        return
-                    }
-                    guard MFMessageComposeViewController.canSendText() else {
-                        errorMessage = "Messages is not available on this device. Use Share Link instead."
-                        return
-                    }
-                    errorMessage = nil
-                    showMessage = true
+                    Task { await sendInvite() }
                 } label: {
-                    Label("Send Invite", systemImage: "message.fill")
+                    Group { if isSending { ProgressView() } else { Label("Send Invite", systemImage: "paperplane.fill") } }
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(isSending || phone.isEmpty)
+
+                if let message { Text(message).foregroundStyle(.secondary) }
+                if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+            }
+
+            if !statuses.isEmpty {
+                Section("Invitations") {
+                    ForEach(statuses) { row in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(row.phoneNumber)
+                                Text(row.delivery == "in_app" ? "In-app" : "SMS")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(row.status.capitalized)
+                                .font(.caption).bold()
+                        }
+                    }
+                }
             }
 
             Section("How it works") {
-                Text("The invite always points to this exact trip. If SnapLoop is already installed, the app handles the trip link. Otherwise the web landing page can send the person to the App Store and preserve the invite token.")
-                Text("For the commercial flow, SnapLoop will check the phone number server-side first: existing users get an in-app invitation; non-users get SMS. We do not auto-join anyone without acceptance.")
+                Text("SnapLoop checks the phone number on the server. Existing users receive a pending in-app trip invitation, so no SMS is needed. A person without a SnapLoop account gets the SMS invite link instead.")
+                Text("Nobody is silently added to a trip. The recipient still accepts the invitation before membership and face matching begin.")
                     .foregroundStyle(.secondary)
-            }
-
-            if let errorMessage {
-                Section { Text(errorMessage).foregroundStyle(.red) }
             }
         }
         .navigationTitle("Invite by Phone")
+        .task { await refreshStatuses() }
         .sheet(isPresented: $showContacts) {
             ContactPhonePicker { selected in
                 phone = selected
@@ -123,7 +128,46 @@ struct InvitePeopleView: View {
             }
         }
         .sheet(isPresented: $showMessage) {
-            MessageInviteComposer(recipients: [phone], body: messageBody)
+            MessageInviteComposer(recipients: [smsRecipient], body: messageBody)
         }
+    }
+
+    @MainActor
+    private func sendInvite() async {
+        guard let normalized = PhoneNumberNormalizer.e164(localInput: phone, country: country) else {
+            errorMessage = "Enter or choose a valid phone number."
+            return
+        }
+        isSending = true
+        message = nil
+        errorMessage = nil
+        defer { isSending = false }
+
+        do {
+            let delivery = try await EventInviteClient.invite(eventId: event.id, phoneNumber: normalized)
+            phone = normalized
+            switch delivery.kind {
+            case .inApp:
+                message = "Invitation delivered inside SnapLoop. No SMS was sent."
+            case .sms:
+                smsRecipient = normalized
+                guard MFMessageComposeViewController.canSendText() else {
+                    message = "This person does not have SnapLoop yet. Use Share Link to send \(inviteURL.absoluteString)."
+                    await refreshStatuses()
+                    return
+                }
+                message = "This person does not have SnapLoop yet. Send the prepared SMS invitation."
+                showMessage = true
+            }
+            await refreshStatuses()
+        } catch {
+            errorMessage = (error as NSError).localizedDescription
+        }
+    }
+
+    @MainActor
+    private func refreshStatuses() async {
+        do { statuses = try await EventInviteClient.list(eventId: event.id) }
+        catch { /* Status display is non-critical; sending can still surface its own error. */ }
     }
 }
