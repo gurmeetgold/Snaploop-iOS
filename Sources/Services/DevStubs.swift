@@ -40,7 +40,7 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
     private let lock = NSLock()
     private var events: [String: Event] = [:]
     private var roster: [String: [EventParticipant]] = [:]
-    private var membership: [String: [String: EventMember]] = [:]   // eventId -> userId -> member
+    private var membership: [String: [String: EventMember]] = [:]
 
     func createEvent(_ event: Event) async throws {
         lock.lock(); events[event.id] = event; lock.unlock()
@@ -63,27 +63,31 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard var e = events[id] else { throw AppError.eventNotFound }
         e.name = name; e.category = category; e.coverImagePath = coverImagePath
-        e.locationName = locationName; e.updatedAt = Date()
-        events[id] = e   // identity fields untouched, by contract
+        e.locationName = locationName; e.updatedAt = Date(); events[id] = e
     }
     func updateEventDates(id: String, startsAt: Date, endsAt: Date) async throws {
         lock.lock(); defer { lock.unlock() }
         guard var e = events[id] else { throw AppError.eventNotFound }
-        e.startsAt = startsAt; e.endsAt = endsAt; e.updatedAt = Date()
-        events[id] = e
+        e.startsAt = startsAt; e.endsAt = endsAt; e.updatedAt = Date(); events[id] = e
     }
-    func endEvent(id: String) async throws {
+    func endEvent(id: String) async throws { try setStatus(id: id, status: .endedByOrganizer) }
+    func reopenEvent(id: String) async throws { try setStatus(id: id, status: .active) }
+    func moveEventToDeleted(id: String) async throws { try setStatus(id: id, status: .deletedByOrganizer) }
+    func restoreEvent(id: String) async throws { try setStatus(id: id, status: .active) }
+
+    private func setStatus(id: String, status: EventStatus) throws {
         lock.lock(); defer { lock.unlock() }
         guard var e = events[id] else { throw AppError.eventNotFound }
-        e.status = .endedByOrganizer; e.updatedAt = Date(); events[id] = e
+        e.status = status; e.updatedAt = Date(); events[id] = e
     }
+
     func addMember(eventId: String, member: EventMember) async throws {
         lock.lock(); membership[eventId, default: [:]][member.userId] = member; lock.unlock()
     }
     func removeMember(eventId: String, userId: String) async throws {
         lock.lock()
         membership[eventId]?[userId] = nil
-        roster[eventId]?.removeAll { $0.userId == userId }   // revoke embedding
+        roster[eventId]?.removeAll { $0.userId == userId }
         lock.unlock()
     }
     func setSharing(eventId: String, userId: String, enabled: Bool) async throws {
@@ -114,7 +118,7 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
 
 final class InMemoryTransferRepository: TransferRepository, @unchecked Sendable {
     private let lock = NSLock()
-    private var jobs: [String: TransferJob] = [:]   // transferId -> job
+    private var jobs: [String: TransferJob] = [:]
     private let clock: Clock
     init(clock: Clock = SystemClock()) { self.clock = clock }
 
@@ -151,7 +155,6 @@ final class InMemoryFaceProfileStore: FaceProfileStore, @unchecked Sendable {
     func delete(userId: String) async throws {
         lock.lock(); store[userId] = nil; lock.unlock()
     }
-    // Test helper.
     func exists(userId: String) -> Bool { lock.lock(); defer { lock.unlock() }; return store[userId] != nil }
 }
 
@@ -168,8 +171,6 @@ final class InMemoryUserDirectory: UserDirectory, @unchecked Sendable {
     func exists(userId: String) -> Bool { lock.lock(); defer { lock.unlock() }; return store[userId] != nil }
 }
 
-/// Neutral quality scores so the AI features render believably in dev without a
-/// real on-device model.
 struct StubQualityScoring: QualityScoring {
     func signals(for photoIds: [String]) async -> [String: PhotoQualitySignals] {
         Dictionary(uniqueKeysWithValues: photoIds.map {
@@ -210,36 +211,21 @@ final class InMemoryMatchRepository: MatchRepository, @unchecked Sendable {
     }
 }
 
-
-public final class InMemoryBiometricConsentStore:
-    BiometricConsentStore,
-    @unchecked Sendable {
-
+public final class InMemoryBiometricConsentStore: BiometricConsentStore, @unchecked Sendable {
     private var records: [String: BiometricConsentRecord] = [:]
     private let lock = NSLock()
 
     public init() {}
 
-    public func load(
-        userId: String
-    ) async throws -> BiometricConsentRecord? {
-        lock.lock()
-        defer { lock.unlock() }
-        return records[userId]
+    public func load(userId: String) async throws -> BiometricConsentRecord? {
+        lock.lock(); defer { lock.unlock() }; return records[userId]
     }
 
-    public func save(
-        _ record: BiometricConsentRecord
-    ) async throws {
-        lock.lock()
-        records[record.userId] = record
-        lock.unlock()
+    public func save(_ record: BiometricConsentRecord) async throws {
+        lock.lock(); records[record.userId] = record; lock.unlock()
     }
 
-    public func withdraw(
-        userId: String,
-        at date: Date
-    ) async throws {
+    public func withdraw(userId: String, at date: Date) async throws {
         lock.lock()
         if var record = records[userId] {
             record.withdrawnAt = date
