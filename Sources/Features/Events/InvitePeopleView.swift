@@ -114,8 +114,8 @@ struct InvitePeopleView: View {
             }
 
             Section("How it works") {
-                Text("SnapLoop checks the phone number on the server. Existing users receive a pending in-app trip invitation, so no SMS is needed. A person without a SnapLoop account gets the SMS invite link instead.")
-                Text("Nobody is silently added to a trip. The recipient still accepts the invitation before membership and face matching begin.")
+                Text("SnapLoop checks the phone number on the server. Existing users receive a pending in-app event invitation, so no SMS is needed. A person without a SnapLoop account gets the SMS invite link instead.")
+                Text("Nobody is silently added to an event. The recipient accepts the invitation before membership and face matching begin.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -134,6 +134,10 @@ struct InvitePeopleView: View {
 
     @MainActor
     private func sendInvite() async {
+        guard event.status == .active else {
+            errorMessage = "This event is not accepting new invitations. Reopen it first if you're the organizer."
+            return
+        }
         guard let normalized = PhoneNumberNormalizer.e164(localInput: phone, country: country) else {
             errorMessage = "Enter or choose a valid phone number."
             return
@@ -152,7 +156,7 @@ struct InvitePeopleView: View {
             case .sms:
                 smsRecipient = normalized
                 guard MFMessageComposeViewController.canSendText() else {
-                    message = "This person does not have SnapLoop yet. Use Share Link to send \(inviteURL.absoluteString)."
+                    message = "This person does not have SnapLoop yet. Use Share Invite to send \(inviteURL.absoluteString)."
                     await refreshStatuses()
                     return
                 }
