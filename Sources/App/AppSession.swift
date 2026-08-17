@@ -17,23 +17,26 @@ public final class AppSession: ObservableObject {
     public var isRegistered: Bool { user != nil }
     public var hasFaceProfile: Bool { faceProfile?.version == FaceModelPolicy.currentVersion }
 
-    /// Atomic account switch for shared-device testing. Clear account-scoped UI
-    /// state first, then install only the new user's objects. Local reference
-    /// images and scan-state stores remain keyed by UID separately.
+    /// Atomic account switch for shared-device testing. A pending route is kept
+    /// only when it was intentionally captured while signed out (for example an
+    /// invite link opened before OTP sign-in).
     public func beginAuthenticatedSession(user: User, faceProfile: FaceProfile?) {
-        self.activeEvent = nil
+        activeEvent = nil
         self.user = nil
         self.faceProfile = nil
         self.user = user
         self.faceProfile = faceProfile
     }
 
-    public func clearAuthenticatedSession() {
+    /// Clears all account-scoped state. Explicit sign-out uses the default and
+    /// also discards stale invite UI from the previous account.
+    public func clearAuthenticatedSession(preservePendingRoute: Bool = false) {
         user = nil
         faceProfile = nil
         activeEvent = nil
-        // Keep pendingRoute: an invite tapped before/while signing in should
-        // still resume after the next successful authentication.
+        if !preservePendingRoute {
+            pendingRoute = nil
+        }
     }
 
     public static func dev() -> AppSession {
