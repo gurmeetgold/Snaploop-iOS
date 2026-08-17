@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Top-level router. In live mode it first restores a persisted Firebase Auth
-/// session into the Firestore-backed SnapLoop user/profile session.
+/// Top-level router. In live mode it restores a persisted Firebase Auth session
+/// and replays only the current account's pending invite route.
 struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var session: AppSession
@@ -40,9 +40,7 @@ struct RootView: View {
             guard phase == .active else { return }
             Task { await loadPendingInviteIfNeeded() }
         }
-        .onOpenURL { url in
-            captureInvite(url)
-        }
+        .onOpenURL { url in captureInvite(url) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { captureInvite(url) }
         }
@@ -51,8 +49,6 @@ struct RootView: View {
     @MainActor
     private func captureInvite(_ url: URL) {
         if let route = DeepLinkRouter.route(for: url) {
-            // Keep the route even if authentication/Face Setup is not ready.
-            // It is replayed once the signed-in MainTabView becomes available.
             session.pendingRoute = route
         }
     }
@@ -67,7 +63,6 @@ struct RootView: View {
                 session.pendingRoute = route
             }
         } catch {
-            // A pending-invite check must never prevent the app from opening.
             Log.events.error("Pending invite lookup failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -100,41 +95,42 @@ struct RootView: View {
 
 struct MainTabView: View {
     @State private var selectedTab = Tab.home
-    enum Tab { case home, trips, shared, requests, you }
+    enum Tab { case home, events, shared, you }
 
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack { HomeView(showsGreeting: true) }
-                .tabItem { Label("Home", systemImage: "house.fill") }.tag(Tab.home)
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(Tab.home)
+
             NavigationStack { HomeView(showsGreeting: false) }
-                .tabItem { Label("Trips", systemImage: "suitcase.fill") }.tag(Tab.trips)
-            NavigationStack { ActiveEventScopedView(kind: .shared) }
-                .tabItem { Label("Shared", systemImage: "person.2.fill") }.tag(Tab.shared)
-            NavigationStack { ActiveEventScopedView(kind: .requests) }
-                .tabItem { Label("Requests", systemImage: "bell.fill") }.tag(Tab.requests)
+                .tabItem { Label("Events", systemImage: "calendar") }
+                .tag(Tab.events)
+
+            NavigationStack { ActiveEventSharedView() }
+                .tabItem { Label("Shared", systemImage: "person.2.fill") }
+                .tag(Tab.shared)
+
             NavigationStack { SettingsView() }
-                .tabItem { Label("You", systemImage: "person.crop.circle.fill") }.tag(Tab.you)
+                .tabItem { Label("You", systemImage: "person.crop.circle.fill") }
+                .tag(Tab.you)
         }
         .tint(Theme.coral)
     }
 }
 
-private struct ActiveEventScopedView: View {
-    enum Kind { case shared, requests }
-    let kind: Kind
+private struct ActiveEventSharedView: View {
     @EnvironmentObject private var session: AppSession
 
     var body: some View {
         if let event = session.activeEvent {
-            switch kind {
-            case .shared: SharedAlbumView(event: event)
-            case .requests: RequestsView(event: event)
-            }
+            SharedAlbumView(event: event)
         } else {
             ContentUnavailableViewCompat(
-                title: "Pick a trip",
-                message: "Open a trip from Home to see its \(kind == .shared ? "shared album" : "requests") here.",
-                systemImage: kind == .shared ? "person.2" : "bell")
+                title: "Pick an event",
+                message: "Open an event from Home to see its shared album here.",
+                systemImage: "person.2"
+            )
         }
     }
 }
