@@ -10,6 +10,14 @@ public struct AlignedFace: Sendable {
     public let interocularPixels: Double
     public let yawDegrees: Double?
     public let pitchDegrees: Double?
+    public let rollDegrees: Double?
+}
+
+public struct FaceAlignmentDiagnostics: Sendable {
+    public let facesDetected: Int
+    public let facesWithUsableLandmarks: Int
+    public let alignmentFailures: Int
+    public let alignedFaces: [AlignedFace]
 }
 
 /// Canonical five-point alignment for ArcFace-family embedding models.
@@ -23,12 +31,16 @@ public enum FaceAligner {
     ]
 
     public static func alignedFaces(in imageData: Data, outputSize: Int) async throws -> [AlignedFace] {
+        try await diagnostics(in: imageData, outputSize: outputSize).alignedFaces
+    }
+
+    public static func diagnostics(in imageData: Data, outputSize: Int) async throws -> FaceAlignmentDiagnostics {
         try await Task.detached(priority: .userInitiated) {
-            try alignSync(imageData: imageData, outputSize: outputSize)
+            try diagnoseSync(imageData: imageData, outputSize: outputSize)
         }.value
     }
 
-    private static func alignSync(imageData: Data, outputSize: Int) throws -> [AlignedFace] {
+    private static func diagnoseSync(imageData: Data, outputSize: Int) throws -> FaceAlignmentDiagnostics {
         guard let ui = UIImage(data: imageData),
               let upright = uprightImage(ui),
               let cg = upright.cgImage else {
@@ -47,12 +59,22 @@ public enum FaceAligner {
         let qualities = qualityRequest.results ?? []
         let scale = CGFloat(outputSize) / 112.0
         let target = canonical112.map { CGPoint(x: $0.x * scale, y: $0.y * scale) }
+        let observations = landmarkRequest.results ?? []
 
-        var result: [AlignedFace] = []
-        for face in landmarkRequest.results ?? [] {
-            guard let source = fivePoints(face, width: width, height: height),
-                  let transform = estimateSimilarity(source: source, target: target),
+        var alignedFaces: [AlignedFace] = []
+        var usableLandmarks = 0
+        var alignmentFailures = 0
+
+        for face in observations {
+            guard let source = fivePoints(face, width: width, height: height) else {
+                alignmentFailures += 1
+                continue
+            }
+            usableLandmarks += 1
+
+            guard let transform = estimateSimilarity(source: source, target: target),
                   let aligned = render(upright, transform: transform, outputSize: outputSize) else {
+                alignmentFailures += 1
                 continue
             }
 
@@ -61,17 +83,25 @@ public enum FaceAligner {
             let quality = nearestQuality(to: face, from: qualities)
             let yaw = face.yaw.map { $0.doubleValue * 180 / .pi }
             let pitch = face.pitch.map { $0.doubleValue * 180 / .pi }
+            let roll = face.roll.map { $0.doubleValue * 180 / .pi }
 
-            result.append(AlignedFace(
+            alignedFaces.append(AlignedFace(
                 image: aligned,
                 sizeFraction: Double(facePixels / shorter),
                 quality: quality,
                 interocularPixels: Double(interocular),
                 yawDegrees: yaw,
-                pitchDegrees: pitch
+                pitchDegrees: pitch,
+                rollDegrees: roll
             ))
         }
-        return result
+
+        return FaceAlignmentDiagnostics(
+            facesDetected: observations.count,
+            facesWithUsableLandmarks: usableLandmarks,
+            alignmentFailures: alignmentFailures,
+            alignedFaces: alignedFaces
+        )
     }
 
     private static func fivePoints(_ face: VNFaceObservation, width: CGFloat, height: CGFloat) -> [CGPoint]? {
