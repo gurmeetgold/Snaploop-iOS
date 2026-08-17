@@ -21,21 +21,23 @@
 <body>
   <main>
     <div class="mark">↻</div>
-    <h1>Join this SnapLoop trip</h1>
-    <p>If SnapLoop is installed, open the invite directly in the app.</p>
+    <h1>Join this SnapLoop event</h1>
+    <p id="message">If SnapLoop is installed, open this invitation in the app.</p>
     <a id="open" class="button" href="#">Open SnapLoop</a>
-    <a id="store" class="button secondary" href="#" hidden>Download SnapLoop</a>
-    <p id="dev" class="small">SnapLoop is currently in development. The App Store download button will appear here when the production listing is live.</p>
+    <a id="store" class="button secondary" href="#" hidden>Get SnapLoop</a>
+    <p id="dev" class="small">MVP test page. App Store installation and automatic post-install invite recovery will be enabled when the production listing and Universal Links are live.</p>
   </main>
 <script>
 (() => {
   const path = window.location.pathname;
   const match = path.match(/^\/(e|c)\/([^/]+)/);
   const open = document.getElementById("open");
+  const message = document.getElementById("message");
 
   if (!match) {
     open.textContent = "Open SnapLoop";
     open.href = "snaploop://";
+    message.textContent = "Open SnapLoop to continue.";
     return;
   }
 
@@ -43,8 +45,6 @@
   const value = encodeURIComponent(match[2]);
   open.href = `snaploop://${kind}/${value}`;
 
-  // Once the App Store ID exists, set this to the real listing URL and the
-  // download button becomes available without changing invite URLs.
   const APP_STORE_URL = "";
   if (APP_STORE_URL) {
     const store = document.getElementById("store");
