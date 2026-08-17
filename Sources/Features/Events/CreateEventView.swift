@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 final class CreateEventModel: ObservableObject {
     @Published var name = ""
-    @Published var category: EventCategory = .trip
+    @Published var category: EventCategory = .other
     @Published var startsAt = Date()
     @Published var endsAt = Date().addingTimeInterval(3 * 86_400)
     @Published var locationName = ""
@@ -13,11 +13,8 @@ final class CreateEventModel: ObservableObject {
     private var env: AppEnvironment?
     private var session: AppSession?
     init() {}
-    func configure(env: AppEnvironment, session: AppSession) {
-        self.env = env; self.session = session
-    }
+    func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
 
-    /// Creates the event and returns it, or surfaces human error copy.
     func create() async -> Event? {
         guard let env, let session else { return nil }
         guard let user = session.user, let profile = session.faceProfile else {
@@ -48,7 +45,6 @@ struct CreateEventView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: CreateEventModel
-    /// Called with the created event so the caller can present its dashboard/share.
     let onCreated: (Event) -> Void
 
     init(onCreated: @escaping (Event) -> Void) {
@@ -60,10 +56,10 @@ struct CreateEventView: View {
         NavigationStack {
             Form {
                 Section("Event") {
-                    TextField("Name (e.g. Weekend in Montreal)", text: $model.name)
+                    TextField("Name (e.g. Maya's Birthday, Goa 2026)", text: $model.name)
                     Picker("Type", selection: $model.category) {
-                        ForEach(EventCategory.allCases, id: \.self) { c in
-                            Label(c.displayName, systemImage: c.systemImage).tag(c)
+                        ForEach(EventCategory.allCases, id: \.self) { category in
+                            Label(category.displayName, systemImage: category.systemImage).tag(category)
                         }
                     }
                     TextField("Location (optional)", text: $model.locationName)
@@ -72,8 +68,7 @@ struct CreateEventView: View {
                     DatePicker("Starts", selection: $model.startsAt, displayedComponents: [.date])
                     DatePicker("Ends", selection: $model.endsAt, displayedComponents: [.date])
                     if model.startsAt < Date() {
-                        Label("We'll also look back through photos from before today.",
-                              systemImage: "clock.arrow.circlepath")
+                        Label("We'll also look back through photos from before today.", systemImage: "clock.arrow.circlepath")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
