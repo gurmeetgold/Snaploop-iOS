@@ -55,6 +55,9 @@ public protocol EventRepository: Sendable {
     func updateEventDetails(id: String, name: String, category: EventCategory, coverImagePath: String?, locationName: String?) async throws
     func updateEventDates(id: String, startsAt: Date, endsAt: Date) async throws
     func endEvent(id: String) async throws
+    func reopenEvent(id: String) async throws
+    func moveEventToDeleted(id: String) async throws
+    func restoreEvent(id: String) async throws
     func addMember(eventId: String, member: EventMember) async throws
     func removeMember(eventId: String, userId: String) async throws
     func setSharing(eventId: String, userId: String, enabled: Bool) async throws
