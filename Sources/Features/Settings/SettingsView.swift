@@ -7,9 +7,7 @@ final class SettingsModel: ObservableObject {
     func signOut(env: AppEnvironment, session: AppSession) {
         do {
             try env.auth.signOut()
-            session.user = nil
-            session.faceProfile = nil
-            session.activeEvent = nil
+            session.clearAuthenticatedSession()
         } catch let error as AppError {
             errorMessage = error.userMessage
         } catch {
@@ -53,29 +51,20 @@ struct SettingsView: View {
                 NavigationLink {
                     ProfileNameView()
                 } label: {
-                    Label(
-                        session.user?.displayName == nil ? "Add Your Name" : "Edit Your Name",
-                        systemImage: "person.text.rectangle"
-                    )
+                    Label(session.user?.displayName == nil ? "Add Your Name" : "Edit Your Name", systemImage: "person.text.rectangle")
                 }
 
                 NavigationLink {
                     FaceSetupView()
                 } label: {
-                    Label(
-                        session.hasFaceProfile ? "Update Face Setup" : "Set Up Your Face",
-                        systemImage: "faceid"
-                    )
+                    Label(session.hasFaceProfile ? "Update Face Setup" : "Set Up Your Face", systemImage: "faceid")
                 }
 
                 if session.hasFaceProfile {
                     NavigationLink {
                         FaceMatchingTestView()
                     } label: {
-                        Label(
-                            "Test My Face Setup",
-                            systemImage: "checkmark.viewfinder"
-                        )
+                        Label("Test My Face Setup", systemImage: "checkmark.viewfinder")
                     }
                 }
             }
@@ -94,24 +83,17 @@ struct SettingsView: View {
                 }
 
                 if let error = model.errorMessage {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
+                    Text(error).font(.footnote).foregroundStyle(.red)
                 }
             }
 
             Section {
                 Text("SnapLoop finds your photos from trips on-device. Your photos stay on your phone unless you're in them.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
         .navigationTitle("You")
-        .confirmationDialog(
-            "Sign out of SnapLoop?",
-            isPresented: $confirmSignOut,
-            titleVisibility: .visible
-        ) {
+        .confirmationDialog("Sign out of SnapLoop?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) {
                 model.signOut(env: env, session: session)
             }
@@ -119,9 +101,7 @@ struct SettingsView: View {
     }
 
     private var profileInitial: String {
-        if let name = session.user?.displayName, let first = name.first {
-            return String(first).uppercased()
-        }
+        if let name = session.user?.displayName, let first = name.first { return String(first).uppercased() }
         return "?"
     }
 }
