@@ -17,7 +17,6 @@ enum QRCode {
     }
 }
 
-/// UIKit share sheet bridge for "Share Event → WhatsApp / Messages / Copy Link".
 struct ActivityView: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {
@@ -26,14 +25,14 @@ struct ActivityView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
-/// The invite screen: dominant "Share Link" path plus a QR + short code for
-/// in-person joining. The link/code/QR all resolve to the same stable event.
 struct ShareEventView: View {
     let event: Event
+    @EnvironmentObject private var session: AppSession
     @State private var showShareSheet = false
 
     private var token: InviteToken { InviteToken(event.inviteToken) ?? InviteToken(unchecked: event.inviteToken) }
     private var url: URL { InviteLink.url(forToken: token) }
+    private var isOrganizer: Bool { session.user?.id == event.creatorUserId }
 
     var body: some View {
         ScrollView {
@@ -41,14 +40,23 @@ struct ShareEventView: View {
                 Text("Invite people to \(event.name)")
                     .font(.title3).bold().multilineTextAlignment(.center)
 
-                Button {
-                    showShareSheet = true
-                } label: {
+                Button { showShareSheet = true } label: {
                     Label("Share Link", systemImage: "square.and.arrow.up")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+
+                if isOrganizer {
+                    NavigationLink {
+                        InvitePeopleView(event: event)
+                    } label: {
+                        Label("Add by Phone or Contacts", systemImage: "person.crop.circle.badge.plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
 
                 VStack(spacing: 12) {
                     Text("Or scan in person").font(.subheadline).foregroundStyle(.secondary)
