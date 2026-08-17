@@ -53,14 +53,16 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gurmeetchhiber.snaploop.app
+        CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: SnapLoop
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop looks through your photos to find pictures of you from your trips. Matching happens on your device; only matched thumbnails are shared with trip members."
-        INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the front camera to set up your face and can use the camera to scan trip QR codes."
-        INFOPLIST_KEY_NSContactsUsageDescription: "SnapLoop lets an organizer choose a contact to send that person a trip invitation. SnapLoop does not upload your address book."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop looks through photos on this iPhone from your events to find confident matches. Matching happens on-device; only matched optimized previews are shared with event members."
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "SnapLoop saves a shared photo preview to your Photos library only when you tap Save."
+        INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the front camera for guided Face Setup and can use the camera for event QR codes."
+        INFOPLIST_KEY_NSContactsUsageDescription: "SnapLoop lets an organizer choose a contact to send that person an event invitation. SnapLoop does not upload your address book."
 
   SnapLoopTests:
     type: bundle.unit-test
@@ -85,6 +87,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.snaploop.app.tests
+        CODE_SIGNING_ALLOWED: NO
 
 schemes:
   SnapLoop:
