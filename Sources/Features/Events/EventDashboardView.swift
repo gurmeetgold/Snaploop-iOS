@@ -21,6 +21,9 @@ struct EventDashboardView: View {
     private var lifecycle: EventLifecycle.Status {
         EventLifecycle.status(for: event, clock: env.clock, config: env.config.current)
     }
+    private var canReopenEndedEvent: Bool {
+        isOrganizer && event.status == .endedByOrganizer && lifecycle != .expired
+    }
 
     var body: some View {
         ScrollView {
@@ -30,7 +33,7 @@ struct EventDashboardView: View {
                 featureGrid
                 statsRow
                 membersRow
-                invitePeopleRow
+                if event.status == .active { invitePeopleRow }
                 managementControls
                 if let actionError {
                     Text(actionError).font(.footnote).foregroundStyle(.red).padding(.horizontal)
@@ -127,8 +130,6 @@ struct EventDashboardView: View {
         .padding(.horizontal)
     }
 
-    /// Requests/original transfer, Favorites, filters and AI Highlights stay
-    /// hidden until their full workflows are production-ready.
     private var featureGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             NavigationLink { MyPhotosView(event: event) } label: {
@@ -210,6 +211,11 @@ struct EventDashboardView: View {
             Text(isOrganizer ? "Organizer Controls" : "Membership")
                 .font(.subheadline).bold().foregroundStyle(.secondary)
             if isOrganizer {
+                if canReopenEndedEvent {
+                    Button { Task { await reopen() } } label: {
+                        Label("Reopen Event", systemImage: "arrow.counterclockwise.circle")
+                    }
+                }
                 Button(role: .destructive) { confirmArchive = true } label: {
                     Label("Move Event to Deleted", systemImage: "trash")
                 }
@@ -231,6 +237,14 @@ struct EventDashboardView: View {
             if let phone = participant.phoneNumber { return String(phone.suffix(2)) }
         }
         return "?"
+    }
+
+    @MainActor
+    private func reopen() async {
+        do {
+            try await env.events.restoreEvent(id: event.id)
+            actionError = "Event reopened. Go back and reopen it to refresh the screen."
+        } catch { actionError = (error as NSError).localizedDescription }
     }
 
     @MainActor
