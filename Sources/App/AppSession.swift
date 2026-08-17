@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 
-/// Observable holder for the signed-in user's session state.
 @MainActor
 public final class AppSession: ObservableObject {
     @Published public var user: User?
@@ -17,23 +16,24 @@ public final class AppSession: ObservableObject {
     public var isRegistered: Bool { user != nil }
     public var hasFaceProfile: Bool { faceProfile?.version == FaceModelPolicy.currentVersion }
 
-    /// Atomic account switch for shared-device testing. Clear account-scoped UI
-    /// state first, then install only the new user's objects. Local reference
-    /// images and scan-state stores remain keyed by UID separately.
     public func beginAuthenticatedSession(user: User, faceProfile: FaceProfile?) {
-        self.activeEvent = nil
+        activeEvent = nil
         self.user = nil
         self.faceProfile = nil
         self.user = user
         self.faceProfile = faceProfile
+        // pendingRoute is intentionally preserved here. If this authentication
+        // was started by a freshly tapped invite, it must resume after sign-in.
     }
 
-    public func clearAuthenticatedSession() {
+    /// Full account reset used by Sign Out and failed session bootstrap. This
+    /// clears stale event/invite UI so a different account on the same iPhone
+    /// cannot inherit an invite from the previous signed-in user.
+    public func clearAuthenticatedSession(clearPendingRoute: Bool = true) {
         user = nil
         faceProfile = nil
         activeEvent = nil
-        // Keep pendingRoute: an invite tapped before/while signing in should
-        // still resume after the next successful authentication.
+        if clearPendingRoute { pendingRoute = nil }
     }
 
     public static func dev() -> AppSession {
