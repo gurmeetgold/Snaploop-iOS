@@ -2,10 +2,7 @@ import SwiftUI
 
 @MainActor
 final class PhoneAuthModel: ObservableObject {
-    enum Stage {
-        case enterPhone
-        case enterCode(verificationId: String)
-    }
+    enum Stage { case enterPhone, enterCode(verificationId: String) }
 
     @Published var stage: Stage = .enterPhone
     @Published var selectedCountry: PhoneCountry = .localeDefault
@@ -48,7 +45,6 @@ final class PhoneAuthModel: ObservableObject {
         isBusy = true
         errorMessage = nil
         defer { isBusy = false }
-
         do {
             let uid = try await env.auth.confirmVerification(verificationId: verificationId, code: code)
             let canonicalPhone = normalizedPhoneNumber
@@ -60,13 +56,8 @@ final class PhoneAuthModel: ObservableObject {
                 user = try await env.users.fetch(userId: uid)
             } catch let error as AppError {
                 if case .backend(let backendCode, _) = error, backendCode == "user_not_found" {
-                    let created = User(
-                        id: uid,
-                        phoneNumber: canonicalPhone,
-                        displayName: nil,
-                        hasFaceProfile: false,
-                        createdAt: env.clock.now()
-                    )
+                    let created = User(id: uid, phoneNumber: canonicalPhone, displayName: nil,
+                                       hasFaceProfile: false, createdAt: env.clock.now())
                     try await env.users.save(created)
                     user = created
                 } else {
@@ -80,10 +71,6 @@ final class PhoneAuthModel: ObservableObject {
                 reconciledUser.hasFaceProfile = faceProfile != nil
                 try await env.users.save(reconciledUser)
             }
-
-            // Assign session state only after all reads succeed, preventing a
-            // half-switched account from inheriting the previous account's face
-            // profile or active event on a shared device.
             session.beginAuthenticatedSession(user: reconciledUser, faceProfile: faceProfile)
         } catch let error as AppError {
             errorMessage = error.userMessage
@@ -127,10 +114,8 @@ struct PhoneAuthFlowView: View {
                 .padding(.horizontal, 24)
 
                 if let error = model.errorMessage {
-                    Text(error)
-                        .font(.footnote).foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
+                    Text(error).font(.footnote).foregroundStyle(.red)
+                        .multilineTextAlignment(.center).padding(.horizontal, 24)
                 }
                 Spacer()
                 Spacer()
@@ -141,78 +126,66 @@ struct PhoneAuthFlowView: View {
 
     private var phoneEntry: some View {
         VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Menu {
+            HStack {
+                Text("Country / region")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                Picker("Country / region", selection: $model.selectedCountry) {
                     ForEach(PhoneCountry.supported) { country in
-                        Button("\(country.name)  \(country.callingCode)") {
-                            model.selectedCountry = country
-                        }
+                        Text("\(country.name)  \(country.callingCode)").tag(country)
                     }
-                } label: {
-                    HStack(spacing: 5) {
-                        Text(model.selectedCountry.regionCode)
-                        Text(model.selectedCountry.callingCode)
-                        Image(systemName: "chevron.down").font(.caption2)
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 15)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
                 }
+                .pickerStyle(.menu)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
 
+            HStack(spacing: 10) {
+                Text(model.selectedCountry.callingCode)
+                    .font(.body.monospacedDigit()).bold()
+                    .foregroundStyle(Theme.coral)
+                    .padding(.leading, 14)
+                Divider().frame(height: 28)
                 TextField("Phone number", text: $model.phoneNumber)
                     .keyboardType(.phonePad)
                     .textContentType(.telephoneNumber)
-                    .padding()
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .padding(.vertical, 15).padding(.trailing, 14)
             }
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
 
-            Text("Country defaults from your iPhone region. You can also paste a full +country-code number.")
+            Text("Country defaults from your iPhone region. You can still paste a full +country-code number.")
                 .font(.caption).foregroundStyle(.secondary)
 
             Button { Task { await model.sendCode() } } label: {
                 Group { if model.isBusy { ProgressView() } else { Text("Send Code") } }
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.coral)
-            .controlSize(.large)
+            .buttonStyle(.borderedProminent).tint(Theme.coral).controlSize(.large)
             .disabled(model.isBusy || model.phoneNumber.isEmpty)
         }
     }
 
     private var codeEntry: some View {
         VStack(spacing: 12) {
-            if let normalized = model.normalizedPhoneNumber {
-                Text("Enter the code sent to \(normalized)")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                Text("Enter the code we sent you")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            }
+            Text(model.normalizedPhoneNumber.map { "Enter the code sent to \($0)" } ?? "Enter the code we sent you")
+                .font(.subheadline).foregroundStyle(.secondary)
             TextField("6-digit code", text: $model.code)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .multilineTextAlignment(.center)
-                .font(.title2).bold()
-                .padding()
+                .keyboardType(.numberPad).textContentType(.oneTimeCode)
+                .multilineTextAlignment(.center).font(.title2).bold().padding()
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
 
             Button { Task { await model.verifyCode() } } label: {
                 Group { if model.isBusy { ProgressView() } else { Text("Verify") } }
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.coral)
-            .controlSize(.large)
+            .buttonStyle(.borderedProminent).tint(Theme.coral).controlSize(.large)
             .disabled(model.isBusy || model.code.count < 4)
 
-            Button("Use a different number") { model.useADifferentNumber() }
-                .font(.footnote)
+            Button("Use a different number") { model.useADifferentNumber() }.font(.footnote)
         }
     }
 }
 
 #Preview {
-    PhoneAuthFlowView()
-        .environmentObject(AppEnvironment.dev())
-        .environmentObject(AppSession())
+    PhoneAuthFlowView().environmentObject(AppEnvironment.dev()).environmentObject(AppSession())
 }
