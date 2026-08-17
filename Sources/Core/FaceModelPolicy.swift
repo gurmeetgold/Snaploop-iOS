@@ -4,13 +4,22 @@ import Foundation
 ///
 /// v1 = original placeholder embedding.
 /// v2 = single-template DEBUG Vision feature-print pipeline.
-/// v3 = guided multi-template enrollment + multi-template decision engine.
+/// v3 = guided multi-template enrollment + multi-template decision engine,
+///      but still on loose, sometimes-mis-oriented crops.
+/// v4 = landmark-aligned pipeline (`FaceAligner` → `FaceEmbeddingEngine`):
+///      eye-normalized, orientation-correct, fixed-size crops fed to a
+///      pluggable embedding engine (interim aligned feature-print in DEBUG, a
+///      real Core ML identity model when one is bundled). v3 descriptors were
+///      computed in a different, unaligned space and MUST NOT be compared
+///      against v4 — bumping the version forces a clean re-enrollment,
+///      event-roster template refresh, and camera-roll re-scan.
 ///
-/// Production release still requires a commercially licensed identity-trained
-/// face engine. v3 keeps that engine behind the existing FaceDetectionService
-/// seam so the vendor can be swapped without changing the rest of the app.
+/// NOTE: within v4 the *interim* dev engine and a *real* Core ML engine still
+/// produce different embedding spaces. Only one engine is active per build, so
+/// this is safe in practice; switching the active engine kind for a shipped
+/// build must bump this to v5 to force re-enrollment again.
 public enum FaceModelPolicy {
-    public static let currentVersion = 3
+    public static let currentVersion = 4
 
     /// Number of diverse templates SnapLoop tries to collect during guided
     /// enrollment. The matcher works with fewer, but 5 gives us useful pose

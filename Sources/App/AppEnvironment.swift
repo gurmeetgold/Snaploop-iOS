@@ -118,13 +118,12 @@ public final class AppEnvironment: ObservableObject {
     public static func live() -> AppEnvironment {
         FirebaseBootstrap.configureIfNeeded()
 
-        let faceService: FaceDetectionService
-
-        #if DEBUG
-        faceService = VisionDevelopmentFaceDetectionService()
-        #else
-        faceService = StubFaceDetectionService()
-        #endif
+        // v4 landmark-aligned pipeline. Uses a bundled Core ML identity model
+        // if present, else the interim aligned feature-print (DEBUG) / a
+        // not-ready service (release). Replaces the V3
+        // VisionDevelopmentFaceDetectionService (kept in the tree for the Face
+        // Test screen's side-by-side comparison).
+        let faceService: FaceDetectionService = PipelineFaceDetectionService.makeDefault()
 
         return AppEnvironment(
             config: FirebaseRemoteConfigProvider(),
