@@ -3,48 +3,26 @@ import Foundation
 import UIKit
 import Vision
 
-/// One aligned face ready for embedding.
 public struct AlignedFace: Sendable {
-    /// Square, eye-normalized crop at the embedding model's expected input size.
     public let image: CGImage
-    /// Face size as a fraction of the source image's shorter edge (for the
-    /// existing `minFaceSizeFraction` gate).
     public let sizeFraction: Double
-    /// Vision capture-quality in 0...1 when available (blur/exposure proxy).
     public let quality: Double?
-    /// Absolute inter-ocular distance in source pixels — a hard proxy for "is
-    /// this face big enough to be worth trusting".
     public let interocularPixels: Double
+    public let yawDegrees: Double?
+    public let pitchDegrees: Double?
 }
 
-/// Landmark-based face alignment — the piece missing from V2/V3.
-///
-/// Root cause it fixes: the previous pipeline cropped a 1.55× square around the
-/// raw face rectangle and always ran Vision at `orientation: .up`. That fed the
-/// descriptor faces that were (a) rotated whenever the source photo carried EXIF
-/// orientation, and (b) never eye-aligned, so the same person at two head
-/// angles produced very different descriptors. Any identity model — generic or
-/// trained — needs a canonicalized input to separate identities; this provides
-/// it.
-///
-/// Method: detect landmarks, take both eye centers, and apply the 2-point
-/// similarity transform (rotation + uniform scale + translation) that maps them
-/// onto fixed canonical positions in a square output. Everything is done in
-/// UIKit top-left pixel space to avoid the flipped-origin bugs that plague
-/// Core Image alignment code. Orientation is baked upright *before* Vision runs.
+/// Canonical five-point alignment for ArcFace-family embedding models.
 public enum FaceAligner {
+    private static let canonical112: [CGPoint] = [
+        CGPoint(x: 38.2946, y: 51.6963),
+        CGPoint(x: 73.5318, y: 51.5014),
+        CGPoint(x: 56.0252, y: 71.7366),
+        CGPoint(x: 41.5493, y: 92.3655),
+        CGPoint(x: 70.7299, y: 92.2041)
+    ]
 
-    /// Canonical eye positions as fractions of the square output. Eyes on a
-    /// horizontal line at 40% height, symmetric about center with 30% spacing —
-    /// the de-facto ArcFace-family convention.
-    private static let leftEyeDest = CGPoint(x: 0.35, y: 0.40)
-    private static let rightEyeDest = CGPoint(x: 0.65, y: 0.40)
-
-    /// Aligns every detectable face in an image (group photos included).
-    public static func alignedFaces(
-        in imageData: Data,
-        outputSize: Int
-    ) async throws -> [AlignedFace] {
+    public static func alignedFaces(in imageData: Data, outputSize: Int) async throws -> [AlignedFace] {
         try await Task.detached(priority: .userInitiated) {
             try alignSync(imageData: imageData, outputSize: outputSize)
         }.value
@@ -57,131 +35,132 @@ public enum FaceAligner {
             throw AppError.faceEmbeddingFailed
         }
 
+        let landmarkRequest = VNDetectFaceLandmarksRequest()
+        let qualityRequest = VNDetectFaceCaptureQualityRequest()
+        let handler = VNImageRequestHandler(cgImage: cg, orientation: .up)
+        try handler.perform([landmarkRequest])
+        try? handler.perform([qualityRequest])
+
         let width = CGFloat(cg.width)
         let height = CGFloat(cg.height)
-        let shorterEdge = max(1, min(width, height))
+        let shorter = max(1, min(width, height))
+        let qualities = qualityRequest.results ?? []
+        let scale = CGFloat(outputSize) / 112.0
+        let target = canonical112.map { CGPoint(x: $0.x * scale, y: $0.y * scale) }
 
-        let landmarks = VNDetectFaceLandmarksRequest()
-        let quality = VNDetectFaceCaptureQualityRequest()
-        let handler = VNImageRequestHandler(cgImage: cg, orientation: .up)
-        // Capture quality is best-effort; alignment must not fail if it errors.
-        try? handler.perform([quality])
-        try handler.perform([landmarks])
-
-        let observations = landmarks.results ?? []
-        let qualityByIndex = (quality.results ?? []).enumerated().reduce(into: [Int: Double]()) {
-            if let q = $1.element.faceCaptureQuality { $0[$1.offset] = Double(q) }
-        }
-
-        var results: [AlignedFace] = []
-        for (index, obs) in observations.enumerated() {
-            guard let eyes = eyeCentersInPixels(obs, imageWidth: width, imageHeight: height) else {
-                continue   // no usable landmarks → skip rather than mis-align
+        var result: [AlignedFace] = []
+        for face in landmarkRequest.results ?? [] {
+            guard let source = fivePoints(face, width: width, height: height),
+                  let transform = estimateSimilarity(source: source, target: target),
+                  let aligned = render(upright, transform: transform, outputSize: outputSize) else {
+                continue
             }
-            let interocular = hypot(eyes.right.x - eyes.left.x, eyes.right.y - eyes.left.y)
-            guard interocular > 1 else { continue }   // degenerate
 
-            guard let aligned = warp(
-                source: upright,
-                leftEye: eyes.left,
-                rightEye: eyes.right,
-                outputSize: outputSize
-            ) else { continue }
+            let interocular = hypot(source[1].x - source[0].x, source[1].y - source[0].y)
+            let facePixels = max(face.boundingBox.width * width, face.boundingBox.height * height)
+            let quality = nearestQuality(to: face, from: qualities)
+            let yaw = face.yaw.map { $0.doubleValue * 180 / .pi }
+            let pitch = face.pitch.map { $0.doubleValue * 180 / .pi }
 
-            let faceSize = max(obs.boundingBox.width * width, obs.boundingBox.height * height)
-            results.append(AlignedFace(
+            result.append(AlignedFace(
                 image: aligned,
-                sizeFraction: Double(faceSize / shorterEdge),
-                quality: qualityByIndex[index],
-                interocularPixels: Double(interocular)
+                sizeFraction: Double(facePixels / shorter),
+                quality: quality,
+                interocularPixels: Double(interocular),
+                yawDegrees: yaw,
+                pitchDegrees: pitch
             ))
         }
-        return results
+        return result
     }
 
-    // MARK: - Landmarks → pixel eye centers
-
-    private static func eyeCentersInPixels(
-        _ obs: VNFaceObservation,
-        imageWidth: CGFloat,
-        imageHeight: CGFloat
-    ) -> (left: CGPoint, right: CGPoint)? {
-        guard let landmarks = obs.landmarks,
+    private static func fivePoints(_ face: VNFaceObservation, width: CGFloat, height: CGFloat) -> [CGPoint]? {
+        guard let landmarks = face.landmarks,
               let leftEye = landmarks.leftEye,
-              let rightEye = landmarks.rightEye else {
-            return nil
+              let rightEye = landmarks.rightEye,
+              let nose = landmarks.nose,
+              let lips = landmarks.outerLips else { return nil }
+
+        func points(_ region: VNFaceLandmarkRegion2D) -> [CGPoint] {
+            region.normalizedPoints.map { p in
+                let nx = face.boundingBox.minX + CGFloat(p.x) * face.boundingBox.width
+                let ny = face.boundingBox.minY + CGFloat(p.y) * face.boundingBox.height
+                return CGPoint(x: nx * width, y: (1 - ny) * height)
+            }
         }
-        // Landmark points are normalized within the face bounding box, in
-        // Vision's lower-left origin. Convert region centroid → normalized image
-        // coords → top-left pixel coords.
-        func pixelCentroid(_ region: VNFaceLandmarkRegion2D) -> CGPoint {
-            let pts = region.normalizedPoints
-            guard !pts.isEmpty else { return .zero }
-            let sum = pts.reduce(CGPoint.zero) { CGPoint(x: $0.x + CGFloat($1.x), y: $0.y + CGFloat($1.y)) }
-            let mean = CGPoint(x: sum.x / CGFloat(pts.count), y: sum.y / CGFloat(pts.count))
-            let box = obs.boundingBox
-            let nx = box.origin.x + mean.x * box.width
-            let ny = box.origin.y + mean.y * box.height
-            return CGPoint(x: nx * imageWidth, y: (1 - ny) * imageHeight)
+        func mean(_ region: VNFaceLandmarkRegion2D) -> CGPoint? {
+            let ps = points(region)
+            guard !ps.isEmpty else { return nil }
+            let sx = ps.reduce(CGFloat.zero) { $0 + $1.x }
+            let sy = ps.reduce(CGFloat.zero) { $0 + $1.y }
+            return CGPoint(x: sx / CGFloat(ps.count), y: sy / CGFloat(ps.count))
         }
-        // Vision's "leftEye" is the subject's left eye, which appears on the
-        // right side of the image. Assign by actual x so the transform is
-        // never mirrored.
-        let a = pixelCentroid(leftEye)
-        let b = pixelCentroid(rightEye)
-        return a.x <= b.x ? (left: a, right: b) : (left: b, right: a)
+
+        guard let eyeA = mean(leftEye), let eyeB = mean(rightEye), let nosePoint = mean(nose) else { return nil }
+        let eyes = [eyeA, eyeB].sorted { $0.x < $1.x }
+        let mouth = points(lips)
+        guard let mouthLeft = mouth.min(by: { $0.x < $1.x }),
+              let mouthRight = mouth.max(by: { $0.x < $1.x }) else { return nil }
+        return [eyes[0], eyes[1], nosePoint, mouthLeft, mouthRight]
     }
 
-    // MARK: - Similarity-transform warp (top-left pixel space)
+    static func estimateSimilarity(source: [CGPoint], target: [CGPoint]) -> CGAffineTransform? {
+        guard source.count == target.count, source.count >= 2 else { return nil }
+        let n = CGFloat(source.count)
+        let sMean = CGPoint(x: source.reduce(0) { $0 + $1.x } / n, y: source.reduce(0) { $0 + $1.y } / n)
+        let tMean = CGPoint(x: target.reduce(0) { $0 + $1.x } / n, y: target.reduce(0) { $0 + $1.y } / n)
 
-    private static func warp(
-        source: UIImage,
-        leftEye: CGPoint,
-        rightEye: CGPoint,
-        outputSize: Int
-    ) -> CGImage? {
-        let n = CGFloat(outputSize)
-        let destLeft = CGPoint(x: leftEyeDest.x * n, y: leftEyeDest.y * n)
-        let destRight = CGPoint(x: rightEyeDest.x * n, y: rightEyeDest.y * n)
+        var a: CGFloat = 0, b: CGFloat = 0, denom: CGFloat = 0
+        for i in source.indices {
+            let px = source[i].x - sMean.x, py = source[i].y - sMean.y
+            let qx = target[i].x - tMean.x, qy = target[i].y - tMean.y
+            a += px * qx + py * qy
+            b += px * qy - py * qx
+            denom += px * px + py * py
+        }
+        guard denom > 0 else { return nil }
+        let mag = hypot(a, b)
+        guard mag > 0 else { return nil }
+        let scale = mag / denom
+        let angle = atan2(b, a)
+        let c = cos(angle) * scale, s = sin(angle) * scale
+        let tx = tMean.x - (c * sMean.x - s * sMean.y)
+        let ty = tMean.y - (s * sMean.x + c * sMean.y)
+        return CGAffineTransform(a: c, b: s, c: -s, d: c, tx: tx, ty: ty)
+    }
 
-        let srcDx = rightEye.x - leftEye.x
-        let srcDy = rightEye.y - leftEye.y
-        let srcDist = hypot(srcDx, srcDy)
-        let destDist = destRight.x - destLeft.x
-        guard srcDist > 0.0001 else { return nil }
-
-        let scale = destDist / srcDist
-        // Rotate the source eye vector onto the horizontal dest vector.
-        let angle = -atan2(srcDy, srcDx)
-
-        // Applied to a point: translate(-leftEye) → scale → rotate → translate(destLeft).
-        var t = CGAffineTransform(translationX: destLeft.x, y: destLeft.y)
-        t = t.rotated(by: angle)
-        t = t.scaledBy(x: scale, y: scale)
-        t = t.translatedBy(x: -leftEye.x, y: -leftEye.y)
-
+    private static func render(_ source: UIImage, transform: CGAffineTransform, outputSize: Int) -> CGImage? {
+        let size = CGSize(width: outputSize, height: outputSize)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: n, height: n), format: format)
-        let out = renderer.image { ctx in
-            ctx.cgContext.concatenate(t)
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { ctx in
+            UIColor.black.setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            ctx.cgContext.concatenate(transform)
             source.draw(at: .zero)
-        }
-        return out.cgImage
+        }.cgImage
     }
 
-    // MARK: - Orientation
+    private static func nearestQuality(to face: VNFaceObservation, from candidates: [VNFaceObservation]) -> Double? {
+        candidates.max { iou($0.boundingBox, face.boundingBox) < iou($1.boundingBox, face.boundingBox) }?.faceCaptureQuality.map(Double.init)
+    }
 
-    /// Bakes any EXIF/UIImage orientation into an upright bitmap so Vision and
-    /// the warp both operate in a single, unambiguous coordinate space.
+    private static func iou(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let intersection = a.intersection(b)
+        guard !intersection.isNull else { return 0 }
+        let ia = intersection.width * intersection.height
+        let ua = a.width * a.height + b.width * b.height - ia
+        return ua > 0 ? ia / ua : 0
+    }
+
     static func uprightImage(_ image: UIImage) -> UIImage? {
         if image.imageOrientation == .up { return image }
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
-        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
-        return renderer.image { _ in
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
             image.draw(in: CGRect(origin: .zero, size: image.size))
         }
     }
