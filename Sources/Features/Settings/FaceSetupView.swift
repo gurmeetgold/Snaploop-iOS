@@ -15,13 +15,18 @@ final class FaceSetupModel: ObservableObject {
     private var env: AppEnvironment?
     private var session: AppSession?
 
+    var guidedTemplateCount: Int {
+        templates.filter { $0.pose != .imported }.count
+    }
+
+    var hasGalleryReference: Bool {
+        templates.contains { $0.pose == .imported }
+    }
+
     func configure(env: AppEnvironment, session: AppSession) async {
         self.env = env
         self.session = session
 
-        // Always reload by UID when this screen appears. On a phone shared by
-        // multiple test accounts this prevents a stale in-memory preview from
-        // the previous account from remaining on screen.
         if let userId = session.user?.id {
             previewData = LocalFaceReferenceStore.load(userId: userId)
         } else {
@@ -66,15 +71,13 @@ final class FaceSetupModel: ObservableObject {
         defer { isBusy = false }
 
         do {
-            var newTemplates: [FaceTemplate] = []
+            let imported = templates.filter { $0.pose == .imported }.prefix(1)
+            var newGuidedTemplates: [FaceTemplate] = []
             var bestReference: (data: Data, quality: Double)?
 
             for frame in frames {
-                // v5.1 embeds the original guided frame, not a loose 1.55x
-                // intermediate crop. The identity pipeline itself performs the
-                // canonical five-point alignment exactly once.
                 let embedding = try await env.faceDetection.embeddingForSelfie(frame.jpegData)
-                newTemplates.append(FaceTemplate(
+                newGuidedTemplates.append(FaceTemplate(
                     embedding: embedding,
                     pose: frame.pose,
                     quality: frame.quality,
@@ -87,11 +90,12 @@ final class FaceSetupModel: ObservableObject {
                 }
             }
 
-            guard newTemplates.count >= 3 else { throw AppError.faceEmbeddingFailed }
-            templates = Array(newTemplates.sorted { $0.quality > $1.quality }
+            guard newGuidedTemplates.count >= 3 else { throw AppError.faceEmbeddingFailed }
+            let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }
                 .prefix(FaceModelPolicy.targetTemplateCount))
+            templates = guided + imported
             previewData = bestReference?.data
-            message = "Captured \(templates.count) useful angles. Save Face Setup, then run Face Test."
+            message = "Captured \(guided.count) guided angles. Save Face Setup, then run Face Test."
         } catch let error as AppError {
             message = error.userMessage
         } catch {
@@ -99,8 +103,8 @@ final class FaceSetupModel: ObservableObject {
         }
     }
 
-    /// MVP gallery path: one optional edited image. UIImagePickerController's
-    /// editor provides crop/zoom/reposition before this function receives it.
+    /// MVP gallery path: exactly one optional edited image. It is an alternate
+    /// reference, not one of the five guided selfie captures.
     func usePickedImage(_ image: UIImage) async {
         guard let env else { return }
         didSave = false
@@ -138,8 +142,9 @@ final class FaceSetupModel: ObservableObject {
     private func useGalleryCandidate(_ candidate: FaceCropCandidate, env: AppEnvironment) async {
         do {
             let embedding = try await env.faceDetection.embeddingForSelfie(candidate.jpegData)
-            // MVP permits one imported alternate. Replace any previous imported
-            // template rather than silently accumulating gallery identities.
+            // There can never be more than one imported identity reference.
+            // Guided templates remain untouched, preventing arbitrary gallery
+            // photos from replacing the controlled five-pose enrollment.
             templates.removeAll { $0.pose == .imported }
             templates.append(FaceTemplate(
                 embedding: embedding,
@@ -147,12 +152,8 @@ final class FaceSetupModel: ObservableObject {
                 quality: 0.75,
                 createdAt: env.clock.now()
             ))
-            if templates.count > FaceModelPolicy.targetTemplateCount {
-                templates = Array(templates.sorted { $0.quality > $1.quality }
-                    .prefix(FaceModelPolicy.targetTemplateCount))
-            }
             previewData = candidate.jpegData
-            message = "Gallery reference updated. You can edit/replace it again before saving."
+            message = "One optional gallery reference is ready. You can edit/replace it before saving."
         } catch let error as AppError {
             message = error.userMessage
         } catch {
@@ -189,7 +190,7 @@ final class FaceSetupModel: ObservableObject {
             session.faceProfile = profile
             session.user = user
             didSave = true
-            message = "Face Setup saved with \(templates.count) v5 reference angles."
+            message = "Face Setup saved. Guided: \(guidedTemplateCount)/\(FaceModelPolicy.targetTemplateCount)\(hasGalleryReference ? ", plus 1 gallery reference" : "")."
         } catch let error as AppError {
             message = error.userMessage
         } catch {
@@ -225,7 +226,7 @@ struct FaceSetupView: View {
                     .font(.system(size: 52)).foregroundStyle(Theme.coralGradient)
                 Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
                     .font(.title2).bold()
-                Text("Guided Selfie Scan is recommended for MVP accuracy. You may optionally add one edited gallery reference.")
+                Text("Guided Selfie Scan is recommended for MVP accuracy. One gallery photo is optional and never counts as five different enrollment angles.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
                 preview
@@ -252,7 +253,7 @@ struct FaceSetupView: View {
                 Button {
                     if model.consentActive { showGalleryPicker = true } else { showConsent = true }
                 } label: {
-                    Label(model.previewData == nil ? "Add One Gallery Photo" : "Edit / Replace Gallery Photo", systemImage: "crop")
+                    Label(model.hasGalleryReference ? "Edit / Replace Gallery Photo" : "Add One Gallery Photo", systemImage: "crop")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).controlSize(.large)
@@ -326,16 +327,34 @@ struct FaceSetupView: View {
     }
 
     private var templateStatus: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Enrollment coverage").font(.headline)
+                Text("Guided selfie coverage").font(.headline)
                 Spacer()
-                Text("\(model.templates.count)/\(FaceModelPolicy.targetTemplateCount)")
+                Text("\(model.guidedTemplateCount)/\(FaceModelPolicy.targetTemplateCount)")
                     .font(.system(.subheadline, design: .monospaced))
             }
-            ProgressView(value: Double(model.templates.count), total: Double(FaceModelPolicy.targetTemplateCount))
-            Text(model.templates.count >= 3 ? "Good pose coverage. Guided angles are the primary identity references." : "Complete the guided scan for reliable matching.")
+            ProgressView(
+                value: Double(model.guidedTemplateCount),
+                total: Double(FaceModelPolicy.targetTemplateCount)
+            )
+            Text(model.guidedTemplateCount >= 3
+                 ? "Good guided pose coverage. The five captures are all taken during one controlled selfie scan."
+                 : "Complete the guided scan for the most reliable matching.")
                 .font(.caption).foregroundStyle(.secondary)
+
+            Divider()
+
+            HStack {
+                Label("Optional gallery reference", systemImage: "photo")
+                    .font(.subheadline)
+                Spacer()
+                Text(model.hasGalleryReference ? "1 added" : "None")
+                    .font(.caption).bold()
+                    .foregroundStyle(model.hasGalleryReference ? .green : .secondary)
+            }
+            Text("MVP allows one gallery face only. If the photo has several people, SnapLoop asks you to choose your face.")
+                .font(.caption2).foregroundStyle(.secondary)
         }
         .padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
