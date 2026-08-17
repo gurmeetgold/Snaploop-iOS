@@ -77,6 +77,7 @@ struct SyncView: View {
         }
     }
 
+    @ViewBuilder
     private func done(_ summary: CameraSyncCoordinator.Summary) -> some View {
         VStack(spacing: 18) {
             Image(systemName: "checkmark.circle.fill")
@@ -91,11 +92,15 @@ struct SyncView: View {
                 Button("Scan More") { Task { await model.run(event: event) } }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-            }
 
-            Button("Done") { dismiss() }
-                .buttonStyle(summary.hasMore ? .bordered : .borderedProminent)
-                .controlSize(.large)
+                Button("Done") { dismiss() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+            } else {
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+            }
         }
     }
 }
