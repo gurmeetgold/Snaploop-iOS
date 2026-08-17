@@ -34,20 +34,23 @@ enum PhoneNumberNormalizer {
     /// phone-number library; we deliberately do not guess unfamiliar prefixes.
     static func e164(localInput: String, country: PhoneCountry) -> String? {
         let trimmed = localInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let allowed = trimmed.filter { $0.isNumber || $0 == "+" }
+        let allowed = String(trimmed.filter { $0.isNumber || $0 == "+" })
 
         if allowed.hasPrefix("+") {
-            let digits = allowed.dropFirst().filter(\.isNumber)
+            let digits = String(allowed.dropFirst().filter(\.isNumber))
             guard digits.count >= 8, digits.count <= 15 else { return nil }
             return "+" + digits
         }
 
-        var digits = allowed.filter(\.isNumber)
+        var digits = String(allowed.filter(\.isNumber))
         while digits.first == "0" { digits.removeFirst() }
-        let callingDigits = country.callingCode.filter(\.isNumber)
-        if (country.regionCode == "CA" || country.regionCode == "US"), digits.count == 11, digits.first == "1" {
+        let callingDigits = String(country.callingCode.filter(\.isNumber))
+        if (country.regionCode == "CA" || country.regionCode == "US"),
+           digits.count == 11,
+           digits.first == "1" {
             digits.removeFirst()
         }
+
         let combined = callingDigits + digits
         guard combined.count >= 8, combined.count <= 15 else { return nil }
         return "+" + combined
