@@ -31,7 +31,12 @@ targets:
       - name: Generate MyPicsTube App Icons
         script: |
           cd "$SRCROOT"
-          /usr/bin/xcrun swift scripts/generate_mypicstube_icons.swift
+          # This script is a macOS host-side tool (it imports AppKit). Xcode
+          # exports the iOS target SDKROOT into build phases, which makes the
+          # host Swift compiler incorrectly target macOS with an iPhoneOS
+          # sysroot. Strip target SDK variables and explicitly use macOS.
+          /usr/bin/env -u SDKROOT -u IPHONEOS_DEPLOYMENT_TARGET -u MACOSX_DEPLOYMENT_TARGET \
+            /usr/bin/xcrun --sdk macosx swift scripts/generate_mypicstube_icons.swift
         basedOnDependencyAnalysis: false
 
     info:
