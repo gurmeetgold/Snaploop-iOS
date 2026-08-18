@@ -14,7 +14,7 @@ final class PrivacyModel: ObservableObject {
         do {
             try await env.makeErasureService().deleteFaceProfile(userId: userId)
             session?.faceProfile = nil
-            message = "Your face setup was removed. You'll need to set it up again to be matched in photos."
+            message = "Your Face Setup was removed. Set it up again whenever you want automatic photo matching."
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
 
@@ -23,14 +23,13 @@ final class PrivacyModel: ObservableObject {
         busy = true; defer { busy = false }
         do {
             try await env.makeErasureService().deleteAccount(userId: userId)
-            session?.user = nil; session?.faceProfile = nil
-            message = "Your account and face data were deleted."
+            session?.user = nil
+            session?.faceProfile = nil
+            message = "Your MyPicsTube account and face data were deleted."
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
 }
 
-/// Privacy & data controls. The erase actions should ship before any real users
-/// touch the app.
 struct PrivacyView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
@@ -39,36 +38,97 @@ struct PrivacyView: View {
     @State private var confirmAccount = false
 
     var body: some View {
-        List {
-            Section {
-                Button(role: .destructive) { confirmProfile = true } label: {
-                    Label("Delete Face Setup", systemImage: "faceid")
-                }
-            } footer: {
-                Text("Removes your face data. You can set it up again anytime to keep getting your photos.")
-            }
+        ZStack {
+            BrandScreenBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Label("Privacy & Data", systemImage: "lock.shield.fill")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.ink)
+                        .padding(.horizontal)
 
-            Section {
-                Button(role: .destructive) { confirmAccount = true } label: {
-                    Label("Delete Account", systemImage: "trash")
-                }
-            } footer: {
-                Text("Deletes your account and face data. Photos you took stay part of the events you shared them to, but your personal data and face setup are permanently removed.")
-            }
+                    privacyIntro
+                    deleteFaceCard
+                    deleteAccountCard
 
-            if let message = model.message {
-                Section { Text(message).font(.footnote).foregroundStyle(.secondary) }
+                    if let message = model.message {
+                        PremiumCard {
+                            Label(message, systemImage: "info.circle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal)
+                    }
+                }
+                .padding(.vertical, 16)
             }
         }
         .navigationTitle("Privacy")
+        .navigationBarTitleDisplayMode(.inline)
         .task { model.configure(env: env, session: session) }
-        .confirmationDialog("Delete your face setup?", isPresented: $confirmProfile, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { Task { await model.deleteFaceProfile() } }
-        }
-        .confirmationDialog("Delete your account?", isPresented: $confirmAccount, titleVisibility: .visible) {
-            Button("Delete everything", role: .destructive) { Task { await model.deleteAccount() } }
+        .confirmationDialog("Delete your Face Setup?", isPresented: $confirmProfile, titleVisibility: .visible) {
+            Button("Delete Face Setup", role: .destructive) { Task { await model.deleteFaceProfile() } }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This can't be undone.")
+            Text("Automatic face matching will stop until you set it up again.")
         }
+        .confirmationDialog("Delete your MyPicsTube account?", isPresented: $confirmAccount, titleVisibility: .visible) {
+            Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes your account and face data and cannot be undone.")
+        }
+    }
+
+    private var privacyIntro: some View {
+        PremiumCard {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12).fill(Theme.aqua.opacity(0.13))
+                    Image(systemName: "hand.raised.fill").foregroundStyle(Theme.aqua)
+                }
+                .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("You stay in control").font(.headline).foregroundStyle(Theme.ink)
+                    Text("Face matching is for photo discovery. Raw guided-scan video is not saved, and deletion controls are available here.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private var deleteFaceCard: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Delete Face Setup", systemImage: "faceid")
+                    .font(.headline).foregroundStyle(.red)
+                Text("Removes your face data. You can set it up again later if you want automatic photo matching.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button(role: .destructive) { confirmProfile = true } label: {
+                    Label("Delete Face Setup", systemImage: "trash.fill")
+                }
+                .disabled(model.busy)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal)
+    }
+
+    private var deleteAccountCard: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Delete Account", systemImage: "person.crop.circle.badge.xmark")
+                    .font(.headline).foregroundStyle(.red)
+                Text("Deletes your account and face data. Photos already shared to events can remain part of those event albums, but your personal account data is removed.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button(role: .destructive) { confirmAccount = true } label: {
+                    Label("Delete MyPicsTube Account", systemImage: "trash.fill")
+                }
+                .disabled(model.busy)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal)
     }
 }
