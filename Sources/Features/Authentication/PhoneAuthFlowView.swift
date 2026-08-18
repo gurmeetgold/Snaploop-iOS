@@ -104,43 +104,55 @@ struct PhoneAuthFlowView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 24) {
-                Spacer()
-                Image(systemName: "camera.aperture")
-                    .font(.system(size: 56))
-                    .foregroundStyle(Theme.coralGradient)
-                Text("SnapLoop").font(.largeTitle).bold().foregroundStyle(Theme.ink)
-                Text("Get every photo of you from everyone's camera — automatically.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+            ZStack {
+                BrandScreenBackground()
 
-                Group {
-                    switch model.stage {
-                    case .enterPhone: phoneEntry
-                    case .enterCode: codeEntry
+                ScrollView {
+                    VStack(spacing: 26) {
+                        Spacer(minLength: 72)
+
+                        BrandWordmark()
+
+                        Text("Get every photo of you.")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Theme.ink)
+                        Text("From everyone’s camera to yours — automatically.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 36)
+
+                        PremiumCard {
+                            Group {
+                                switch model.stage {
+                                case .enterPhone: phoneEntry
+                                case .enterCode: codeEntry
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 20)
+
+                        if let error = model.errorMessage {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 28)
+                        }
+
+                        Spacer(minLength: 56)
                     }
                 }
-                .padding(.horizontal, 24)
-
-                if let error = model.errorMessage {
-                    Text(error)
-                        .font(.footnote).foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                }
-                Spacer()
-                Spacer()
             }
             .task { model.configure(env: env, session: session) }
         }
     }
 
     private var phoneEntry: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Mobile number")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Mobile number", systemImage: "iphone")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.ink)
 
             HStack(spacing: 10) {
                 Menu {
@@ -159,62 +171,91 @@ struct PhoneAuthFlowView: View {
                             Text(model.selectedCountry.callingCode).bold()
                             Image(systemName: "chevron.down").font(.caption2)
                         }
+                        .foregroundStyle(Theme.sunset)
                     }
                     .padding(.horizontal, 12)
-                    .frame(height: 58)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .frame(height: 60)
+                    .background(Theme.peach.opacity(0.18), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
 
                 TextField("Phone number", text: $model.phoneNumber)
                     .keyboardType(.phonePad)
                     .textContentType(.telephoneNumber)
                     .padding()
-                    .frame(height: 58)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .frame(height: 60)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
 
             Text("Defaults from your iPhone region. You can also paste a full +country-code number.")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
 
             Button { Task { await model.sendCode() } } label: {
-                Group { if model.isBusy { ProgressView() } else { Text("Send Code") } }
-                    .frame(maxWidth: .infinity)
+                HStack {
+                    if model.isBusy { ProgressView().tint(.white) }
+                    else {
+                        Image(systemName: "message.fill")
+                        Text("Send Code")
+                    }
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.coral)
-            .controlSize(.large)
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Theme.sunset.opacity(0.20), radius: 12, y: 7)
             .disabled(model.isBusy || model.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(model.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
         }
     }
 
     private var codeEntry: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(Theme.sunset)
+
             if let normalized = model.normalizedPhoneNumber {
-                Text("Enter the code sent to \(normalized)")
+                Text("Enter the 6-digit code")
+                    .font(.headline)
+                Text("Sent to \(normalized)")
                     .font(.subheadline).foregroundStyle(.secondary)
             } else {
-                Text("Enter the code we sent you")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                Text("Enter the 6-digit code")
+                    .font(.headline)
             }
+
             TextField("6-digit code", text: $model.code)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
                 .multilineTextAlignment(.center)
-                .font(.title2).bold()
+                .font(.title2.monospacedDigit().bold())
                 .padding()
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
             Button { Task { await model.verifyCode() } } label: {
-                Group { if model.isBusy { ProgressView() } else { Text("Verify") } }
-                    .frame(maxWidth: .infinity)
+                HStack {
+                    if model.isBusy { ProgressView().tint(.white) }
+                    else {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Verify")
+                    }
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Theme.coral)
-            .controlSize(.large)
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .disabled(model.isBusy || model.code.count < 4)
+            .opacity(model.code.count < 4 ? 0.55 : 1)
 
             Button("Use a different number") { model.useADifferentNumber() }
-                .font(.footnote)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.sky)
         }
     }
 }
