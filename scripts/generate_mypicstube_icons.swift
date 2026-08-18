@@ -30,39 +30,30 @@ func color(_ hex: UInt32) -> NSColor {
     )
 }
 
-let sunset = color(0xFF7A45)
-let rose = color(0xFB7185)
-let gold = color(0xFBBF24)
+let coral = color(0xFF6B5E)
+let coralDeep = color(0xF45A4B)
+let lilac = color(0xA78BFA)
+let blue = color(0x4F8DFD)
+let ivory = color(0xFFF9F7)
 let white = NSColor.white
 
-func drawPerson(in ctx: CGContext, centerX: CGFloat, headY: CGFloat, scale: CGFloat) {
-    ctx.setFillColor(white.cgColor)
-    ctx.fillEllipse(in: CGRect(
-        x: centerX - 0.075 * scale,
-        y: headY - 0.075 * scale,
-        width: 0.15 * scale,
-        height: 0.15 * scale
-    ))
-
-    let body = CGRect(
-        x: centerX - 0.14 * scale,
-        y: headY - 0.29 * scale,
-        width: 0.28 * scale,
-        height: 0.17 * scale
-    )
-    let path = CGPath(
-        roundedRect: body,
-        cornerWidth: 0.09 * scale,
-        cornerHeight: 0.09 * scale,
-        transform: nil
-    )
-    ctx.addPath(path)
-    ctx.fillPath()
+func fillCircle(_ ctx: CGContext, x: CGFloat, y: CGFloat, radius: CGFloat, color: NSColor) {
+    ctx.setFillColor(color.cgColor)
+    ctx.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
 }
 
-// Render directly into a 1x bitmap context so the PNG's physical dimensions are
-// exactly the requested AppIcon pixel size. NSImage.lockFocus() can inherit the
-// Mac's Retina backing scale and silently produce 2x files.
+func drawCapsule(_ ctx: CGContext, rect: CGRect, angle: CGFloat, color: NSColor) {
+    ctx.saveGState()
+    ctx.translateBy(x: rect.midX, y: rect.midY)
+    ctx.rotate(by: angle)
+    let r = CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height)
+    let path = CGPath(roundedRect: r, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2, transform: nil)
+    ctx.addPath(path)
+    ctx.setFillColor(color.cgColor)
+    ctx.fillPath()
+    ctx.restoreGState()
+}
+
 func render(size: Int, to path: String) throws {
     guard let bitmap = NSBitmapImageRep(
         bitmapDataPlanes: nil,
@@ -70,7 +61,7 @@ func render(size: Int, to path: String) throws {
         pixelsHigh: size,
         bitsPerSample: 8,
         samplesPerPixel: 4,
-        hasAlpha: true,
+        hasAlpha: false,
         isPlanar: false,
         colorSpaceName: .deviceRGB,
         bytesPerRow: 0,
@@ -83,47 +74,61 @@ func render(size: Int, to path: String) throws {
     ctx.setShouldAntialias(true)
     ctx.interpolationQuality = .high
 
-    let colors = [sunset.cgColor, rose.cgColor] as CFArray
-    let locations: [CGFloat] = [0, 1]
-    guard let gradient = CGGradient(
+    // Warm ivory background keeps the icon premium and legible in light/dark home screens.
+    ctx.setFillColor(ivory.cgColor)
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: w))
+
+    // Soft brand halo behind the community mark.
+    if let halo = CGGradient(
         colorsSpace: CGColorSpaceCreateDeviceRGB(),
-        colors: colors,
-        locations: locations
-    ) else {
-        throw NSError(domain: "Icon", code: 2)
+        colors: [coral.withAlphaComponent(0.18).cgColor, lilac.withAlphaComponent(0.11).cgColor, blue.withAlphaComponent(0.04).cgColor] as CFArray,
+        locations: [0, 0.55, 1]
+    ) {
+        ctx.drawRadialGradient(
+            halo,
+            startCenter: CGPoint(x: w * 0.48, y: w * 0.51), startRadius: 0,
+            endCenter: CGPoint(x: w * 0.48, y: w * 0.51), endRadius: w * 0.45,
+            options: []
+        )
     }
-    ctx.drawLinearGradient(
-        gradient,
-        start: CGPoint(x: 0, y: w),
-        end: CGPoint(x: w, y: 0),
-        options: []
-    )
 
-    // Soft lens ring: community + photos without copying a third-party mark.
-    ctx.setStrokeColor(white.withAlphaComponent(0.32).cgColor)
-    ctx.setLineWidth(w * 0.038)
-    ctx.strokeEllipse(in: CGRect(x: w * 0.16, y: w * 0.16, width: w * 0.68, height: w * 0.68))
+    // Flowing central loop, matching the selected three-person/community logo direction.
+    let loopRect = CGRect(x: w * 0.28, y: w * 0.25, width: w * 0.44, height: w * 0.44)
+    ctx.saveGState()
+    ctx.setLineCap(.round)
+    ctx.setLineWidth(w * 0.115)
+    if let loopGradient = CGGradient(
+        colorsSpace: CGColorSpaceCreateDeviceRGB(),
+        colors: [coral.cgColor, lilac.cgColor, blue.cgColor] as CFArray,
+        locations: [0, 0.52, 1]
+    ) {
+        ctx.addEllipse(in: loopRect)
+        ctx.replacePathWithStrokedPath()
+        ctx.clip()
+        ctx.drawLinearGradient(loopGradient,
+                               start: CGPoint(x: loopRect.minX, y: loopRect.maxY),
+                               end: CGPoint(x: loopRect.maxX, y: loopRect.minY),
+                               options: [])
+    }
+    ctx.restoreGState()
 
-    drawPerson(in: ctx, centerX: w * 0.41, headY: w * 0.60, scale: w)
-    drawPerson(in: ctx, centerX: w * 0.59, headY: w * 0.60, scale: w)
+    // Three heads.
+    fillCircle(ctx, x: w * 0.34, y: w * 0.68, radius: w * 0.075, color: coral)
+    fillCircle(ctx, x: w * 0.50, y: w * 0.74, radius: w * 0.084, color: lilac)
+    fillCircle(ctx, x: w * 0.66, y: w * 0.66, radius: w * 0.070, color: blue)
 
-    // Small sparkle for the "found for you" moment.
-    ctx.setFillColor(gold.cgColor)
-    let cx = w * 0.76
-    let cy = w * 0.76
-    let r = w * 0.085
-    let sparkle = CGMutablePath()
-    sparkle.move(to: CGPoint(x: cx, y: cy + r))
-    sparkle.addLine(to: CGPoint(x: cx + r * 0.25, y: cy + r * 0.25))
-    sparkle.addLine(to: CGPoint(x: cx + r, y: cy))
-    sparkle.addLine(to: CGPoint(x: cx + r * 0.25, y: cy - r * 0.25))
-    sparkle.addLine(to: CGPoint(x: cx, y: cy - r))
-    sparkle.addLine(to: CGPoint(x: cx - r * 0.25, y: cy - r * 0.25))
-    sparkle.addLine(to: CGPoint(x: cx - r, y: cy))
-    sparkle.addLine(to: CGPoint(x: cx - r * 0.25, y: cy + r * 0.25))
-    sparkle.closeSubpath()
-    ctx.addPath(sparkle)
-    ctx.fillPath()
+    // Side shoulders / arms for the friendly people silhouette.
+    drawCapsule(ctx,
+                rect: CGRect(x: w * 0.25, y: w * 0.48, width: w * 0.27, height: w * 0.095),
+                angle: -.48,
+                color: coral)
+    drawCapsule(ctx,
+                rect: CGRect(x: w * 0.51, y: w * 0.46, width: w * 0.27, height: w * 0.090),
+                angle: .50,
+                color: blue)
+
+    // Subtle white center cutout gives the loop depth and keeps the mark clean at small sizes.
+    fillCircle(ctx, x: w * 0.50, y: w * 0.48, radius: w * 0.090, color: white.withAlphaComponent(0.96))
 
     guard let png = bitmap.representation(using: .png, properties: [:]) else {
         throw NSError(domain: "Icon", code: 3)
@@ -134,4 +139,4 @@ func render(size: Int, to path: String) throws {
 for spec in specs {
     try render(size: spec.pixels, to: outDir + "/" + spec.name)
 }
-print("Generated exact-pixel MyPicsTube AppIcon assets in \(outDir)")
+print("Generated Coral Luxe MyPicsTube AppIcon assets in \(outDir)")
