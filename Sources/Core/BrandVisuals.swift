@@ -1,28 +1,59 @@
 import SwiftUI
 
 /// MyPicsTube visual identity used throughout the MVP.
-/// The mark follows the selected people/community logo direction and uses the
-/// Sunset Social palette so the brand feels warm, youthful and premium.
+/// This mark follows the selected three-person / flowing-community logo:
+/// coral + lilac + blue on a clean field, paired with the MyPicsTube wordmark.
 struct BrandMark: View {
     var size: CGFloat = 72
 
     var body: some View {
         ZStack {
+            // Main flowing loop / center person.
             Circle()
-                .fill(Theme.brandGradient)
+                .trim(from: 0.10, to: 0.88)
+                .stroke(
+                    LinearGradient(
+                        colors: [Theme.coral, Theme.lilac, Theme.blue],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    style: StrokeStyle(lineWidth: size * 0.16, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-22))
+                .frame(width: size * 0.58, height: size * 0.58)
+                .offset(y: size * 0.08)
 
-            Image(systemName: "person.2.fill")
-                .font(.system(size: size * 0.40, weight: .semibold))
-                .foregroundStyle(.white)
-                .offset(y: size * 0.04)
+            // Three heads, echoing the approved reference logo.
+            Circle()
+                .fill(Theme.coral)
+                .frame(width: size * 0.19, height: size * 0.19)
+                .offset(x: -size * 0.22, y: -size * 0.22)
 
-            Image(systemName: "heart.fill")
-                .font(.system(size: size * 0.18, weight: .bold))
-                .foregroundStyle(.white)
-                .offset(x: size * 0.25, y: -size * 0.23)
+            Circle()
+                .fill(Theme.lilac)
+                .frame(width: size * 0.21, height: size * 0.21)
+                .offset(y: -size * 0.29)
+
+            Circle()
+                .fill(Theme.blue)
+                .frame(width: size * 0.18, height: size * 0.18)
+                .offset(x: size * 0.22, y: -size * 0.17)
+
+            // Side shoulders give the mark a friendly community silhouette.
+            Capsule()
+                .fill(Theme.coral.opacity(0.92))
+                .frame(width: size * 0.30, height: size * 0.13)
+                .rotationEffect(.degrees(-28))
+                .offset(x: -size * 0.18, y: size * 0.03)
+
+            Capsule()
+                .fill(Theme.blue.opacity(0.92))
+                .frame(width: size * 0.28, height: size * 0.12)
+                .rotationEffect(.degrees(29))
+                .offset(x: size * 0.19, y: size * 0.06)
         }
         .frame(width: size, height: size)
-        .shadow(color: Theme.sunset.opacity(0.22), radius: size * 0.13, y: size * 0.08)
+        .shadow(color: Theme.lilac.opacity(0.18), radius: size * 0.11, y: size * 0.05)
         .accessibilityHidden(true)
     }
 }
@@ -35,9 +66,9 @@ struct BrandWordmark: View {
             BrandMark(size: compact ? 38 : 68)
             HStack(spacing: 0) {
                 Text("MyPics")
-                    .foregroundStyle(Theme.ink)
+                    .foregroundStyle(Theme.navy)
                 Text("Tube")
-                    .foregroundStyle(Theme.sunset)
+                    .foregroundStyle(Theme.coral)
             }
             .font(compact ? .headline : .system(size: 38, weight: .bold, design: .rounded))
         }
@@ -47,7 +78,7 @@ struct BrandWordmark: View {
 struct BrandScreenBackground: View {
     var body: some View {
         LinearGradient(
-            colors: [Theme.canvas, Theme.peach.opacity(0.32), Theme.pink.opacity(0.10)],
+            colors: [Theme.canvas, Theme.coralSoft.opacity(0.32), Theme.lilacSoft.opacity(0.26)],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -65,11 +96,11 @@ struct PremiumCard<Content: View>: View {
     var body: some View {
         content
             .padding(16)
-            .background(.white.opacity(0.96), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+            .background(.white.opacity(0.97), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .strokeBorder(Theme.separator.opacity(0.22))
+                    .strokeBorder(Theme.separator.opacity(0.16))
             }
-            .shadow(color: Theme.ink.opacity(0.055), radius: 18, y: 8)
+            .shadow(color: Theme.navy.opacity(0.065), radius: 18, y: 8)
     }
 }
