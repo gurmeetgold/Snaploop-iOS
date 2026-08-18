@@ -23,6 +23,7 @@ struct SettingsView: View {
     @StateObject private var model = SettingsModel()
     @State private var confirmSignOut = false
     @State private var facePreviewData: Data?
+    @State private var recentPhotoPaths: [String] = []
 
     var body: some View {
         ZStack {
@@ -35,6 +36,7 @@ struct SettingsView: View {
                         .padding(.horizontal)
 
                     profileCard
+                    if !recentPhotoPaths.isEmpty { yourPhotosCard }
                     accountActions
                     privacyCard
                     signOutCard
@@ -50,7 +52,7 @@ struct SettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { refreshLocalFacePreview() }
+        .task { await refreshProfileContent() }
         .confirmationDialog("Sign out of MyPicsTube?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) {
                 model.signOut(env: env, session: session)
@@ -77,10 +79,14 @@ struct SettingsView: View {
                         Label("Your saved face reference", systemImage: "checkmark.circle.fill")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Theme.coral)
+                    } else if !recentPhotoPaths.isEmpty {
+                        Label("Showing a recent photo of you", systemImage: "photo.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Theme.blue)
                     }
                 }
                 Spacer()
-                BrandMark(size: 38)
+                BrandMark(size: 34)
             }
         }
         .padding(.horizontal)
@@ -97,6 +103,13 @@ struct SettingsView: View {
                 .clipped()
                 .overlay(Circle().strokeBorder(.white, lineWidth: 3))
                 .shadow(color: Theme.navy.opacity(0.12), radius: 8, y: 4)
+        } else if let path = recentPhotoPaths.first {
+            ThumbnailCell(path: path)
+                .frame(width: 66, height: 66)
+                .clipShape(Circle())
+                .clipped()
+                .overlay(Circle().strokeBorder(.white, lineWidth: 3))
+                .shadow(color: Theme.navy.opacity(0.12), radius: 8, y: 4)
         } else {
             ZStack {
                 Circle().fill(Theme.brandGradient)
@@ -106,6 +119,34 @@ struct SettingsView: View {
             }
             .frame(width: 66, height: 66)
         }
+    }
+
+    private var yourPhotosCard: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Your photos", systemImage: "person.crop.rectangle.stack.fill")
+                        .font(.headline)
+                        .foregroundStyle(Theme.ink)
+                    Spacer()
+                    Text("Recent matches")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 10) {
+                    ForEach(recentPhotoPaths.prefix(5), id: \.self) { path in
+                        ThumbnailCell(path: path)
+                            .frame(maxWidth: .infinity)
+                            .aspectRatio(1, contentMode: .fill)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .clipped()
+                    }
+                }
+                .frame(height: 62)
+            }
+        }
+        .padding(.horizontal)
     }
 
     private var accountActions: some View {
@@ -190,8 +231,30 @@ struct SettingsView: View {
         .frame(width: 36, height: 36)
     }
 
-    private func refreshLocalFacePreview() {
-        facePreviewData = session.user.flatMap { LocalFaceReferenceStore.load(userId: $0.id) }
+    @MainActor
+    private func refreshProfileContent() async {
+        guard let user = session.user else {
+            facePreviewData = nil
+            recentPhotoPaths = []
+            return
+        }
+
+        facePreviewData = LocalFaceReferenceStore.load(userId: user.id)
+
+        let events = (try? await env.events.events(forUserId: user.id)) ?? []
+        var matches: [PhotoMatch] = []
+        for event in events where event.status != .deletedByOrganizer {
+            let eventMatches = (try? await env.matches.myPhotos(eventId: event.id, userId: user.id)) ?? []
+            matches.append(contentsOf: eventMatches)
+        }
+
+        var seen = Set<String>()
+        recentPhotoPaths = matches
+            .sorted { $0.capturedAt > $1.capturedAt }
+            .compactMap(\.thumbnailPath)
+            .filter { seen.insert($0).inserted }
+            .prefix(5)
+            .map { $0 }
     }
 
     private var profileInitial: String {
