@@ -1,5 +1,6 @@
 #!/usr/bin/env swift
 import AppKit
+import CoreGraphics
 import Foundation
 
 let fm = FileManager.default
@@ -36,25 +37,69 @@ let white = NSColor.white
 
 func drawPerson(in ctx: CGContext, centerX: CGFloat, headY: CGFloat, scale: CGFloat) {
     ctx.setFillColor(white.cgColor)
-    ctx.fillEllipse(in: CGRect(x: centerX - 0.075 * scale, y: headY - 0.075 * scale, width: 0.15 * scale, height: 0.15 * scale))
-    let body = CGRect(x: centerX - 0.14 * scale, y: headY - 0.29 * scale, width: 0.28 * scale, height: 0.17 * scale)
-    let path = CGPath(roundedRect: body, cornerWidth: 0.09 * scale, cornerHeight: 0.09 * scale, transform: nil)
+    ctx.fillEllipse(in: CGRect(
+        x: centerX - 0.075 * scale,
+        y: headY - 0.075 * scale,
+        width: 0.15 * scale,
+        height: 0.15 * scale
+    ))
+
+    let body = CGRect(
+        x: centerX - 0.14 * scale,
+        y: headY - 0.29 * scale,
+        width: 0.28 * scale,
+        height: 0.17 * scale
+    )
+    let path = CGPath(
+        roundedRect: body,
+        cornerWidth: 0.09 * scale,
+        cornerHeight: 0.09 * scale,
+        transform: nil
+    )
     ctx.addPath(path)
     ctx.fillPath()
 }
 
+// Render directly into a 1x bitmap context so the PNG's physical dimensions are
+// exactly the requested AppIcon pixel size. NSImage.lockFocus() can inherit the
+// Mac's Retina backing scale and silently produce 2x files.
 func render(size: Int, to path: String) throws {
+    guard let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: size,
+        pixelsHigh: size,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ), let ctx = NSGraphicsContext(bitmapImageRep: bitmap)?.cgContext else {
+        throw NSError(domain: "Icon", code: 1)
+    }
+
     let w = CGFloat(size)
-    let image = NSImage(size: NSSize(width: w, height: w))
-    image.lockFocus()
-    guard let ctx = NSGraphicsContext.current?.cgContext else { throw NSError(domain: "Icon", code: 1) }
+    ctx.setShouldAntialias(true)
+    ctx.interpolationQuality = .high
 
     let colors = [sunset.cgColor, rose.cgColor] as CFArray
     let locations: [CGFloat] = [0, 1]
-    let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: locations)!
-    ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: w), end: CGPoint(x: w, y: 0), options: [])
+    guard let gradient = CGGradient(
+        colorsSpace: CGColorSpaceCreateDeviceRGB(),
+        colors: colors,
+        locations: locations
+    ) else {
+        throw NSError(domain: "Icon", code: 2)
+    }
+    ctx.drawLinearGradient(
+        gradient,
+        start: CGPoint(x: 0, y: w),
+        end: CGPoint(x: w, y: 0),
+        options: []
+    )
 
-    // Soft lens ring: community + photos without copying any third-party mark.
+    // Soft lens ring: community + photos without copying a third-party mark.
     ctx.setStrokeColor(white.withAlphaComponent(0.32).cgColor)
     ctx.setLineWidth(w * 0.038)
     ctx.strokeEllipse(in: CGRect(x: w * 0.16, y: w * 0.16, width: w * 0.68, height: w * 0.68))
@@ -64,7 +109,9 @@ func render(size: Int, to path: String) throws {
 
     // Small sparkle for the "found for you" moment.
     ctx.setFillColor(gold.cgColor)
-    let cx = w * 0.76, cy = w * 0.76, r = w * 0.085
+    let cx = w * 0.76
+    let cy = w * 0.76
+    let r = w * 0.085
     let sparkle = CGMutablePath()
     sparkle.move(to: CGPoint(x: cx, y: cy + r))
     sparkle.addLine(to: CGPoint(x: cx + r * 0.25, y: cy + r * 0.25))
@@ -78,11 +125,8 @@ func render(size: Int, to path: String) throws {
     ctx.addPath(sparkle)
     ctx.fillPath()
 
-    image.unlockFocus()
-    guard let tiff = image.tiffRepresentation,
-          let bitmap = NSBitmapImageRep(data: tiff),
-          let png = bitmap.representation(using: .png, properties: [:]) else {
-        throw NSError(domain: "Icon", code: 2)
+    guard let png = bitmap.representation(using: .png, properties: [:]) else {
+        throw NSError(domain: "Icon", code: 3)
     }
     try png.write(to: URL(fileURLWithPath: path), options: .atomic)
 }
@@ -90,4 +134,4 @@ func render(size: Int, to path: String) throws {
 for spec in specs {
     try render(size: spec.pixels, to: outDir + "/" + spec.name)
 }
-print("Generated MyPicsTube AppIcon assets in \(outDir)")
+print("Generated exact-pixel MyPicsTube AppIcon assets in \(outDir)")
