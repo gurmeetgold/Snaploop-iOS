@@ -23,6 +23,10 @@ targets:
     type: application
     platform: iOS
 
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+
     info:
       path: Sources/App/Info.plist
       properties:
