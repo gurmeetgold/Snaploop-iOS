@@ -1,59 +1,43 @@
 import SwiftUI
 
 /// MyPicsTube visual identity used throughout the MVP.
-/// This mark follows the selected three-person / flowing-community logo:
-/// coral + lilac + blue on a clean field, paired with the MyPicsTube wordmark.
+/// The mark is camera-first, echoing the compact camera-view treatment from the
+/// selected reference while staying original to MyPicsTube and Coral Luxe.
 struct BrandMark: View {
     var size: CGFloat = 72
 
     var body: some View {
         ZStack {
-            // Main flowing loop / center person.
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                .fill(.white.opacity(0.97))
+                .overlay {
+                    RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                        .strokeBorder(Theme.coral, lineWidth: max(2, size * 0.055))
+                }
+
             Circle()
-                .trim(from: 0.10, to: 0.88)
-                .stroke(
+                .strokeBorder(
                     LinearGradient(
                         colors: [Theme.coral, Theme.lilac, Theme.blue],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
-                    style: StrokeStyle(lineWidth: size * 0.16, lineCap: .round)
+                    lineWidth: max(2, size * 0.06)
                 )
-                .rotationEffect(.degrees(-22))
-                .frame(width: size * 0.58, height: size * 0.58)
-                .offset(y: size * 0.08)
-
-            // Three heads, echoing the approved reference logo.
-            Circle()
-                .fill(Theme.coral)
-                .frame(width: size * 0.19, height: size * 0.19)
-                .offset(x: -size * 0.22, y: -size * 0.22)
-
-            Circle()
-                .fill(Theme.lilac)
-                .frame(width: size * 0.21, height: size * 0.21)
-                .offset(y: -size * 0.29)
+                .frame(width: size * 0.42, height: size * 0.42)
 
             Circle()
                 .fill(Theme.blue)
-                .frame(width: size * 0.18, height: size * 0.18)
-                .offset(x: size * 0.22, y: -size * 0.17)
+                .frame(width: size * 0.10, height: size * 0.10)
+                .offset(x: size * 0.28, y: -size * 0.24)
 
-            // Side shoulders give the mark a friendly community silhouette.
-            Capsule()
-                .fill(Theme.coral.opacity(0.92))
-                .frame(width: size * 0.30, height: size * 0.13)
-                .rotationEffect(.degrees(-28))
-                .offset(x: -size * 0.18, y: size * 0.03)
-
-            Capsule()
-                .fill(Theme.blue.opacity(0.92))
-                .frame(width: size * 0.28, height: size * 0.12)
-                .rotationEffect(.degrees(29))
-                .offset(x: size * 0.19, y: size * 0.06)
+            RoundedRectangle(cornerRadius: size * 0.045, style: .continuous)
+                .fill(Theme.coral)
+                .frame(width: size * 0.28, height: size * 0.095)
+                .offset(x: -size * 0.18, y: -size * 0.43)
         }
         .frame(width: size, height: size)
-        .shadow(color: Theme.lilac.opacity(0.18), radius: size * 0.11, y: size * 0.05)
+        .shadow(color: Theme.coral.opacity(0.16), radius: size * 0.11, y: size * 0.05)
         .accessibilityHidden(true)
     }
 }
