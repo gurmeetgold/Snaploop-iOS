@@ -8,8 +8,7 @@ enum QRCode {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(string.utf8)
         filter.correctionLevel = "M"
-        guard let output = filter.outputImage?
-            .transformed(by: CGAffineTransform(scaleX: scale, y: scale)),
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: scale, y: scale)),
               let cg = context.createCGImage(output, from: output.extent)
         else { return nil }
         return UIImage(cgImage: cg)
@@ -35,97 +34,123 @@ struct ShareEventView: View {
     private var isOrganizer: Bool { session.user?.id == event.creatorUserId }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 22) {
-                Image(systemName: "person.3.fill")
-                    .font(.system(size: 46))
-                    .foregroundStyle(Theme.coral)
+        ZStack {
+            BrandScreenBackground()
+            ScrollView {
+                VStack(spacing: 18) {
+                    BrandMark(size: 64)
+                    Text("Invite people to \(event.name)")
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.ink)
+                        .multilineTextAlignment(.center)
 
-                Text("Invite people to \(event.name)")
-                    .font(.title3).bold().multilineTextAlignment(.center)
-
-                Text("Anyone with this invite can open the event, sign in, and choose whether to join.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Button { showShareSheet = true } label: {
-                    Label("Share Invite", systemImage: "square.and.arrow.up")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                HStack(spacing: 12) {
-                    Button {
-                        UIPasteboard.general.string = JoinCode(canonical: event.joinCode).formatted
-                        copiedMessage = "Code copied"
-                    } label: {
-                        Label("Copy Code", systemImage: "doc.on.doc")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        UIPasteboard.general.string = url.absoluteString
-                        copiedMessage = "Link copied"
-                    } label: {
-                        Label("Copy Link", systemImage: "link")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                if isOrganizer {
-                    NavigationLink {
-                        InvitePeopleView(event: event)
-                    } label: {
-                        Label("Invite by Phone or Contacts", systemImage: "person.crop.circle.badge.plus")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                }
-
-                VStack(spacing: 12) {
-                    Text("Scan to join").font(.subheadline).foregroundStyle(.secondary)
-                    if let qr = QRCode.image(for: url.absoluteString) {
-                        Image(uiImage: qr)
-                            .interpolation(.none)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 220, height: 220)
-                            .accessibilityLabel("QR code to join \(event.name)")
-                    }
-                    Text(JoinCode(canonical: event.joinCode).formatted)
-                        .font(.system(.title2, design: .monospaced)).bold()
-                        .textSelection(.enabled)
-                    Text("Event code")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
-
-                if let copiedMessage {
-                    Text(copiedMessage)
-                        .font(.caption)
+                    Text("Anyone with the invite can open the event, sign in, and choose whether to join.")
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-                }
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
 
-                #if DEBUG
-                Text("Test invites use \(InviteLink.host) until the production domain and App Store listing are live.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                #endif
+                    Button { showShareSheet = true } label: {
+                        Label("Share Invite", systemImage: "square.and.arrow.up.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: Theme.sunset.opacity(0.18), radius: 12, y: 6)
+
+                    HStack(spacing: 12) {
+                        secondaryAction("Copy Code", icon: "doc.on.doc.fill") {
+                            UIPasteboard.general.string = JoinCode(canonical: event.joinCode).formatted
+                            copiedMessage = "Event code copied"
+                        }
+                        secondaryAction("Copy Link", icon: "link") {
+                            UIPasteboard.general.string = url.absoluteString
+                            copiedMessage = "Invite link copied"
+                        }
+                    }
+
+                    if isOrganizer {
+                        NavigationLink { InvitePeopleView(event: event) } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 12).fill(Theme.aqua.opacity(0.14))
+                                    Image(systemName: "person.crop.circle.badge.plus")
+                                        .font(.title3).foregroundStyle(Theme.aqua)
+                                }
+                                .frame(width: 42, height: 42)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Invite by Phone or Contacts").font(.headline).foregroundStyle(Theme.ink)
+                                    Text("Existing users get an in-app invite; others can receive the link.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                            }
+                            .myPicsTubeCard()
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    PremiumCard {
+                        VStack(spacing: 14) {
+                            Label("Scan to join", systemImage: "qrcode.viewfinder")
+                                .font(.headline).foregroundStyle(Theme.ink)
+                            if let qr = QRCode.image(for: url.absoluteString) {
+                                Image(uiImage: qr)
+                                    .interpolation(.none)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 220, height: 220)
+                                    .padding(10)
+                                    .background(.white, in: RoundedRectangle(cornerRadius: 18))
+                                    .accessibilityLabel("QR code to join \(event.name)")
+                            }
+                            Text(JoinCode(canonical: event.joinCode).formatted)
+                                .font(.system(.title2, design: .monospaced).bold())
+                                .foregroundStyle(Theme.ink)
+                                .textSelection(.enabled)
+                            Text("Event code")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    if let copiedMessage {
+                        Label(copiedMessage, systemImage: "checkmark.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                    }
+
+                    #if DEBUG
+                    Text("Test invites use \(InviteLink.host) until the production domain and App Store listing are live.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    #endif
+                }
+                .padding(20)
             }
-            .padding()
         }
         .navigationTitle("Invite")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showShareSheet) {
             ActivityView(items: [InviteLink.shareText(eventName: event.name, token: token), url])
         }
+    }
+
+    private func secondaryAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.subheadline.bold())
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.sunset)
+        .background(.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 17).strokeBorder(Theme.sunset.opacity(0.18)))
     }
 }
