@@ -55,7 +55,7 @@ struct SyncView: View {
         PremiumCard {
             VStack(spacing: 18) {
                 ZStack {
-                    Circle().fill(Theme.socialGradient.opacity(0.16))
+                    Circle().fill(Theme.aqua.opacity(0.14))
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 40, weight: .semibold))
                         .foregroundStyle(Theme.aqua)
@@ -80,7 +80,7 @@ struct SyncView: View {
         PremiumCard {
             VStack(spacing: 18) {
                 ZStack {
-                    Circle().fill(Theme.brandGradient.opacity(0.14))
+                    Circle().fill(Theme.sunset.opacity(0.13))
                     ProgressView().controlSize(.large).tint(Theme.sunset)
                 }
                 .frame(width: 88, height: 88)
