@@ -143,7 +143,7 @@ struct HomeView: View {
                 Text("Hi, \(session.user?.displayName ?? "there") 👋")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.ink)
-                Text("Your moments, found from everyone’s camera.")
+                Text("My Pics found from everyone’s phone.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
