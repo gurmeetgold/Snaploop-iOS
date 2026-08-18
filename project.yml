@@ -27,9 +27,18 @@ targets:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
 
+    preBuildScripts:
+      - name: Generate MyPicsTube App Icons
+        script: |
+          cd "$SRCROOT"
+          /usr/bin/xcrun swift scripts/generate_mypicstube_icons.swift
+        basedOnDependencyAnalysis: false
+
     info:
       path: Sources/App/Info.plist
       properties:
+        CFBundleDisplayName: MyPicsTube
+        CFBundleName: MyPicsTube
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - app-1-254317517474-ios-fe19926e3a17d2661f95fb
@@ -60,9 +69,11 @@ targets:
         PRODUCT_NAME: MyPicsTube
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: MyPicsTube
+        INFOPLIST_KEY_CFBundleName: MyPicsTube
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "MyPicsTube looks through photos on this iPhone from your events to find confident matches. Matching happens on-device; only matched optimized previews are shared with event members."
