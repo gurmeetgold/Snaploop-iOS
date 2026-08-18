@@ -60,66 +60,92 @@ struct InvitePeopleView: View {
 
     private var token: InviteToken { InviteToken(event.inviteToken) ?? InviteToken(unchecked: event.inviteToken) }
     private var inviteURL: URL { InviteLink.url(forToken: token) }
-    private var messageBody: String { "Join \(event.name) on SnapLoop: \(inviteURL.absoluteString)" }
+    private var messageBody: String { "Join \(event.name) on MyPicsTube: \(inviteURL.absoluteString)" }
 
     var body: some View {
-        Form {
-            Section("Add a person") {
-                HStack {
-                    Menu {
-                        ForEach(PhoneCountry.supported) { value in
-                            Button("\(value.name)  \(value.callingCode)") { country = value }
-                        }
-                    } label: {
-                        Text("\(country.regionCode) \(country.callingCode)")
-                    }
-                    TextField("Phone number", text: $phone)
-                        .keyboardType(.phonePad)
-                        .textContentType(.telephoneNumber)
-                }
-                Button { showContacts = true } label: {
-                    Label("Choose from Contacts", systemImage: "person.crop.circle.badge.plus")
-                }
-            }
+        ZStack {
+            BrandScreenBackground()
+            ScrollView {
+                VStack(spacing: 18) {
+                    BrandMark(size: 56)
+                    Text("Invite by Phone")
+                        .font(.system(size: 27, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.ink)
+                    Text("Invite someone directly, or pick a number from your contacts.")
+                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
-            Section {
-                Button {
-                    Task { await sendInvite() }
-                } label: {
-                    Group { if isSending { ProgressView() } else { Label("Send Invite", systemImage: "paperplane.fill") } }
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isSending || phone.isEmpty)
+                    PremiumCard {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Label("Add a person", systemImage: "person.badge.plus")
+                                .font(.headline).foregroundStyle(Theme.ink)
+                            HStack(spacing: 10) {
+                                Menu {
+                                    ForEach(PhoneCountry.supported) { value in
+                                        Button("\(value.name)  \(value.callingCode)") { country = value }
+                                    }
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Country").font(.caption2).foregroundStyle(.secondary)
+                                        HStack(spacing: 4) {
+                                            Text(country.regionCode).bold()
+                                            Text(country.callingCode).bold()
+                                            Image(systemName: "chevron.down").font(.caption2)
+                                        }
+                                        .foregroundStyle(Theme.sunset)
+                                    }
+                                    .padding(.horizontal, 11)
+                                    .frame(height: 58)
+                                    .background(Theme.peach.opacity(0.18), in: RoundedRectangle(cornerRadius: 15))
+                                }
 
-                if let message { Text(message).foregroundStyle(.secondary) }
-                if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
-            }
-
-            if !statuses.isEmpty {
-                Section("Invitations") {
-                    ForEach(statuses) { row in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(row.phoneNumber)
-                                Text(row.delivery == "in_app" ? "In-app" : "SMS")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                TextField("Phone number", text: $phone)
+                                    .keyboardType(.phonePad)
+                                    .textContentType(.telephoneNumber)
+                                    .padding()
+                                    .frame(height: 58)
+                                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 15))
                             }
-                            Spacer()
-                            Text(row.status.capitalized)
-                                .font(.caption).bold()
+
+                            Button { showContacts = true } label: {
+                                Label("Choose from Contacts", systemImage: "person.crop.circle.badge.plus")
+                                    .font(.subheadline.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 48)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Theme.aqua)
+                            .background(Theme.aqua.opacity(0.11), in: RoundedRectangle(cornerRadius: 15))
                         }
                     }
-                }
-            }
 
-            Section("How it works") {
-                Text("SnapLoop checks the phone number on the server. Existing users receive a pending in-app event invitation, so no SMS is needed. A person without a SnapLoop account gets the SMS invite link instead.")
-                Text("Nobody is silently added to an event. The recipient accepts the invitation before membership and face matching begin.")
-                    .foregroundStyle(.secondary)
+                    Button { Task { await sendInvite() } } label: {
+                        HStack {
+                            if isSending { ProgressView().tint(.white) }
+                            else { Image(systemName: "paperplane.fill") }
+                            Text("Send Invite")
+                        }
+                    }
+                    .buttonStyle(MyPicsTubePrimaryButtonStyle())
+                    .disabled(isSending || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .opacity(phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
+
+                    if let message {
+                        Label(message, systemImage: "checkmark.circle.fill")
+                            .font(.footnote).foregroundStyle(.green).multilineTextAlignment(.center)
+                    }
+                    if let errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
+                    }
+
+                    if !statuses.isEmpty { invitationStatusCard }
+                    howItWorks
+                }
+                .padding(20)
             }
         }
         .navigationTitle("Invite by Phone")
+        .navigationBarTitleDisplayMode(.inline)
         .task { await refreshStatuses() }
         .sheet(isPresented: $showContacts) {
             ContactPhonePicker { selected in
@@ -129,6 +155,49 @@ struct InvitePeopleView: View {
         }
         .sheet(isPresented: $showMessage) {
             MessageInviteComposer(recipients: [smsRecipient], body: messageBody)
+        }
+    }
+
+    private var invitationStatusCard: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Invitations", systemImage: "envelope.open.fill")
+                    .font(.headline).foregroundStyle(Theme.ink)
+                ForEach(statuses) { row in
+                    HStack(spacing: 10) {
+                        ZStack {
+                            Circle().fill((row.delivery == "in_app" ? Theme.aqua : Theme.sunset).opacity(0.12))
+                            Image(systemName: row.delivery == "in_app" ? "app.badge.fill" : "message.fill")
+                                .font(.caption).foregroundStyle(row.delivery == "in_app" ? Theme.aqua : Theme.sunset)
+                        }
+                        .frame(width: 34, height: 34)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.phoneNumber).font(.subheadline.weight(.semibold))
+                            Text(row.delivery == "in_app" ? "In-app invitation" : "SMS invitation")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(row.status.capitalized)
+                            .font(.caption.bold())
+                            .padding(.horizontal, 8).padding(.vertical, 5)
+                            .background(Theme.peach.opacity(0.22), in: Capsule())
+                    }
+                    if row.id != statuses.last?.id { Divider() }
+                }
+            }
+        }
+    }
+
+    private var howItWorks: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("How it works", systemImage: "sparkles")
+                    .font(.headline).foregroundStyle(Theme.ink)
+                Text("MyPicsTube checks the phone number on the server. Existing users receive an in-app event invitation, so no SMS is needed. If the person does not have MyPicsTube yet, you can send the prepared SMS invite link.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Text("Nobody is silently added. The recipient accepts the invitation before membership and face matching begin.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -152,15 +221,15 @@ struct InvitePeopleView: View {
             phone = normalized
             switch delivery.kind {
             case .inApp:
-                message = "Invitation delivered inside SnapLoop. No SMS was sent."
+                message = "Invitation delivered inside MyPicsTube. No SMS was sent."
             case .sms:
                 smsRecipient = normalized
                 guard MFMessageComposeViewController.canSendText() else {
-                    message = "This person does not have SnapLoop yet. Use Share Invite to send \(inviteURL.absoluteString)."
+                    message = "This person does not have MyPicsTube yet. Use Share Invite to send the event link."
                     await refreshStatuses()
                     return
                 }
-                message = "This person does not have SnapLoop yet. Send the prepared SMS invitation."
+                message = "This person does not have MyPicsTube yet. Send the prepared SMS invitation."
                 showMessage = true
             }
             await refreshStatuses()
@@ -172,6 +241,6 @@ struct InvitePeopleView: View {
     @MainActor
     private func refreshStatuses() async {
         do { statuses = try await EventInviteClient.list(eventId: event.id) }
-        catch { /* Status display is non-critical; sending can still surface its own error. */ }
+        catch { }
     }
 }
