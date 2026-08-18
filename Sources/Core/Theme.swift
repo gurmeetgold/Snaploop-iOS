@@ -1,45 +1,54 @@
 import SwiftUI
 
-/// MyPicsTube "Sunset Social" design system.
-/// Warm sunset coral and pink carry personal-photo actions, aqua/blue signals
-/// shared/social surfaces, and soft cream keeps the product bright and premium.
+/// MyPicsTube "Coral Luxe" design system.
+/// Coral drives personal/photo actions, lilac adds youthful energy, deep navy
+/// carries typography and trust, and warm ivory keeps the interface light,
+/// premium and calm.
 public enum Theme {
 
     // MARK: Brand colors
-    public static let sunset = Color(red: 1.00, green: 0.42, blue: 0.29)
-    public static let sunsetDeep = Color(red: 0.96, green: 0.30, blue: 0.30)
-    public static let pink = Color(red: 0.98, green: 0.38, blue: 0.55)
-    public static let peach = Color(red: 1.00, green: 0.77, blue: 0.63)
-    public static let aqua = Color(red: 0.10, green: 0.78, blue: 0.75)
-    public static let sky = Color(red: 0.25, green: 0.61, blue: 0.97)
-    public static let violet = Color(red: 0.55, green: 0.42, blue: 0.95)
-    public static let amber = Color(red: 0.98, green: 0.68, blue: 0.23)
-    public static let ink = Color(red: 0.08, green: 0.11, blue: 0.20)
-    public static let canvas = Color(red: 0.985, green: 0.977, blue: 0.968)
+    public static let coral = Color(red: 1.00, green: 0.42, blue: 0.37)          // #FF6B5E
+    public static let coralDeep = Color(red: 0.96, green: 0.35, blue: 0.29)      // #F45A4B
+    public static let coralSoft = Color(red: 1.00, green: 0.88, blue: 0.86)      // #FFE2DE
+    public static let peach = Color(red: 1.00, green: 0.84, blue: 0.81)          // #FFD7CF
+    public static let lilac = Color(red: 0.65, green: 0.55, blue: 0.98)          // #A78BFA
+    public static let lilacSoft = Color(red: 0.93, green: 0.91, blue: 1.00)      // #EEE7FF
+    public static let blue = Color(red: 0.31, green: 0.55, blue: 0.99)           // #4F8DFD
+    public static let blueSoft = Color(red: 0.91, green: 0.95, blue: 1.00)       // #E8F1FF
+    public static let mint = Color(red: 0.15, green: 0.78, blue: 0.48)           // #27C77B
+    public static let amber = Color(red: 0.96, green: 0.70, blue: 0.26)          // #F5B342
+    public static let ink = Color(red: 0.086, green: 0.094, blue: 0.149)         // #161826
+    public static let navy = Color(red: 0.086, green: 0.129, blue: 0.243)        // #16213E
+    public static let canvas = Color(red: 0.985, green: 0.976, blue: 0.969)      // warm ivory
+    public static let surface = Color.white
 
     // Compatibility aliases while older screens are migrated.
-    public static let coral = sunset
-    public static let coralDeep = sunsetDeep
-    public static let skyDeep = Color(red: 0.12, green: 0.49, blue: 0.90)
-    public static let violetDeep = Color(red: 0.43, green: 0.31, blue: 0.86)
+    public static let sunset = coral
+    public static let sunsetDeep = coralDeep
+    public static let pink = lilac
+    public static let aqua = mint
+    public static let sky = blue
+    public static let skyDeep = Color(red: 0.22, green: 0.46, blue: 0.90)
+    public static let violet = lilac
+    public static let violetDeep = Color(red: 0.50, green: 0.39, blue: 0.88)
 
     public static let separator = Color(uiColor: .separator)
 
     // MARK: Gradients
     public static let brandGradient = LinearGradient(
-        colors: [sunset, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+        colors: [coral, coralDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
     public static let coralGradient = brandGradient
     public static let sunsetGradient = LinearGradient(
-        colors: [sunset, peach], startPoint: .topLeading, endPoint: .bottomTrailing)
+        colors: [coral, peach], startPoint: .topLeading, endPoint: .bottomTrailing)
     public static let socialGradient = LinearGradient(
-        colors: [sky, aqua], startPoint: .topLeading, endPoint: .bottomTrailing)
+        colors: [blue, lilac], startPoint: .topLeading, endPoint: .bottomTrailing)
     public static let skyGradient = socialGradient
     public static let violetGradient = LinearGradient(
-        colors: [violet, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+        colors: [lilac, coral], startPoint: .topLeading, endPoint: .bottomTrailing)
     public static let amberGradient = LinearGradient(
-        colors: [amber, sunset], startPoint: .topLeading, endPoint: .bottomTrailing)
+        colors: [amber, coral], startPoint: .topLeading, endPoint: .bottomTrailing)
     public static let softWash = LinearGradient(
-        colors: [peach.opacity(0.30), pink.opacity(0.11), violet.opacity(0.10)],
+        colors: [coralSoft.opacity(0.72), lilacSoft.opacity(0.72), blueSoft.opacity(0.48)],
         startPoint: .leading, endPoint: .trailing)
 
     // MARK: Geometry
@@ -49,8 +58,8 @@ public enum Theme {
 
     public static func tint(for status: EventLifecycle.Status) -> Color {
         switch status {
-        case .upcoming: return sky
-        case .active: return Color(red: 0.10, green: 0.70, blue: 0.38)
+        case .upcoming: return blue
+        case .active: return mint
         case .grace: return amber
         case .expired: return .secondary
         }
@@ -94,13 +103,13 @@ struct GradientTile: View {
                 }
                 Spacer()
                 Text(title).font(.headline).foregroundStyle(.white)
-                Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.88))
+                Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.90))
             }
             .padding(16)
         }
         .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous))
-        .shadow(color: Theme.ink.opacity(0.08), radius: 14, y: 8)
+        .shadow(color: Theme.navy.opacity(0.10), radius: 14, y: 8)
     }
 }
 
@@ -119,12 +128,12 @@ struct FilterChip: View {
             .font(.subheadline).bold()
             .padding(.horizontal, 14).padding(.vertical, 9)
             .background(
-                isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(.white.opacity(0.88)),
+                isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(.white.opacity(0.92)),
                 in: Capsule()
             )
-            .foregroundStyle(isSelected ? .white : Theme.ink)
-            .overlay(Capsule().strokeBorder(isSelected ? .clear : Theme.separator.opacity(0.25)))
-            .shadow(color: isSelected ? Theme.sunset.opacity(0.15) : .clear, radius: 8, y: 4)
+            .foregroundStyle(isSelected ? .white : Theme.navy)
+            .overlay(Capsule().strokeBorder(isSelected ? .clear : Theme.separator.opacity(0.20)))
+            .shadow(color: isSelected ? Theme.coral.opacity(0.18) : .clear, radius: 8, y: 4)
         }
         .buttonStyle(.plain)
     }
@@ -139,26 +148,26 @@ struct InsightBanner: View {
         HStack(spacing: 16) {
             ZStack {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Theme.sunset.opacity(0.14))
+                    .fill(Theme.coralSoft)
                 Image(systemName: systemImage)
                     .font(.title2)
-                    .foregroundStyle(Theme.sunset)
+                    .foregroundStyle(Theme.coralDeep)
             }
             .frame(width: 54, height: 54)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(value).font(.title).bold().foregroundStyle(Theme.ink)
+                Text(value).font(.title).bold().foregroundStyle(Theme.navy)
                 Text(label).font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
             Image(systemName: "sparkles")
-                .foregroundStyle(Theme.pink.opacity(0.75))
+                .foregroundStyle(Theme.lilac.opacity(0.85))
         }
         .padding(16)
         .background(Theme.softWash, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                .strokeBorder(.white.opacity(0.65))
+                .strokeBorder(.white.opacity(0.78))
         }
     }
 }
