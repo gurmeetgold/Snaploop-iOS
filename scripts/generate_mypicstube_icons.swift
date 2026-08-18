@@ -37,23 +37,6 @@ let blue = color(0x4F8DFD)
 let ivory = color(0xFFF9F7)
 let white = NSColor.white
 
-func fillCircle(_ ctx: CGContext, x: CGFloat, y: CGFloat, radius: CGFloat, color: NSColor) {
-    ctx.setFillColor(color.cgColor)
-    ctx.fillEllipse(in: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2))
-}
-
-func drawCapsule(_ ctx: CGContext, rect: CGRect, angle: CGFloat, color: NSColor) {
-    ctx.saveGState()
-    ctx.translateBy(x: rect.midX, y: rect.midY)
-    ctx.rotate(by: angle)
-    let r = CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height)
-    let path = CGPath(roundedRect: r, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2, transform: nil)
-    ctx.addPath(path)
-    ctx.setFillColor(color.cgColor)
-    ctx.fillPath()
-    ctx.restoreGState()
-}
-
 func render(size: Int, to path: String) throws {
     guard let bitmap = NSBitmapImageRep(
         bitmapDataPlanes: nil,
@@ -74,61 +57,75 @@ func render(size: Int, to path: String) throws {
     ctx.setShouldAntialias(true)
     ctx.interpolationQuality = .high
 
-    // Warm ivory background keeps the icon premium and legible in light/dark home screens.
     ctx.setFillColor(ivory.cgColor)
     ctx.fill(CGRect(x: 0, y: 0, width: w, height: w))
 
-    // Soft brand halo behind the community mark.
+    // Subtle Coral Luxe halo.
     if let halo = CGGradient(
         colorsSpace: CGColorSpaceCreateDeviceRGB(),
-        colors: [coral.withAlphaComponent(0.18).cgColor, lilac.withAlphaComponent(0.11).cgColor, blue.withAlphaComponent(0.04).cgColor] as CFArray,
-        locations: [0, 0.55, 1]
+        colors: [coral.withAlphaComponent(0.16).cgColor, lilac.withAlphaComponent(0.08).cgColor, blue.withAlphaComponent(0.03).cgColor] as CFArray,
+        locations: [0, 0.58, 1]
     ) {
         ctx.drawRadialGradient(
             halo,
-            startCenter: CGPoint(x: w * 0.48, y: w * 0.51), startRadius: 0,
-            endCenter: CGPoint(x: w * 0.48, y: w * 0.51), endRadius: w * 0.45,
+            startCenter: CGPoint(x: w * 0.50, y: w * 0.50), startRadius: 0,
+            endCenter: CGPoint(x: w * 0.50, y: w * 0.50), endRadius: w * 0.46,
             options: []
         )
     }
 
-    // Flowing central loop, matching the selected three-person/community logo direction.
-    let loopRect = CGRect(x: w * 0.28, y: w * 0.25, width: w * 0.44, height: w * 0.44)
-    ctx.saveGState()
-    ctx.setLineCap(.round)
-    ctx.setLineWidth(w * 0.115)
-    if let loopGradient = CGGradient(
+    // Camera body.
+    let cameraRect = CGRect(x: w * 0.20, y: w * 0.26, width: w * 0.60, height: w * 0.48)
+    let bodyPath = CGPath(
+        roundedRect: cameraRect,
+        cornerWidth: w * 0.115,
+        cornerHeight: w * 0.115,
+        transform: nil
+    )
+    ctx.addPath(bodyPath)
+    ctx.setFillColor(white.withAlphaComponent(0.98).cgColor)
+    ctx.fillPath()
+
+    // Coral camera outline.
+    ctx.addPath(bodyPath)
+    ctx.setStrokeColor(coral.cgColor)
+    ctx.setLineWidth(w * 0.045)
+    ctx.strokePath()
+
+    // Camera top ridge.
+    let ridge = CGRect(x: w * 0.27, y: w * 0.70, width: w * 0.24, height: w * 0.075)
+    let ridgePath = CGPath(roundedRect: ridge, cornerWidth: w * 0.03, cornerHeight: w * 0.03, transform: nil)
+    ctx.addPath(ridgePath)
+    ctx.setFillColor(coral.cgColor)
+    ctx.fillPath()
+
+    // Lens: coral -> lilac -> blue, keeping the reference's bright youthful camera feel.
+    if let lensGradient = CGGradient(
         colorsSpace: CGColorSpaceCreateDeviceRGB(),
         colors: [coral.cgColor, lilac.cgColor, blue.cgColor] as CFArray,
-        locations: [0, 0.52, 1]
+        locations: [0, 0.54, 1]
     ) {
-        ctx.addEllipse(in: loopRect)
+        let lensRect = CGRect(x: w * 0.34, y: w * 0.34, width: w * 0.32, height: w * 0.32)
+        ctx.saveGState()
+        ctx.addEllipse(in: lensRect)
         ctx.replacePathWithStrokedPath()
         ctx.clip()
-        ctx.drawLinearGradient(loopGradient,
-                               start: CGPoint(x: loopRect.minX, y: loopRect.maxY),
-                               end: CGPoint(x: loopRect.maxX, y: loopRect.minY),
-                               options: [])
+        ctx.drawLinearGradient(
+            lensGradient,
+            start: CGPoint(x: lensRect.minX, y: lensRect.maxY),
+            end: CGPoint(x: lensRect.maxX, y: lensRect.minY),
+            options: []
+        )
+        ctx.restoreGState()
+
+        ctx.setStrokeColor(coralDeep.withAlphaComponent(0.70).cgColor)
+        ctx.setLineWidth(w * 0.020)
+        ctx.strokeEllipse(in: lensRect)
     }
-    ctx.restoreGState()
 
-    // Three heads.
-    fillCircle(ctx, x: w * 0.34, y: w * 0.68, radius: w * 0.075, color: coral)
-    fillCircle(ctx, x: w * 0.50, y: w * 0.74, radius: w * 0.084, color: lilac)
-    fillCircle(ctx, x: w * 0.66, y: w * 0.66, radius: w * 0.070, color: blue)
-
-    // Side shoulders / arms for the friendly people silhouette.
-    drawCapsule(ctx,
-                rect: CGRect(x: w * 0.25, y: w * 0.48, width: w * 0.27, height: w * 0.095),
-                angle: -.48,
-                color: coral)
-    drawCapsule(ctx,
-                rect: CGRect(x: w * 0.51, y: w * 0.46, width: w * 0.27, height: w * 0.090),
-                angle: .50,
-                color: blue)
-
-    // Subtle white center cutout gives the loop depth and keeps the mark clean at small sizes.
-    fillCircle(ctx, x: w * 0.50, y: w * 0.48, radius: w * 0.090, color: white.withAlphaComponent(0.96))
+    // Blue status dot.
+    ctx.setFillColor(blue.cgColor)
+    ctx.fillEllipse(in: CGRect(x: w * 0.68, y: w * 0.59, width: w * 0.075, height: w * 0.075))
 
     guard let png = bitmap.representation(using: .png, properties: [:]) else {
         throw NSError(domain: "Icon", code: 3)
@@ -139,4 +136,4 @@ func render(size: Int, to path: String) throws {
 for spec in specs {
     try render(size: spec.pixels, to: outDir + "/" + spec.name)
 }
-print("Generated Coral Luxe MyPicsTube AppIcon assets in \(outDir)")
+print("Generated Coral Luxe camera-view MyPicsTube AppIcon assets in \(outDir)")
