@@ -23,6 +23,13 @@ targets:
     type: application
     platform: iOS
 
+    preBuildScripts:
+      - name: Generate MyPicsTube App Icons
+        script: |
+          cd "$SRCROOT"
+          /usr/bin/xcrun swift scripts/generate_mypicstube_icons.swift
+        basedOnDependencyAnalysis: false
+
     info:
       path: Sources/App/Info.plist
       properties:
@@ -53,7 +60,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gurmeetchhiber.snaploop.app
+        PRODUCT_NAME: MyPicsTube
         CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_CFBundleDisplayName: MyPicsTube
