@@ -132,7 +132,7 @@ struct FaceMatchingTestView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     ZStack {
-                        Circle().fill(Theme.violetGradient.opacity(0.16))
+                        Circle().fill(Theme.violet.opacity(0.14))
                         Image(systemName: "checkmark.viewfinder")
                             .font(.system(size: 42)).foregroundStyle(Theme.violet)
                     }
