@@ -1,6 +1,7 @@
 import Foundation
 import ImageIO
 import Photos
+import UIKit
 import UniformTypeIdentifiers
 
 /// Production PhotoKit implementation. Reads only the current device's library.
@@ -44,11 +45,76 @@ public final class PhotoKitPhotoLibraryService: PhotoLibraryService, @unchecked 
         return values
     }
 
+    /// Returns a bounded working JPEG without first materializing the full
+    /// original asset in memory. This is the path used by face recognition.
     public func imageData(for assetId: String, maxPixelSize: Int) async throws -> Data {
-        let original = try await originalImageData(for: assetId)
-        return try Self.downsampleJPEG(original, maxPixelSize: maxPixelSize)
+        guard authorizationStatus().canRead else {
+            throw AppError.photoLibraryAccessDenied
+        }
+        try Task.checkCancellation()
+
+        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
+        guard let asset = fetch.firstObject else {
+            throw AppError.originalUnavailable
+        }
+
+        let longest = CGFloat(max(1, maxPixelSize))
+        let pixelWidth = max(CGFloat(asset.pixelWidth), 1)
+        let pixelHeight = max(CGFloat(asset.pixelHeight), 1)
+        let scale = min(1, longest / max(pixelWidth, pixelHeight))
+        let targetSize = CGSize(
+            width: max(1, pixelWidth * scale),
+            height: max(1, pixelHeight * scale)
+        )
+
+        let options = PHImageRequestOptions()
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .exact
+        options.version = .current
+        options.isNetworkAccessAllowed = true
+
+        let image: UIImage = try await withCheckedThrowingContinuation { continuation in
+            var finished = false
+            imageManager.requestImage(
+                for: asset,
+                targetSize: targetSize,
+                contentMode: .aspectFit,
+                options: options
+            ) { image, info in
+                guard !finished else { return }
+
+                if let cancelled = info?[PHImageCancelledKey] as? Bool, cancelled {
+                    finished = true
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if let error = info?[PHImageErrorKey] as? Error {
+                    finished = true
+                    continuation.resume(throwing: error)
+                    return
+                }
+                if let degraded = info?[PHImageResultIsDegradedKey] as? Bool, degraded {
+                    return
+                }
+                guard let image else {
+                    finished = true
+                    continuation.resume(throwing: AppError.originalUnavailable)
+                    return
+                }
+                finished = true
+                continuation.resume(returning: image)
+            }
+        }
+
+        try Task.checkCancellation()
+        guard let cgImage = image.cgImage else {
+            throw AppError.thumbnailEncodingFailed
+        }
+        return try Self.encodeJPEG(cgImage, quality: 0.92)
     }
 
+    /// Full-resolution original access is reserved for explicit original-photo
+    /// workflows. Camera sync must use `imageData(for:maxPixelSize:)` instead.
     public func originalImageData(for assetId: String) async throws -> Data {
         guard authorizationStatus().canRead else {
             throw AppError.photoLibraryAccessDenied
@@ -89,21 +155,7 @@ public final class PhotoKitPhotoLibraryService: PhotoLibraryService, @unchecked 
         }
     }
 
-    private static func downsampleJPEG(_ data: Data, maxPixelSize: Int) throws -> Data {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-            throw AppError.thumbnailEncodingFailed
-        }
-
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize)
-        ]
-
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-            throw AppError.thumbnailEncodingFailed
-        }
-
+    private static func encodeJPEG(_ image: CGImage, quality: Double) throws -> Data {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             output,
@@ -117,9 +169,8 @@ public final class PhotoKitPhotoLibraryService: PhotoLibraryService, @unchecked 
         CGImageDestinationAddImage(
             destination,
             image,
-            [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary
+            [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
         )
-
         guard CGImageDestinationFinalize(destination) else {
             throw AppError.thumbnailEncodingFailed
         }
