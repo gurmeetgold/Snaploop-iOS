@@ -21,11 +21,8 @@ final class SyncModel: ObservableObject {
                 Task { @MainActor in self?.state = .running(progress) }
             }
             state = .done(summary)
-        } catch let error as AppError {
-            state = .failed(error.userMessage)
-        } catch {
-            state = .failed(AppError.unknown("\(error)").userMessage)
-        }
+        } catch let error as AppError { state = .failed(error.userMessage) }
+        catch { state = .failed(AppError.unknown("\(error)").userMessage) }
     }
 }
 
@@ -37,69 +34,114 @@ struct SyncView: View {
     @StateObject private var model = SyncModel()
 
     var body: some View {
-        VStack(spacing: 20) {
-            switch model.state {
-            case .idle:
-                idle
-            case .running(let progress):
-                running(progress)
-            case .done(let summary):
-                done(summary)
-            case .failed(let message):
-                VStack(spacing: 18) {
-                    ContentUnavailableViewCompat(title: "We hit a snag", message: message)
-                    Button("Done") { dismiss() }
-                        .buttonStyle(.bordered)
+        ZStack {
+            BrandScreenBackground()
+            VStack(spacing: 20) {
+                switch model.state {
+                case .idle: idle
+                case .running(let progress): running(progress)
+                case .done(let summary): done(summary)
+                case .failed(let message): failed(message)
                 }
             }
+            .padding(22)
         }
-        .padding()
         .navigationTitle("Sync My Camera")
         .navigationBarTitleDisplayMode(.inline)
         .task { model.configure(env: env, session: session) }
     }
 
     private var idle: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 44)).foregroundStyle(.tint)
-            Text("We'll look through your photos from this event and find confident matches on-device.")
-                .multilineTextAlignment(.center).foregroundStyle(.secondary)
-            Button("Start") { Task { await model.run(event: event) } }
-                .buttonStyle(.borderedProminent).controlSize(.large)
+        PremiumCard {
+            VStack(spacing: 18) {
+                ZStack {
+                    Circle().fill(Theme.socialGradient.opacity(0.16))
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 40, weight: .semibold))
+                        .foregroundStyle(Theme.aqua)
+                }
+                .frame(width: 92, height: 92)
+
+                Text("Find your event photos")
+                    .font(.title3.bold()).foregroundStyle(Theme.ink)
+                Text("MyPicsTube scans photos from this event's date window on this iPhone and looks for confident matches on-device.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button { Task { await model.run(event: event) } } label: {
+                    Label("Start Sync", systemImage: "sparkles")
+                }
+                .buttonStyle(MyPicsTubePrimaryButtonStyle())
+            }
         }
     }
 
     private func running(_ progress: SyncProgress) -> some View {
-        VStack(spacing: 16) {
-            ProgressView().controlSize(.large)
-            Text(progress.statusText).font(.headline).multilineTextAlignment(.center)
+        PremiumCard {
+            VStack(spacing: 18) {
+                ZStack {
+                    Circle().fill(Theme.brandGradient.opacity(0.14))
+                    ProgressView().controlSize(.large).tint(Theme.sunset)
+                }
+                .frame(width: 88, height: 88)
+                Text(progress.statusText)
+                    .font(.headline).foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.center)
+                Text("You can keep MyPicsTube open while this finishes.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func failed(_ message: String) -> some View {
+        PremiumCard {
+            VStack(spacing: 16) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 42)).foregroundStyle(Theme.sunset)
+                Text("We hit a snag").font(.title3.bold())
+                Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Done") { dismiss() }
+                    .buttonStyle(MyPicsTubePrimaryButtonStyle())
+            }
         }
     }
 
     @ViewBuilder
     private func done(_ summary: CameraSyncCoordinator.Summary) -> some View {
-        VStack(spacing: 18) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 54)).foregroundStyle(.green)
-            Text(summary.alreadyCaughtUp
-                 ? "You're all caught up."
-                 : "Found \(summary.matchedPhotos) \(summary.matchedPhotos == 1 ? "photo" : "photos") of you.")
-                .font(.headline)
-                .multilineTextAlignment(.center)
+        PremiumCard {
+            VStack(spacing: 18) {
+                ZStack {
+                    Circle().fill(Color.green.opacity(0.12))
+                    Image(systemName: summary.alreadyCaughtUp ? "checkmark.circle.fill" : "sparkles")
+                        .font(.system(size: 46)).foregroundStyle(summary.alreadyCaughtUp ? .green : Theme.sunset)
+                }
+                .frame(width: 94, height: 94)
 
-            if summary.hasMore {
-                Button("Scan More") { Task { await model.run(event: event) } }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                Text(summary.alreadyCaughtUp
+                     ? "You're all caught up"
+                     : "Found \(summary.matchedPhotos) \(summary.matchedPhotos == 1 ? "photo" : "photos") of you")
+                    .font(.title3.bold()).foregroundStyle(Theme.ink)
+                    .multilineTextAlignment(.center)
 
-                Button("Done") { dismiss() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-            } else {
-                Button("Done") { dismiss() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                Text(summary.alreadyCaughtUp
+                     ? "No new photos needed processing for this event."
+                     : "Your confident matches are ready in My Photos.")
+                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+
+                if summary.hasMore {
+                    Button { Task { await model.run(event: event) } } label: {
+                        Label("Scan More", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(MyPicsTubePrimaryButtonStyle())
+
+                    Button("Done") { dismiss() }
+                        .foregroundStyle(Theme.sunset)
+                } else {
+                    Button { dismiss() } label: {
+                        Label("Done", systemImage: "checkmark.circle.fill")
+                    }
+                    .buttonStyle(MyPicsTubePrimaryButtonStyle())
+                }
             }
         }
     }
