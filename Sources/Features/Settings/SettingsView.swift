@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 final class SettingsModel: ObservableObject {
@@ -21,6 +22,7 @@ struct SettingsView: View {
     @EnvironmentObject private var session: AppSession
     @StateObject private var model = SettingsModel()
     @State private var confirmSignOut = false
+    @State private var facePreviewData: Data?
 
     var body: some View {
         ZStack {
@@ -48,6 +50,7 @@ struct SettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { refreshLocalFacePreview() }
         .confirmationDialog("Sign out of MyPicsTube?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) {
                 model.signOut(env: env, session: session)
@@ -59,13 +62,7 @@ struct SettingsView: View {
     private var profileCard: some View {
         PremiumCard {
             HStack(spacing: 14) {
-                ZStack {
-                    Circle().fill(Theme.brandGradient)
-                    Text(profileInitial)
-                        .font(.title2.bold())
-                        .foregroundStyle(.white)
-                }
-                .frame(width: 60, height: 60)
+                profileThumbnail
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(session.user?.displayName ?? "Add your name")
@@ -76,12 +73,39 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if facePreviewData != nil {
+                        Label("Your saved face reference", systemImage: "checkmark.circle.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Theme.coral)
+                    }
                 }
                 Spacer()
                 BrandMark(size: 38)
             }
         }
         .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private var profileThumbnail: some View {
+        if let data = facePreviewData, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 66, height: 66)
+                .clipShape(Circle())
+                .clipped()
+                .overlay(Circle().strokeBorder(.white, lineWidth: 3))
+                .shadow(color: Theme.navy.opacity(0.12), radius: 8, y: 4)
+        } else {
+            ZStack {
+                Circle().fill(Theme.brandGradient)
+                Text(profileInitial)
+                    .font(.title2.bold())
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 66, height: 66)
+        }
     }
 
     private var accountActions: some View {
@@ -164,6 +188,10 @@ struct SettingsView: View {
                 .foregroundStyle(tint)
         }
         .frame(width: 36, height: 36)
+    }
+
+    private func refreshLocalFacePreview() {
+        facePreviewData = session.user.flatMap { LocalFaceReferenceStore.load(userId: $0.id) }
     }
 
     private var profileInitial: String {
