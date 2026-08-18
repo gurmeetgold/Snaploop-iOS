@@ -50,11 +50,15 @@ public struct RemoteConfigValues: Equatable, Sendable {
 
     /// v5 evaluation defaults. These are intentionally NOT the old Vision
     /// feature-print values. Final values come from genuine/impostor calibration.
+    ///
+    /// Camera sync is deliberately conservative in beta: 25 assets per pass.
+    /// CameraSyncCoordinator also enforces a hard client-side safety ceiling,
+    /// so an accidentally high Remote Config value cannot create a huge pass.
     public static let `default` = RemoteConfigValues(
         matchConfidenceThreshold: FaceModelPolicy.evaluationMatchThreshold,
         matchAmbiguityMargin: FaceModelPolicy.evaluationAmbiguityMargin,
         minFaceSizeFraction: 0.045,
-        maxAssetsPerSyncBatch: 400,
+        maxAssetsPerSyncBatch: 25,
         thumbnailMaxPixelSize: 1024,
         thumbnailJPEGQuality: 0.72,
         signedURLTTLHours: 48,
