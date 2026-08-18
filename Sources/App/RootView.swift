@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// Top-level router. In live mode it restores a persisted Firebase Auth session
-/// and replays only the current account's pending invite route.
 struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var session: AppSession
@@ -12,7 +10,17 @@ struct RootView: View {
     var body: some View {
         Group {
             if isBootstrappingSession {
-                ProgressView("Opening SnapLoop…")
+                ZStack {
+                    BrandScreenBackground()
+                    VStack(spacing: 18) {
+                        BrandMark(size: 68)
+                        ProgressView()
+                            .tint(Theme.sunset)
+                        Text("Opening MyPicsTube…")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
             } else if session.user != nil {
                 MainTabView()
                     .sheet(item: $session.pendingRoute) { route in
@@ -104,18 +112,18 @@ struct MainTabView: View {
                 .tag(Tab.home)
 
             NavigationStack { HomeView(showsGreeting: false) }
-                .tabItem { Label("Events", systemImage: "calendar") }
+                .tabItem { Label("Events", systemImage: "calendar.badge.clock") }
                 .tag(Tab.events)
 
             NavigationStack { ActiveEventSharedView() }
-                .tabItem { Label("Shared", systemImage: "person.2.fill") }
+                .tabItem { Label("Shared", systemImage: "person.2.crop.square.stack.fill") }
                 .tag(Tab.shared)
 
             NavigationStack { SettingsView() }
                 .tabItem { Label("You", systemImage: "person.crop.circle.fill") }
                 .tag(Tab.you)
         }
-        .tint(Theme.coral)
+        .tint(Theme.sunset)
     }
 }
 
@@ -126,11 +134,30 @@ private struct ActiveEventSharedView: View {
         if let event = session.activeEvent {
             SharedAlbumView(event: event)
         } else {
-            ContentUnavailableViewCompat(
-                title: "Pick an event",
-                message: "Open an event from Home to see its shared album here.",
-                systemImage: "person.2"
-            )
+            ZStack {
+                BrandScreenBackground()
+                PremiumCard {
+                    VStack(spacing: 16) {
+                        ZStack {
+                            Circle().fill(Theme.socialGradient.opacity(0.18))
+                            Image(systemName: "person.2.crop.square.stack")
+                                .font(.system(size: 34))
+                                .foregroundStyle(Theme.sky)
+                        }
+                        .frame(width: 76, height: 76)
+                        Text("Pick an event")
+                            .font(.title3.bold())
+                            .foregroundStyle(Theme.ink)
+                        Text("Open an event from Home or Events to see its shared album here.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .padding(24)
+            }
         }
     }
 }
