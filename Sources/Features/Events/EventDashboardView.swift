@@ -26,53 +26,49 @@ struct EventDashboardView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                hero
+        ZStack {
+            BrandScreenBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    hero
 
-                if event.status == .deletedByOrganizer {
-                    deletedNotice
-                    if isOrganizer { organizerControls }
-                } else {
-                    syncStatusRow
-                    featureGrid
-                    statsRow
-                    membersRow
-                    if event.status == .active { invitePeopleRow }
-                    if isOrganizer { organizerControls }
-                }
+                    if event.status == .deletedByOrganizer {
+                        deletedNotice
+                        if isOrganizer { organizerControls }
+                    } else {
+                        syncStatusRow
+                        featureGrid
+                        statsRow
+                        membersRow
+                        if event.status == .active { invitePeopleRow }
+                        if isOrganizer { organizerControls }
+                    }
 
-                if let actionError {
-                    Text(actionError)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal)
+                    if let actionError {
+                        Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal)
+                    }
                 }
+                .padding(.vertical, 12)
             }
-            .padding(.bottom, 24)
         }
         .navigationBarTitleDisplayMode(.inline)
-        .ignoresSafeArea(edges: .top)
         .task { await loadDashboard() }
-        .confirmationDialog(
-            "End this event?",
-            isPresented: $confirmEnd,
-            titleVisibility: .visible
-        ) {
+        .confirmationDialog("End this event?", isPresented: $confirmEnd, titleVisibility: .visible) {
             Button("End Event", role: .destructive) {
                 Task { await changeStatus { try await env.events.endEvent(id: event.id) } }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("New joins and camera syncs will stop. The organizer can reopen it while testing if the date window is still valid.")
+            Text("New joins and camera syncs will stop. You can reopen the event while testing if its date window is still valid.")
         }
-        .confirmationDialog(
-            "Move this event to Deleted?",
-            isPresented: $confirmDelete,
-            titleVisibility: .visible
-        ) {
+        .confirmationDialog("Move this event to Deleted?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Move to Deleted", role: .destructive) {
                 Task { await changeStatus { try await env.events.moveEventToDeleted(id: event.id) } }
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("This is a soft delete. The event stays recoverable in the Deleted section.")
         }
@@ -96,9 +92,7 @@ struct EventDashboardView: View {
         let functions = Functions.functions()
         let _: Any = try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Any, Error>) in
-            functions.httpsCallable("syncEventRosterIdentities").call([
-                "eventId": event.id
-            ]) { result, error in
+            functions.httpsCallable("syncEventRosterIdentities").call(["eventId": event.id]) { result, error in
                 if let error { continuation.resume(throwing: error); return }
                 continuation.resume(returning: result?.data as Any)
             }
@@ -107,86 +101,126 @@ struct EventDashboardView: View {
 
     private var hero: some View {
         ZStack(alignment: .bottomLeading) {
-            Theme.violetGradient
-                .overlay(Image(systemName: event.category.systemImage)
-                    .font(.system(size: 80)).foregroundStyle(.white.opacity(0.15)))
-                .frame(height: 220)
-            LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(
+                colors: [Theme.sunset, Theme.pink, Theme.violet],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            Circle()
+                .fill(.white.opacity(0.11))
+                .frame(width: 180, height: 180)
+                .offset(x: 200, y: -70)
+            Image(systemName: event.category.systemImage)
+                .font(.system(size: 92, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.13))
+                .offset(x: 230, y: -30)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(event.name).font(.title).bold().foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.white.opacity(0.18))
+                        Image(systemName: event.category.systemImage)
+                            .font(.title2).foregroundStyle(.white)
+                    }
+                    .frame(width: 52, height: 52)
+                    Spacer()
+                    lifecyclePill
+                }
+
+                Spacer()
+                Text(event.name)
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
                 HStack(spacing: 8) {
                     Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
-                        .font(.subheadline).foregroundStyle(.white.opacity(0.9))
-                    lifecyclePill
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.92))
                     if isOrganizer {
-                        Text("ORGANIZER")
-                            .font(.caption2).bold()
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(.white.opacity(0.2), in: Capsule())
+                        Label("ORGANIZER", systemImage: "crown.fill")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                            .background(.white.opacity(0.18), in: Capsule())
+                            .foregroundStyle(.white)
+                    } else {
+                        Label("MEMBER", systemImage: "person.fill")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                            .background(.white.opacity(0.18), in: Capsule())
                             .foregroundStyle(.white)
                     }
                 }
             }
             .padding(20)
         }
-        .frame(height: 220)
+        .frame(height: 230)
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .shadow(color: Theme.sunset.opacity(0.18), radius: 18, y: 10)
+        .padding(.horizontal)
     }
 
     private var lifecyclePill: some View {
-        let text: String
-        switch event.status {
-        case .endedByOrganizer: text = "ENDED"
-        case .deletedByOrganizer: text = "DELETED"
-        case .expired: text = "COMPLETED"
-        case .active:
-            switch lifecycle {
-            case .upcoming: text = "UPCOMING"
-            case .active: text = "LIVE"
-            case .grace: text = "WRAPPING UP"
-            case .expired: text = "COMPLETED"
-            }
-        }
-        return Text(text).font(.caption2).bold()
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(.white.opacity(0.25), in: Capsule())
+        Text(statusText)
+            .font(.caption2.bold())
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(.white.opacity(0.22), in: Capsule())
             .foregroundStyle(.white)
     }
 
+    private var statusText: String {
+        switch event.status {
+        case .endedByOrganizer: return "ENDED"
+        case .deletedByOrganizer: return "DELETED"
+        case .expired: return "COMPLETED"
+        case .active:
+            switch lifecycle {
+            case .upcoming: return "UPCOMING"
+            case .active: return "LIVE"
+            case .grace: return "WRAPPING UP"
+            case .expired: return "COMPLETED"
+            }
+        }
+    }
+
     private var deletedNotice: some View {
-        Label("This event is in Deleted. Restore it to make it active again.", systemImage: "trash")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .padding()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-            .padding(.horizontal)
+        PremiumCard {
+            Label("This event is in Deleted. Restore it to make it active again.", systemImage: "trash.fill")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
     }
 
     private var syncStatusRow: some View {
-        HStack {
-            Label("Event Sync", systemImage: "checkmark.icloud.fill")
-                .font(.subheadline).bold()
-            Spacer()
-            Text(EventLifecycle.canSync(event, clock: env.clock, config: env.config.current) ? "Available" : "Paused")
-                .font(.subheadline)
-                .foregroundStyle(EventLifecycle.canSync(event, clock: env.clock, config: env.config.current) ? .green : .secondary)
+        PremiumCard {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(Theme.aqua.opacity(0.14))
+                    Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.aqua)
+                }
+                .frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Event Sync").font(.headline).foregroundStyle(Theme.ink)
+                    Text("Scan this event's date window for new matches")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(EventLifecycle.canSync(event, clock: env.clock, config: env.config.current) ? "Available" : "Paused")
+                    .font(.caption.bold())
+                    .foregroundStyle(EventLifecycle.canSync(event, clock: env.clock, config: env.config.current) ? .green : .secondary)
+            }
         }
-        .padding(14)
-        .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
         .padding(.horizontal)
     }
 
     private var featureGrid: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
             NavigationLink { MyPhotosView(event: event) } label: {
-                GradientTile(title: "My Photos", subtitle: "\(photosOfMe) found of you",
-                             systemImage: "photo.stack.fill", gradient: Theme.coralGradient)
+                GradientTile(title: "My Photos", subtitle: "\(photosOfMe) found of you", systemImage: "person.crop.rectangle.stack.fill", gradient: Theme.brandGradient)
             }
             NavigationLink { SharedAlbumView(event: event) } label: {
-                GradientTile(title: "Shared Album", subtitle: "\(sharedCount) shared previews",
-                             systemImage: "person.2.fill", gradient: Theme.skyGradient)
+                GradientTile(title: "Shared Album", subtitle: "\(sharedCount) shared previews", systemImage: "person.2.crop.square.stack.fill", gradient: Theme.socialGradient)
             }
         }
         .buttonStyle(.plain)
@@ -194,25 +228,24 @@ struct EventDashboardView: View {
     }
 
     private var statsRow: some View {
-        HStack(spacing: 0) {
-            statTile(value: "\(sharedCount)", label: "Shared Photos", icon: "photo.stack", tint: .green)
-            Divider().frame(height: 36)
-            statTile(value: "\(photosOfMe)", label: "Photos of You", icon: "person.fill", tint: Theme.violet)
-            Divider().frame(height: 36)
-            NavigationLink { SyncView(event: event) } label: {
-                statTile(value: "Sync", label: "My Camera", icon: "arrow.triangle.2.circlepath", tint: Theme.sky)
+        PremiumCard {
+            HStack(spacing: 0) {
+                statTile(value: "\(sharedCount)", label: "Shared", icon: "photo.stack.fill", tint: Theme.sunset)
+                Divider().frame(height: 46)
+                statTile(value: "\(photosOfMe)", label: "Of You", icon: "person.fill", tint: Theme.violet)
+                Divider().frame(height: 46)
+                NavigationLink { SyncView(event: event) } label: {
+                    statTile(value: "Sync", label: "Camera", icon: "arrow.triangle.2.circlepath", tint: Theme.aqua)
+                }
+                .buttonStyle(.plain)
+                .disabled(!EventLifecycle.canSync(event, clock: env.clock, config: env.config.current))
             }
-            .buttonStyle(.plain)
-            .disabled(!EventLifecycle.canSync(event, clock: env.clock, config: env.config.current))
         }
-        .padding(.vertical, 12)
-        .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
         .padding(.horizontal)
     }
 
     private func statTile(value: String, label: String, icon: String, tint: Color) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 5) {
             Image(systemName: icon).foregroundStyle(tint)
             Text(value).font(.headline).foregroundStyle(Theme.ink)
             Text(label).font(.caption2).foregroundStyle(.secondary)
@@ -221,30 +254,32 @@ struct EventDashboardView: View {
     }
 
     private var membersRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Event Members").font(.headline)
-                Spacer()
-                NavigationLink("View all") { ParticipantsView(event: event) }
-                    .font(.subheadline)
-            }
-            HStack(spacing: -8) {
-                ForEach(members.prefix(6)) { member in
-                    ZStack {
-                        Circle().fill(Theme.violetGradient)
-                        Text(initial(for: member))
-                            .font(.caption).bold().foregroundStyle(.white)
-                    }
-                    .frame(width: 36, height: 36)
-                    .overlay(Circle().strokeBorder(.background, lineWidth: 2))
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Label("Event Members", systemImage: "person.3.fill")
+                        .font(.headline).foregroundStyle(Theme.ink)
+                    Spacer()
+                    NavigationLink("View all") { ParticipantsView(event: event) }
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.sunset)
                 }
-                if members.count > 6 {
-                    ZStack {
-                        Circle().fill(Color(.systemGray4))
-                        Text("+\(members.count - 6)").font(.caption2).bold()
+                HStack(spacing: -8) {
+                    ForEach(members.prefix(6)) { member in
+                        ZStack {
+                            Circle().fill(Theme.socialGradient)
+                            Text(initial(for: member)).font(.caption.bold()).foregroundStyle(.white)
+                        }
+                        .frame(width: 38, height: 38)
+                        .overlay(Circle().strokeBorder(.white, lineWidth: 2))
                     }
-                    .frame(width: 36, height: 36)
-                    .overlay(Circle().strokeBorder(.background, lineWidth: 2))
+                    if members.count > 6 {
+                        ZStack {
+                            Circle().fill(Theme.peach.opacity(0.55))
+                            Text("+\(members.count - 6)").font(.caption2.bold()).foregroundStyle(Theme.ink)
+                        }
+                        .frame(width: 38, height: 38)
+                        .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                    }
                 }
             }
         }
@@ -252,24 +287,23 @@ struct EventDashboardView: View {
     }
 
     private var invitePeopleRow: some View {
-        NavigationLink {
-            ShareEventView(event: event)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "person.badge.plus")
-                    .font(.title3).foregroundStyle(Theme.coral)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Invite People").font(.headline).foregroundStyle(Theme.ink)
-                    Text("Share code, link, QR, or invite by phone")
-                        .font(.caption).foregroundStyle(.secondary)
+        NavigationLink { ShareEventView(event: event) } label: {
+            PremiumCard {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).fill(Theme.sunset.opacity(0.12))
+                        Image(systemName: "person.badge.plus").font(.title3).foregroundStyle(Theme.sunset)
+                    }
+                    .frame(width: 42, height: 42)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Invite People").font(.headline).foregroundStyle(Theme.ink)
+                        Text("Share code, link, QR or phone invite")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption).foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-            .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
         }
         .buttonStyle(.plain)
         .padding(.horizontal)
@@ -288,43 +322,34 @@ struct EventDashboardView: View {
     }
 
     private var organizerControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Organizer Controls").font(.subheadline).bold().foregroundStyle(.secondary)
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Organizer Controls", systemImage: "crown.fill")
+                    .font(.subheadline.bold()).foregroundStyle(Theme.ink)
 
-            if event.status == .endedByOrganizer {
-                Button {
-                    Task { await changeStatus { try await env.events.reopenEvent(id: event.id) } }
-                } label: {
-                    Label("Reopen Event", systemImage: "arrow.counterclockwise.circle")
-                }
-                .disabled(isChangingStatus)
-            }
-
-            if event.status == .deletedByOrganizer {
-                Button {
-                    Task { await changeStatus { try await env.events.restoreEvent(id: event.id) } }
-                } label: {
-                    Label("Restore Event", systemImage: "arrow.uturn.backward.circle")
-                }
-                .disabled(isChangingStatus)
-            } else {
-                if event.status == .active {
-                    Button(role: .destructive) { confirmEnd = true } label: {
-                        Label("End Event", systemImage: "stop.circle")
-                    }
+                if event.status == .endedByOrganizer {
+                    Button {
+                        Task { await changeStatus { try await env.events.reopenEvent(id: event.id) } }
+                    } label: { Label("Reopen Event", systemImage: "arrow.counterclockwise.circle.fill") }
                     .disabled(isChangingStatus)
                 }
 
-                Button(role: .destructive) { confirmDelete = true } label: {
-                    Label("Move to Deleted", systemImage: "trash")
+                if event.status == .deletedByOrganizer {
+                    Button {
+                        Task { await changeStatus { try await env.events.restoreEvent(id: event.id) } }
+                    } label: { Label("Restore Event", systemImage: "arrow.uturn.backward.circle.fill") }
+                    .disabled(isChangingStatus)
+                } else {
+                    if event.status == .active {
+                        Button(role: .destructive) { confirmEnd = true } label: { Label("End Event", systemImage: "stop.circle.fill") }
+                            .disabled(isChangingStatus)
+                    }
+                    Button(role: .destructive) { confirmDelete = true } label: { Label("Move to Deleted", systemImage: "trash.fill") }
+                        .disabled(isChangingStatus)
                 }
-                .disabled(isChangingStatus)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.separator.opacity(0.4)))
         .padding(.horizontal)
     }
 
