@@ -1,0 +1,5 @@
+// Shared signing config. The optional local file is generated on each developer Mac
+// and intentionally not committed. This lets XcodeGen regenerate the project
+// without forgetting the developer's Personal Team.
+CODE_SIGN_STYLE = Automatic
+#include? "Signing.local.xcconfig"
