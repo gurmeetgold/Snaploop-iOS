@@ -4,24 +4,16 @@ import Foundation
 /// so higher layers can switch exhaustively and map to human copy without ever
 /// leaking a raw `NSError` into the UI.
 public enum AppError: Error, Equatable, Sendable {
-
-    // MARK: Auth
     case notAuthenticated
     case invalidPhoneNumber
     case invalidVerificationCode
     case verificationExpired
-
-    // MARK: Permissions
     case photoLibraryAccessDenied
     case cameraAccessDenied
-
-    // MARK: Face profile
     case noFaceDetectedInSelfie
     case multipleFacesInSelfie
     case faceEmbeddingFailed
     case faceRecognitionNotReady
-
-    // MARK: Events
     case eventNotFound
     case eventExpired
     case eventFull
@@ -30,13 +22,9 @@ public enum AppError: Error, Equatable, Sendable {
     case notAMember
     case eventDurationTooLong(maxDays: Int)
     case invalidJoinCode
-
-    // MARK: Transfers
     case thumbnailEncodingFailed
     case downloadLinkExpired
     case originalUnavailable
-
-    // MARK: Infrastructure
     case network(underlying: String)
     case backend(code: String, message: String)
     case decoding(String)
@@ -44,8 +32,6 @@ public enum AppError: Error, Equatable, Sendable {
 }
 
 public extension AppError {
-    /// Human-facing message. Never exposes technical internals (no "embedding",
-    /// "asset id", "inference"). This is the *only* place error copy is written.
     var userMessage: String {
         switch self {
         case .notAuthenticated:
@@ -57,9 +43,9 @@ public extension AppError {
         case .verificationExpired:
             return "That code expired. We'll send you a new one."
         case .photoLibraryAccessDenied:
-            return "SnapLoop needs access to your photos to find pictures of you. You can enable it in Settings."
+            return "MyPicsTube needs access to your photos to find pictures of you. You can enable it in Settings."
         case .cameraAccessDenied:
-            return "SnapLoop needs camera access to set up your face. You can enable it in Settings."
+            return "MyPicsTube needs camera access to set up your face. You can enable it in Settings."
         case .noFaceDetectedInSelfie:
             return "We couldn't find a face in that photo. Try again in better light, facing the camera."
         case .multipleFacesInSelfie:
@@ -67,7 +53,7 @@ public extension AppError {
         case .faceEmbeddingFailed:
             return "Something went wrong setting up your face. Please try again."
         case .faceRecognitionNotReady:
-            return "Camera matching is being finished for this build. Your photos have not been marked as scanned."
+            return "Camera matching is not ready for this build. Your photos have not been marked as scanned."
         case .eventNotFound:
             return "We couldn't find that event."
         case .eventExpired:
@@ -87,7 +73,7 @@ public extension AppError {
         case .thumbnailEncodingFailed, .originalUnavailable:
             return "We couldn't prepare that photo. Please try again."
         case .downloadLinkExpired:
-            return "That download link expired. Tap again to get a fresh one."
+            return "That link expired. Try again to get a fresh one."
         case .network:
             return "You appear to be offline. Please check your connection and try again."
         case .backend, .decoding, .unknown:
