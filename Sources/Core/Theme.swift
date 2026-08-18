@@ -1,99 +1,109 @@
 import SwiftUI
 
-/// SnapLoop's visual design system: color tokens, gradients, and shared
-/// geometry constants. Centralizing these is what lets every screen read as
-/// one product instead of a pile of ad hoc styling.
-///
-/// Palette: warm coral primary (matches the camera/brand mark), sky blue
-/// secondary (shared/social surfaces), violet accent (AI-touched surfaces —
-/// Highlights — kept visually distinct so users learn "purple = AI, and it's
-/// always optional"), soft peach-to-lavender backgrounds.
+/// MyPicsTube "Sunset Social" design system.
+/// Warm sunset coral and pink carry personal-photo actions, aqua/blue signals
+/// shared/social surfaces, and soft cream keeps the product bright and premium.
 public enum Theme {
 
     // MARK: Brand colors
-    public static let coral = Color(red: 1.00, green: 0.44, blue: 0.35)      // primary CTA / "you" surfaces
-    public static let coralDeep = Color(red: 0.96, green: 0.34, blue: 0.27)
-    public static let sky = Color(red: 0.29, green: 0.65, blue: 0.94)        // shared/social surfaces
-    public static let skyDeep = Color(red: 0.18, green: 0.52, blue: 0.86)
-    public static let violet = Color(red: 0.55, green: 0.47, blue: 0.94)     // AI-touched surfaces
-    public static let violetDeep = Color(red: 0.44, green: 0.36, blue: 0.86)
-    public static let amber = Color(red: 0.98, green: 0.70, blue: 0.24)      // highlights / delight accents
-    public static let ink = Color(red: 0.10, green: 0.13, blue: 0.22)        // headline text
+    public static let sunset = Color(red: 1.00, green: 0.42, blue: 0.29)     // #FF6B4A
+    public static let sunsetDeep = Color(red: 0.96, green: 0.30, blue: 0.30)
+    public static let pink = Color(red: 0.98, green: 0.38, blue: 0.55)
+    public static let peach = Color(red: 1.00, green: 0.77, blue: 0.63)
+    public static let aqua = Color(red: 0.10, green: 0.78, blue: 0.75)
+    public static let sky = Color(red: 0.25, green: 0.61, blue: 0.97)
+    public static let violet = Color(red: 0.55, green: 0.42, blue: 0.95)
+    public static let amber = Color(red: 0.98, green: 0.68, blue: 0.23)
+    public static let ink = Color(red: 0.08, green: 0.11, blue: 0.20)
+    public static let canvas = Color(red: 0.985, green: 0.977, blue: 0.968)
 
-    /// Card hairline color. `ShapeStyle.separator` (bare `.separator`) is an
-    /// iOS 17 API; this UIColor-bridged form works back to iOS 13 and keeps the
-    /// app on its iOS 16 deployment target.
+    // Compatibility aliases while older screens are migrated.
+    public static let coral = sunset
+    public static let coralDeep = sunsetDeep
+    public static let skyDeep = Color(red: 0.12, green: 0.49, blue: 0.90)
+    public static let violetDeep = Color(red: 0.43, green: 0.31, blue: 0.86)
+
     public static let separator = Color(uiColor: .separator)
 
-    // MARK: Gradients (used on hero covers, stat tiles, dashboard cards)
-    public static let coralGradient = LinearGradient(
-        colors: [coral, coralDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
-    public static let skyGradient = LinearGradient(
-        colors: [sky, skyDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
+    // MARK: Gradients
+    public static let brandGradient = LinearGradient(
+        colors: [sunset, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+    public static let coralGradient = brandGradient
+    public static let sunsetGradient = LinearGradient(
+        colors: [sunset, peach], startPoint: .topLeading, endPoint: .bottomTrailing)
+    public static let socialGradient = LinearGradient(
+        colors: [sky, aqua], startPoint: .topLeading, endPoint: .bottomTrailing)
+    public static let skyGradient = socialGradient
     public static let violetGradient = LinearGradient(
-        colors: [violet, violetDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
+        colors: [violet, pink], startPoint: .topLeading, endPoint: .bottomTrailing)
     public static let amberGradient = LinearGradient(
-        colors: [amber, coral], startPoint: .topLeading, endPoint: .bottomTrailing)
-    /// Soft background wash for insight/stat banners.
+        colors: [amber, sunset], startPoint: .topLeading, endPoint: .bottomTrailing)
     public static let softWash = LinearGradient(
-        colors: [coral.opacity(0.12), violet.opacity(0.10)],
+        colors: [peach.opacity(0.30), pink.opacity(0.11), violet.opacity(0.10)],
         startPoint: .leading, endPoint: .trailing)
 
     // MARK: Geometry
-    public static let cardRadius: CGFloat = 20
-    public static let tileRadius: CGFloat = 18
-    public static let chipRadius: CGFloat = 20
+    public static let cardRadius: CGFloat = 24
+    public static let tileRadius: CGFloat = 22
+    public static let chipRadius: CGFloat = 22
 
-    /// Maps an event's phase to a tint, reused across pills/badges everywhere.
     public static func tint(for status: EventLifecycle.Status) -> Color {
         switch status {
         case .upcoming: return sky
-        case .active: return .green
+        case .active: return Color(red: 0.10, green: 0.70, blue: 0.38)
         case .grace: return amber
         case .expired: return .secondary
         }
     }
 }
 
-/// A reusable gradient tile, the building block of the dashboard's 2×2 grid and
-/// the highlights category cards.
 struct GradientTile: View {
     let title: String
     let subtitle: String
     let systemImage: String
     let gradient: LinearGradient
     var badge: String?
-    var height: CGFloat = 110
+    var height: CGFloat = 118
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             gradient
-            VStack(alignment: .leading, spacing: 6) {
+            Circle()
+                .fill(.white.opacity(0.12))
+                .frame(width: 100, height: 100)
+                .offset(x: 78, y: -38)
+
+            VStack(alignment: .leading, spacing: 7) {
                 HStack {
-                    Image(systemName: systemImage)
-                        .font(.title2)
-                        .foregroundStyle(.white)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(.white.opacity(0.20))
+                        Image(systemName: systemImage)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 40, height: 40)
                     Spacer()
                     if let badge {
                         Text(badge)
-                            .font(.caption).bold()
-                            .padding(.horizontal, 8).padding(.vertical, 3)
-                            .background(.white.opacity(0.25), in: Capsule())
+                            .font(.caption2).bold()
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.white.opacity(0.22), in: Capsule())
                             .foregroundStyle(.white)
                     }
                 }
                 Spacer()
                 Text(title).font(.headline).foregroundStyle(.white)
-                Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.85))
+                Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.88))
             }
             .padding(16)
         }
         .frame(height: height)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous))
+        .shadow(color: Theme.ink.opacity(0.08), radius: 14, y: 8)
     }
 }
 
-/// The pill-shaped filter chip used on My Photos / Shared Album.
 struct FilterChip: View {
     let title: String
     let systemImage: String?
@@ -107,19 +117,19 @@ struct FilterChip: View {
                 Text(title)
             }
             .font(.subheadline).bold()
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(isSelected ? AnyShapeStyle(Theme.coral) : AnyShapeStyle(.thinMaterial),
-                       in: Capsule())
-            .foregroundStyle(isSelected ? .white : .primary)
-            .overlay(
-                Capsule().strokeBorder(isSelected ? .clear : Color.secondary.opacity(0.25))
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(
+                isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(.white.opacity(0.88)),
+                in: Capsule()
             )
+            .foregroundStyle(isSelected ? .white : Theme.ink)
+            .overlay(Capsule().strokeBorder(isSelected ? .clear : Theme.separator.opacity(0.25)))
+            .shadow(color: isSelected ? Theme.sunset.opacity(0.15) : .clear, radius: 8, y: 4)
         }
         .buttonStyle(.plain)
     }
 }
 
-/// A soft, gradient-washed stat banner ("128 photos of you ✨").
 struct InsightBanner: View {
     let value: String
     let label: String
@@ -128,19 +138,27 @@ struct InsightBanner: View {
     var body: some View {
         HStack(spacing: 16) {
             ZStack {
-                RoundedRectangle(cornerRadius: 14).fill(Theme.violet.opacity(0.18))
-                Image(systemName: systemImage).font(.title2).foregroundStyle(Theme.violet)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Theme.brandGradient.opacity(0.17))
+                Image(systemName: systemImage)
+                    .font(.title2)
+                    .foregroundStyle(Theme.sunset)
             }
-            .frame(width: 52, height: 52)
+            .frame(width: 54, height: 54)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(value).font(.title).bold().foregroundStyle(Theme.ink)
                 Text(label).font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
-            Image(systemName: "sparkles").foregroundStyle(Theme.violet.opacity(0.6))
+            Image(systemName: "sparkles")
+                .foregroundStyle(Theme.pink.opacity(0.75))
         }
         .padding(16)
-        .background(Theme.softWash, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .background(Theme.softWash, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                .strokeBorder(.white.opacity(0.65))
+        }
     }
 }
