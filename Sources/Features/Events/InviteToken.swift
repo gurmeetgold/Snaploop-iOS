@@ -26,18 +26,15 @@ public struct InviteToken: Equatable, Sendable {
 
 public enum InviteLink {
     public static let scheme = "https"
+
+    /// Keep the legacy technical scheme during the visual rebrand so existing
+    /// installs and already-issued development links remain compatible.
     public static let customScheme = "snaploop"
 
-    /// Xcode/MVP builds must use the deployed Firebase Hosting domain. The
-    /// production `snaploop.app` host should only be enabled after DNS,
-    /// Associated Domains, AASA, and the App Store landing path are live.
-    public static var host: String {
-        #if DEBUG
-        return "snaploop-dev.web.app"
-        #else
-        return "snaploop.app"
-        #endif
-    }
+    /// TestFlight/beta builds must use a host that is actually deployed.
+    /// Do not switch this to a MyPicsTube production domain until DNS,
+    /// Associated Domains, AASA and the App Store landing path are all live.
+    public static let host = "snaploop-dev.web.app"
 
     public static func url(forToken token: InviteToken) -> URL {
         var comps = URLComponents()
@@ -52,6 +49,6 @@ public enum InviteLink {
     }
 
     public static func shareText(eventName: String, token: InviteToken) -> String {
-        "Join \"\(eventName)\" on SnapLoop:\n\(url(forToken: token).absoluteString)"
+        "Join \"\(eventName)\" on MyPicsTube:\n\(url(forToken: token).absoluteString)"
     }
 }
