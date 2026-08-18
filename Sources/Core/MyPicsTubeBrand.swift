@@ -5,7 +5,7 @@ import UIKit
 /// Visual colors live in `Theme` so there is one source of truth.
 enum MyPicsTubeBrand {
     static let name = "MyPicsTube"
-    static let tagline = "Get every photo of you."
+    static let tagline = "My pics, found from everyone’s phone."
 
     static func configureUIKitAppearance() {
         let tab = UITabBarAppearance()
