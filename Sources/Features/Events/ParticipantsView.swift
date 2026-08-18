@@ -126,7 +126,7 @@ struct ParticipantsView: View {
 
                     PremiumCard {
                         VStack(spacing: 0) {
-                            ForEach(Array(model.members.enumerated()), id: \.element.id) { index, member in
+                            ForEach(model.members) { member in
                                 HStack(spacing: 12) {
                                     ZStack {
                                         Circle().fill(member.role == .organizer ? Theme.brandGradient : Theme.socialGradient)
@@ -146,7 +146,9 @@ struct ParticipantsView: View {
                                     }
                                 }
                                 .padding(.vertical, 10)
-                                if index < model.members.count - 1 { Divider().padding(.leading, 52) }
+                                if member.id != model.members.last?.id {
+                                    Divider().padding(.leading, 52)
+                                }
                             }
                         }
                     }
