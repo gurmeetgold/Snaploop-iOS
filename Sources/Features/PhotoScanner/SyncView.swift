@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 final class SyncModel: ObservableObject {
@@ -29,6 +30,12 @@ final class SyncModel: ObservableObject {
         syncTask?.cancel()
     }
 
+    func cancelForSafety(message: String) {
+        guard syncTask != nil else { return }
+        syncTask?.cancel()
+        state = .failed(message)
+    }
+
     private func run(event: Event) async {
         guard let env, let userId = session?.user?.id else {
             syncTask = nil
@@ -54,10 +61,13 @@ final class SyncModel: ObservableObject {
             }
             state = .done(summary)
         } catch is CancellationError {
+            if case .failed = state { return }
             state = .failed(AppError.syncCancelled.userMessage)
         } catch let error as AppError {
+            if case .failed = state { return }
             state = .failed(error.userMessage)
         } catch {
+            if case .failed = state { return }
             state = .failed(AppError.unknown("\(error)").userMessage)
         }
     }
@@ -68,6 +78,7 @@ struct SyncView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = SyncModel()
 
     var body: some View {
@@ -87,6 +98,14 @@ struct SyncView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { model.configure(env: env, session: session) }
         .onDisappear { model.cancel() }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase != .active {
+                model.cancelForSafety(message: "Camera sync stopped because MyPicsTube left the foreground. You can continue when you return.")
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            model.cancelForSafety(message: "Camera sync stopped to reduce memory pressure on your iPhone. You can continue later.")
+        }
     }
 
     private var idle: some View {
@@ -132,7 +151,7 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Keep MyPicsTube in the foreground while scanning. The scan pauses automatically if the device gets too warm.")
+                Text("Keep MyPicsTube in the foreground while scanning. The scan pauses automatically for heat, memory pressure, or when you leave the app.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
