@@ -11,10 +11,10 @@ enum MyPicsTubeBrand {
         let tab = UITabBarAppearance()
         tab.configureWithOpaqueBackground()
         tab.backgroundColor = UIColor(Theme.canvas)
-        tab.shadowColor = UIColor.black.withAlphaComponent(0.05)
+        tab.shadowColor = UIColor(Theme.navy).withAlphaComponent(0.05)
 
-        let normal = UIColor(Theme.ink.opacity(0.68))
-        let selected = UIColor(Theme.sunset)
+        let normal = UIColor(Theme.navy.opacity(0.66))
+        let selected = UIColor(Theme.coral)
         [tab.stackedLayoutAppearance,
          tab.inlineLayoutAppearance,
          tab.compactInlineLayoutAppearance].forEach { item in
@@ -28,8 +28,8 @@ enum MyPicsTubeBrand {
 
         let navigation = UINavigationBarAppearance()
         navigation.configureWithTransparentBackground()
-        navigation.titleTextAttributes = [.foregroundColor: UIColor(Theme.ink)]
-        navigation.largeTitleTextAttributes = [.foregroundColor: UIColor(Theme.ink)]
+        navigation.titleTextAttributes = [.foregroundColor: UIColor(Theme.navy)]
+        navigation.largeTitleTextAttributes = [.foregroundColor: UIColor(Theme.navy)]
         UINavigationBar.appearance().standardAppearance = navigation
         UINavigationBar.appearance().compactAppearance = navigation
         UINavigationBar.appearance().scrollEdgeAppearance = navigation
@@ -46,7 +46,7 @@ struct MyPicsTubePrimaryButtonStyle: ButtonStyle {
             .background(Theme.brandGradient)
             .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
             .shadow(
-                color: Theme.pink.opacity(configuration.isPressed ? 0.10 : 0.20),
+                color: Theme.coral.opacity(configuration.isPressed ? 0.10 : 0.22),
                 radius: configuration.isPressed ? 4 : 12,
                 y: configuration.isPressed ? 2 : 6
             )
@@ -67,11 +67,11 @@ struct MyPicsTubeCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(.white.opacity(0.96), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+            .background(.white.opacity(0.97), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .stroke(Theme.separator.opacity(0.20), lineWidth: 1)
+                    .stroke(Theme.separator.opacity(0.16), lineWidth: 1)
             }
-            .shadow(color: Theme.ink.opacity(0.055), radius: 18, y: 8)
+            .shadow(color: Theme.navy.opacity(0.06), radius: 18, y: 8)
     }
 }
