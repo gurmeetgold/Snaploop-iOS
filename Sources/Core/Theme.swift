@@ -6,7 +6,7 @@ import SwiftUI
 public enum Theme {
 
     // MARK: Brand colors
-    public static let sunset = Color(red: 1.00, green: 0.42, blue: 0.29)     // #FF6B4A
+    public static let sunset = Color(red: 1.00, green: 0.42, blue: 0.29)
     public static let sunsetDeep = Color(red: 0.96, green: 0.30, blue: 0.30)
     public static let pink = Color(red: 0.98, green: 0.38, blue: 0.55)
     public static let peach = Color(red: 1.00, green: 0.77, blue: 0.63)
@@ -139,7 +139,7 @@ struct InsightBanner: View {
         HStack(spacing: 16) {
             ZStack {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Theme.brandGradient.opacity(0.17))
+                    .fill(Theme.sunset.opacity(0.14))
                 Image(systemName: systemImage)
                     .font(.title2)
                     .foregroundStyle(Theme.sunset)
