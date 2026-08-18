@@ -15,26 +15,14 @@ final class FaceSetupModel: ObservableObject {
     private var env: AppEnvironment?
     private var session: AppSession?
 
-    var guidedTemplateCount: Int {
-        templates.filter { $0.pose != .imported }.count
-    }
-
-    var hasGalleryReference: Bool {
-        templates.contains { $0.pose == .imported }
-    }
+    var guidedTemplateCount: Int { templates.filter { $0.pose != .imported }.count }
+    var hasGalleryReference: Bool { templates.contains { $0.pose == .imported } }
 
     func configure(env: AppEnvironment, session: AppSession) async {
         self.env = env
         self.session = session
-
-        if let userId = session.user?.id {
-            previewData = LocalFaceReferenceStore.load(userId: userId)
-        } else {
-            previewData = nil
-        }
-
-        if let profile = session.faceProfile,
-           profile.version == FaceModelPolicy.currentVersion {
+        previewData = session.user.flatMap { LocalFaceReferenceStore.load(userId: $0.id) }
+        if let profile = session.faceProfile, profile.version == FaceModelPolicy.currentVersion {
             templates = profile.templates
         } else {
             templates = []
@@ -45,29 +33,23 @@ final class FaceSetupModel: ObservableObject {
 
     func refreshConsent() async {
         guard let env, let userId = session?.user?.id else { return }
-        do {
-            consentActive = try await env.biometricConsent.load(userId: userId)?.isActive == true
-        } catch {
-            consentActive = false
-        }
+        do { consentActive = try await env.biometricConsent.load(userId: userId)?.isActive == true }
+        catch { consentActive = false }
     }
 
     func acceptConsent() async {
         guard let env, let userId = session?.user?.id else { return }
         do {
-            let record = BiometricConsentRecord(userId: userId, acceptedAt: env.clock.now())
-            try await env.biometricConsent.save(record)
+            try await env.biometricConsent.save(BiometricConsentRecord(userId: userId, acceptedAt: env.clock.now()))
             consentActive = true
-        } catch {
-            message = (error as NSError).localizedDescription
-        }
+        } catch { message = (error as NSError).localizedDescription }
     }
 
     func useGuidedFrames(_ frames: [GuidedEnrollmentFrame]) async {
         guard let env else { return }
         isBusy = true
         didSave = false
-        message = "Building your v5 multi-angle face profile…"
+        message = "Building your multi-angle face profile…"
         defer { isBusy = false }
 
         do {
@@ -91,20 +73,14 @@ final class FaceSetupModel: ObservableObject {
             }
 
             guard newGuidedTemplates.count >= 3 else { throw AppError.faceEmbeddingFailed }
-            let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }
-                .prefix(FaceModelPolicy.targetTemplateCount))
+            let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }.prefix(FaceModelPolicy.targetTemplateCount))
             templates = guided + imported
             previewData = bestReference?.data
-            message = "Captured \(guided.count) guided angles. Save Face Setup, then run Face Test."
-        } catch let error as AppError {
-            message = error.userMessage
-        } catch {
-            message = (error as NSError).localizedDescription
-        }
+            message = "Captured \(guided.count) guided angles. Save Face Setup when you're ready."
+        } catch let error as AppError { message = error.userMessage }
+        catch { message = (error as NSError).localizedDescription }
     }
 
-    /// MVP gallery path: exactly one optional edited image. It is an alternate
-    /// reference, not one of the five guided selfie captures.
     func usePickedImage(_ image: UIImage) async {
         guard let env else { return }
         didSave = false
@@ -124,13 +100,10 @@ final class FaceSetupModel: ObservableObject {
                 await useGalleryCandidate(candidates[0], env: env)
             } else {
                 faceCandidates = candidates
-                message = "We found \(candidates.count) faces. Tap your face."
+                message = "We found \(candidates.count) faces. Choose your face below."
             }
-        } catch let error as AppError {
-            message = error.userMessage
-        } catch {
-            message = (error as NSError).localizedDescription
-        }
+        } catch let error as AppError { message = error.userMessage }
+        catch { message = (error as NSError).localizedDescription }
     }
 
     func chooseCandidate(_ candidate: FaceCropCandidate) async {
@@ -142,9 +115,6 @@ final class FaceSetupModel: ObservableObject {
     private func useGalleryCandidate(_ candidate: FaceCropCandidate, env: AppEnvironment) async {
         do {
             let embedding = try await env.faceDetection.embeddingForSelfie(candidate.jpegData)
-            // There can never be more than one imported identity reference.
-            // Guided templates remain untouched, preventing arbitrary gallery
-            // photos from replacing the controlled five-pose enrollment.
             templates.removeAll { $0.pose == .imported }
             templates.append(FaceTemplate(
                 embedding: embedding,
@@ -153,12 +123,9 @@ final class FaceSetupModel: ObservableObject {
                 createdAt: env.clock.now()
             ))
             previewData = candidate.jpegData
-            message = "One optional gallery reference is ready. You can edit/replace it before saving."
-        } catch let error as AppError {
-            message = error.userMessage
-        } catch {
-            message = (error as NSError).localizedDescription
-        }
+            message = "Your optional gallery reference is ready."
+        } catch let error as AppError { message = error.userMessage }
+        catch { message = (error as NSError).localizedDescription }
     }
 
     func saveFaceSetup() async {
@@ -170,9 +137,7 @@ final class FaceSetupModel: ObservableObject {
         defer { isBusy = false }
 
         do {
-            guard let centroid = FaceEmbedding.centroid(of: templates.map(\.embedding)) else {
-                throw AppError.faceEmbeddingFailed
-            }
+            guard let centroid = FaceEmbedding.centroid(of: templates.map(\.embedding)) else { throw AppError.faceEmbeddingFailed }
             let profile = FaceProfile(
                 userId: user.id,
                 embedding: centroid,
@@ -181,9 +146,7 @@ final class FaceSetupModel: ObservableObject {
                 updatedAt: env.clock.now()
             )
             try await env.faceProfiles.save(profile)
-            if let previewData {
-                try LocalFaceReferenceStore.save(previewData, userId: user.id)
-            }
+            if let previewData { try LocalFaceReferenceStore.save(previewData, userId: user.id) }
             user.hasFaceProfile = true
             try await env.users.save(user)
             try await refreshEventFaceProfiles()
@@ -191,11 +154,8 @@ final class FaceSetupModel: ObservableObject {
             session.user = user
             didSave = true
             message = "Face Setup saved. Guided: \(guidedTemplateCount)/\(FaceModelPolicy.targetTemplateCount)\(hasGalleryReference ? ", plus 1 gallery reference" : "")."
-        } catch let error as AppError {
-            message = error.userMessage
-        } catch {
-            message = (error as NSError).localizedDescription
-        }
+        } catch let error as AppError { message = error.userMessage }
+        catch { message = (error as NSError).localizedDescription }
     }
 
     private func refreshEventFaceProfiles() async throws {
@@ -220,79 +180,98 @@ struct FaceSetupView: View {
     @State private var showConsent = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                Image(systemName: "faceid")
-                    .font(.system(size: 52)).foregroundStyle(Theme.coralGradient)
-                Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
-                    .font(.title2).bold()
-                Text("Guided Selfie Scan is recommended for MVP accuracy. One gallery photo is optional and never counts as five different enrollment angles.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        ZStack {
+            BrandScreenBackground()
+            ScrollView {
+                VStack(spacing: 18) {
+                    BrandMark(size: 58)
+                    Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.ink)
+                    Text("A guided selfie scan gives MyPicsTube the most reliable reference. You can also add one optional gallery photo.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 6)
 
-                preview
-                templateStatus
+                    PremiumCard { preview }
+                    PremiumCard { templateStatus }
 
-                if !model.faceCandidates.isEmpty { candidatePicker }
+                    if !model.faceCandidates.isEmpty { PremiumCard { candidatePicker } }
 
-                if !model.consentActive {
-                    Button { showConsent = true } label: {
-                        Label("Review Face Match Consent", systemImage: "checkmark.shield")
-                            .frame(maxWidth: .infinity)
+                    if !model.consentActive {
+                        actionButton("Review Face Match Consent", icon: "checkmark.shield.fill", gradient: Theme.socialGradient) {
+                            showConsent = true
+                        }
                     }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                }
 
-                Button {
-                    if model.consentActive { showGuidedEnrollment = true } else { showConsent = true }
-                } label: {
-                    Label("Start Guided Selfie Scan — Recommended", systemImage: "viewfinder.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).tint(Theme.coral).controlSize(.large)
-
-                Button {
-                    if model.consentActive { showGalleryPicker = true } else { showConsent = true }
-                } label: {
-                    Label(model.hasGalleryReference ? "Edit / Replace Gallery Photo" : "Add One Gallery Photo", systemImage: "crop")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered).controlSize(.large)
-
-                Button {
-                    Task {
-                        await model.saveFaceSetup()
-                        if model.didSave, onSaved != nil { onSaved?(); dismiss() }
+                    actionButton("Guided Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.brandGradient) {
+                        if model.consentActive { showGuidedEnrollment = true } else { showConsent = true }
                     }
-                } label: {
-                    Group { if model.isBusy { ProgressView() } else { Text(session.hasFaceProfile ? "Update Face Setup" : "Save Face Setup") } }
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent).tint(Theme.coral).controlSize(.large)
-                .disabled(!model.consentActive || model.templates.isEmpty || model.isBusy)
 
-                if session.hasFaceProfile {
-                    NavigationLink {
-                        FaceMatchingTestView()
+                    Button {
+                        if model.consentActive { showGalleryPicker = true } else { showConsent = true }
                     } label: {
-                        Label("Test My Face Setup", systemImage: "checkmark.viewfinder")
+                        Label(model.hasGalleryReference ? "Edit / Replace Gallery Photo" : "Add One Gallery Photo", systemImage: "photo.badge.plus")
+                            .font(.headline)
                             .frame(maxWidth: .infinity)
+                            .frame(height: 52)
                     }
-                    .buttonStyle(.bordered).controlSize(.large)
-                }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.sunset)
+                    .background(Theme.peach.opacity(0.22), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                if let message = model.message {
-                    Text(message).font(.footnote).multilineTextAlignment(.center)
+                    Button {
+                        Task {
+                            await model.saveFaceSetup()
+                            if model.didSave, onSaved != nil { onSaved?(); dismiss() }
+                        }
+                    } label: {
+                        HStack {
+                            if model.isBusy { ProgressView().tint(.white) }
+                            else { Image(systemName: "checkmark.seal.fill") }
+                            Text(session.hasFaceProfile ? "Update Face Setup" : "Save Face Setup")
+                        }
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .disabled(!model.consentActive || model.templates.isEmpty || model.isBusy)
+                    .opacity((!model.consentActive || model.templates.isEmpty || model.isBusy) ? 0.5 : 1)
+
+                    if session.hasFaceProfile {
+                        NavigationLink {
+                            FaceMatchingTestView()
+                        } label: {
+                            Label("Test My Face Setup", systemImage: "checkmark.viewfinder")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.violet)
+                        .background(Theme.violet.opacity(0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+
+                    if let message = model.message {
+                        Label(message, systemImage: model.didSave ? "checkmark.circle.fill" : "info.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(model.didSave ? .green : .secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
                 }
+                .padding(20)
             }
-            .padding(24)
         }
         .navigationTitle("Face Setup")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.configure(env: env, session: session) }
         .fullScreenCover(isPresented: $showGuidedEnrollment) {
-            GuidedFaceEnrollmentView { frames in
-                Task { await model.useGuidedFrames(frames) }
-            }
+            GuidedFaceEnrollmentView { frames in Task { await model.useGuidedFrames(frames) } }
         }
         .sheet(isPresented: $showConsent) {
             BiometricConsentView { Task { await model.acceptConsent() } }
@@ -307,39 +286,50 @@ struct FaceSetupView: View {
     }
 
     private var preview: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             if let data = model.previewData, let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
-                    .frame(width: 220, height: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 24)).clipped()
-                Text("Current saved/reference photo")
-                    .font(.caption).foregroundStyle(.secondary)
+                Image(uiImage: image)
+                    .resizable().scaledToFill()
+                    .frame(width: 190, height: 190)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .clipped()
+                    .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(.white, lineWidth: 3))
+                    .shadow(color: Theme.ink.opacity(0.10), radius: 12, y: 6)
+                Label("Current face reference", systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.green)
             } else {
-                RoundedRectangle(cornerRadius: 24).fill(.thinMaterial)
-                    .frame(width: 220, height: 220)
-                    .overlay { Image(systemName: "person.crop.square").font(.system(size: 48)).foregroundStyle(.secondary) }
+                ZStack {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Theme.softWash)
+                    Image(systemName: "person.crop.square.filled.and.at.rectangle")
+                        .font(.system(size: 48)).foregroundStyle(Theme.violet)
+                }
+                .frame(width: 190, height: 190)
                 if session.hasFaceProfile {
-                    Text("Your v5 template exists, but this device has no saved preview image yet. Run or update Face Setup once on this phone.")
+                    Text("Your face profile already exists. This phone does not have a local preview image yet; run Face Setup once here to refresh it.")
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                } else {
+                    Text("Your reference preview will appear here.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var templateStatus: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Guided selfie coverage").font(.headline)
+                Label("Guided selfie coverage", systemImage: "viewfinder.circle")
+                    .font(.headline).foregroundStyle(Theme.ink)
                 Spacer()
                 Text("\(model.guidedTemplateCount)/\(FaceModelPolicy.targetTemplateCount)")
-                    .font(.system(.subheadline, design: .monospaced))
+                    .font(.system(.subheadline, design: .rounded).bold())
+                    .foregroundStyle(Theme.sunset)
             }
-            ProgressView(
-                value: Double(model.guidedTemplateCount),
-                total: Double(FaceModelPolicy.targetTemplateCount)
-            )
+            ProgressView(value: Double(model.guidedTemplateCount), total: Double(FaceModelPolicy.targetTemplateCount))
+                .tint(Theme.sunset)
             Text(model.guidedTemplateCount >= 3
-                 ? "Good guided pose coverage. The five captures are all taken during one controlled selfie scan."
+                 ? "Good pose coverage. The guided scan captures controlled angles of the same person."
                  : "Complete the guided scan for the most reliable matching.")
                 .font(.caption).foregroundStyle(.secondary)
 
@@ -347,31 +337,30 @@ struct FaceSetupView: View {
 
             HStack {
                 Label("Optional gallery reference", systemImage: "photo")
-                    .font(.subheadline)
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(model.hasGalleryReference ? "1 added" : "None")
-                    .font(.caption).bold()
+                    .font(.caption.bold())
                     .foregroundStyle(model.hasGalleryReference ? .green : .secondary)
             }
-            Text("MVP allows one gallery face only. If the photo has several people, SnapLoop asks you to choose your face.")
+            Text("MVP allows one gallery face only. If the photo has several people, MyPicsTube asks you to choose your face.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
-        .padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
 
     private var candidatePicker: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Which face is you?").font(.headline)
+            Label("Which face is you?", systemImage: "person.crop.rectangle.stack")
+                .font(.headline)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(model.faceCandidates) { candidate in
-                        Button {
-                            Task { await model.chooseCandidate(candidate) }
-                        } label: {
+                        Button { Task { await model.chooseCandidate(candidate) } } label: {
                             if let image = UIImage(data: candidate.jpegData) {
                                 Image(uiImage: image).resizable().scaledToFill()
                                     .frame(width: 96, height: 96)
-                                    .clipShape(RoundedRectangle(cornerRadius: 14)).clipped()
+                                    .clipShape(RoundedRectangle(cornerRadius: 18)).clipped()
+                                    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.sunset.opacity(0.5), lineWidth: 2))
                             }
                         }
                         .buttonStyle(.plain)
@@ -379,6 +368,18 @@ struct FaceSetupView: View {
                 }
             }
         }
-        .padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func actionButton(_ title: String, icon: String, gradient: LinearGradient, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .background(gradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Theme.ink.opacity(0.08), radius: 10, y: 5)
     }
 }
