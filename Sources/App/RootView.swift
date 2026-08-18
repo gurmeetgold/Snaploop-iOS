@@ -139,7 +139,7 @@ private struct ActiveEventSharedView: View {
                 PremiumCard {
                     VStack(spacing: 16) {
                         ZStack {
-                            Circle().fill(Theme.socialGradient.opacity(0.18))
+                            Circle().fill(Theme.sky.opacity(0.14))
                             Image(systemName: "person.2.crop.square.stack")
                                 .font(.system(size: 34))
                                 .foregroundStyle(Theme.sky)
