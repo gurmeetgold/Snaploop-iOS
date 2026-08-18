@@ -13,14 +13,12 @@ final class CreateEventModel: ObservableObject {
     private var env: AppEnvironment?
     private var session: AppSession?
     init() {}
-    func configure(env: AppEnvironment, session: AppSession) {
-        self.env = env; self.session = session
-    }
+    func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
 
     func create() async -> Event? {
         guard let env, let session else { return nil }
         guard let user = session.user, let profile = session.faceProfile else {
-            errorMessage = AppError.notAuthenticated.userMessage; return nil
+            errorMessage = "Complete Face Setup before creating an event so MyPicsTube can find your photos."; return nil
         }
         isSaving = true; defer { isSaving = false }
         do {
@@ -33,11 +31,8 @@ final class CreateEventModel: ObservableObject {
             let membership = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
             try await membership.create(event: event, creator: user, faceProfile: profile)
             return event
-        } catch let error as AppError {
-            errorMessage = error.userMessage
-        } catch {
-            errorMessage = AppError.unknown("\(error)").userMessage
-        }
+        } catch let error as AppError { errorMessage = error.userMessage }
+        catch { errorMessage = AppError.unknown("\(error)").userMessage }
         return nil
     }
 }
@@ -56,42 +51,94 @@ struct CreateEventView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Event") {
-                    TextField("Name (e.g. Family Reunion, Goa Trip)", text: $model.name)
-                    Picker("Type", selection: $model.category) {
-                        ForEach(EventCategory.allCases, id: \.self) { c in
-                            Label(c.displayName, systemImage: c.systemImage).tag(c)
+            ZStack {
+                BrandScreenBackground()
+                ScrollView {
+                    VStack(spacing: 18) {
+                        BrandMark(size: 58)
+                        Text("Create an Event")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundStyle(Theme.ink)
+                        Text("Party, family celebration, wedding, trip — give the moment a home.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        PremiumCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                fieldLabel("Event name", icon: "textformat")
+                                TextField("e.g. Riya's Birthday", text: $model.name)
+                                    .textInputAutocapitalization(.words)
+                                    .padding(14)
+                                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+
+                                Divider()
+                                fieldLabel("Type", icon: model.category.systemImage)
+                                Picker("Type", selection: $model.category) {
+                                    ForEach(EventCategory.allCases, id: \.self) { c in
+                                        Label(c.displayName, systemImage: c.systemImage).tag(c)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .tint(Theme.sunset)
+
+                                Divider()
+                                fieldLabel("Location", icon: "location.fill")
+                                TextField("Optional", text: $model.locationName)
+                                    .textInputAutocapitalization(.words)
+                                    .padding(14)
+                                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                            }
                         }
+
+                        PremiumCard {
+                            VStack(alignment: .leading, spacing: 14) {
+                                fieldLabel("Event dates", icon: "calendar")
+                                DatePicker("Starts", selection: $model.startsAt, displayedComponents: [.date])
+                                Divider()
+                                DatePicker("Ends", selection: $model.endsAt, in: model.startsAt..., displayedComponents: [.date])
+                                if model.startsAt < Calendar.current.startOfDay(for: Date()) {
+                                    Label("MyPicsTube can also scan photos from earlier dates in this event window.", systemImage: "clock.arrow.circlepath")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        if let error = model.errorMessage {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote).foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
+                        }
+
+                        Button {
+                            Task {
+                                if let event = await model.create() { onCreated(event); dismiss() }
+                            }
+                        } label: {
+                            HStack {
+                                if model.isSaving { ProgressView().tint(.white) }
+                                else { Image(systemName: "sparkles") }
+                                Text("Create Event")
+                            }
+                        }
+                        .buttonStyle(MyPicsTubePrimaryButtonStyle())
+                        .disabled(model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSaving)
+                        .opacity(model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
                     }
-                    TextField("Location (optional)", text: $model.locationName)
-                }
-                Section("Dates") {
-                    DatePicker("Starts", selection: $model.startsAt, displayedComponents: [.date])
-                    DatePicker("Ends", selection: $model.endsAt, displayedComponents: [.date])
-                    if model.startsAt < Date() {
-                        Label("We'll also look back through photos from before today.",
-                              systemImage: "clock.arrow.circlepath")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-                if let error = model.errorMessage {
-                    Section { Text(error).foregroundStyle(.red).font(.footnote) }
+                    .padding(20)
                 }
             }
             .navigationTitle("New Event")
+            .navigationBarTitleDisplayMode(.inline)
             .task { model.configure(env: env, session: session) }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        Task {
-                            if let event = await model.create() { onCreated(event); dismiss() }
-                        }
-                    }
-                    .disabled(model.name.trimmingCharacters(in: .whitespaces).isEmpty || model.isSaving)
-                }
             }
         }
+    }
+
+    private func fieldLabel(_ text: String, icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Theme.ink)
     }
 }
