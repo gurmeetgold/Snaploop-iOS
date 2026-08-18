@@ -14,6 +14,8 @@ public enum AppError: Error, Equatable, Sendable {
     case multipleFacesInSelfie
     case faceEmbeddingFailed
     case faceRecognitionNotReady
+    case deviceTooWarm
+    case syncCancelled
     case eventNotFound
     case eventExpired
     case eventFull
@@ -54,6 +56,10 @@ public extension AppError {
             return "Something went wrong setting up your face. Please try again."
         case .faceRecognitionNotReady:
             return "Camera matching is not ready for this build. Your photos have not been marked as scanned."
+        case .deviceTooWarm:
+            return "Your iPhone is getting warm, so MyPicsTube paused photo scanning. Let it cool down, then try again."
+        case .syncCancelled:
+            return "Camera sync was stopped. Photos already processed are kept, and you can continue later."
         case .eventNotFound:
             return "We couldn't find that event."
         case .eventExpired:
