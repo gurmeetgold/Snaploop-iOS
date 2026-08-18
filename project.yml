@@ -23,13 +23,6 @@ targets:
     type: application
     platform: iOS
 
-    preBuildScripts:
-      - name: Generate MyPicsTube App Icons
-        script: |
-          cd "$SRCROOT"
-          /usr/bin/xcrun swift scripts/generate_mypicstube_icons.swift
-        basedOnDependencyAnalysis: false
-
     info:
       path: Sources/App/Info.plist
       properties:
