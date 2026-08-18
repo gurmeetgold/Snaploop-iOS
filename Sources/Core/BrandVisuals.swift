@@ -1,43 +1,38 @@
 import SwiftUI
 
 /// MyPicsTube visual identity used throughout the MVP.
-/// The mark is camera-first, echoing the compact camera-view treatment from the
-/// selected reference while staying original to MyPicsTube and Coral Luxe.
+/// Camera-first, light and compact: inspired by the simple camera + wordmark
+/// treatment the product team selected, while remaining an original mark.
 struct BrandMark: View {
     var size: CGFloat = 72
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(.white.opacity(0.97))
-                .overlay {
-                    RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                        .strokeBorder(Theme.coral, lineWidth: max(2, size * 0.055))
-                }
+            // Camera body: deliberately simple so it still reads at tab/icon size.
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
+                .strokeBorder(Theme.coral, lineWidth: max(2, size * 0.075))
+                .frame(width: size * 0.92, height: size * 0.68)
+                .offset(y: size * 0.07)
 
-            Circle()
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [Theme.coral, Theme.lilac, Theme.blue],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: max(2, size * 0.06)
-                )
-                .frame(width: size * 0.42, height: size * 0.42)
-
-            Circle()
-                .fill(Theme.blue)
-                .frame(width: size * 0.10, height: size * 0.10)
-                .offset(x: size * 0.28, y: -size * 0.24)
-
-            RoundedRectangle(cornerRadius: size * 0.045, style: .continuous)
+            RoundedRectangle(cornerRadius: size * 0.06, style: .continuous)
                 .fill(Theme.coral)
-                .frame(width: size * 0.28, height: size * 0.095)
-                .offset(x: -size * 0.18, y: -size * 0.43)
+                .frame(width: size * 0.30, height: size * 0.12)
+                .offset(x: -size * 0.18, y: -size * 0.31)
+
+            Circle()
+                .fill(.white)
+                .overlay {
+                    Circle().strokeBorder(Theme.blue, lineWidth: max(2, size * 0.075))
+                }
+                .frame(width: size * 0.36, height: size * 0.36)
+                .offset(y: size * 0.07)
+
+            Circle()
+                .fill(Theme.lilac)
+                .frame(width: size * 0.11, height: size * 0.11)
+                .offset(x: size * 0.28, y: -size * 0.05)
         }
         .frame(width: size, height: size)
-        .shadow(color: Theme.coral.opacity(0.16), radius: size * 0.11, y: size * 0.05)
         .accessibilityHidden(true)
     }
 }
@@ -46,16 +41,18 @@ struct BrandWordmark: View {
     var compact = false
 
     var body: some View {
-        HStack(spacing: compact ? 8 : 12) {
-            BrandMark(size: compact ? 38 : 68)
+        HStack(spacing: compact ? 6 : 9) {
+            BrandMark(size: compact ? 30 : 48)
             HStack(spacing: 0) {
                 Text("MyPics")
-                    .foregroundStyle(Theme.navy)
-                Text("Tube")
                     .foregroundStyle(Theme.coral)
+                Text("Tube")
+                    .foregroundStyle(Theme.blue)
             }
-            .font(compact ? .headline : .system(size: 38, weight: .bold, design: .rounded))
+            .font(compact ? .system(.headline, design: .rounded, weight: .bold) : .system(size: 34, weight: .bold, design: .rounded))
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("MyPicsTube")
     }
 }
 
