@@ -1,5 +1,6 @@
 import FirebaseFunctions
 import SwiftUI
+import UIKit
 
 struct EventDashboardView: View {
     let event: Event
@@ -9,6 +10,8 @@ struct EventDashboardView: View {
 
     @State private var members: [EventMember] = []
     @State private var participants: [EventParticipant] = []
+    @State private var sharedMatches: [PhotoMatch] = []
+    @State private var localFaceReferenceData: Data?
     @State private var photosOfMe = 0
     @State private var sharedCount = 0
     @State private var confirmEnd = false
@@ -83,9 +86,11 @@ struct EventDashboardView: View {
         members = (try? await env.events.members(eventId: event.id)) ?? []
         participants = (try? await env.events.participants(eventId: event.id)) ?? []
         if let userId = session.user?.id {
+            localFaceReferenceData = LocalFaceReferenceStore.load(userId: userId)
             photosOfMe = ((try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []).count
         }
-        sharedCount = ((try? await env.matches.sharedAlbum(eventId: event.id)) ?? []).count
+        sharedMatches = (try? await env.matches.sharedAlbum(eventId: event.id)) ?? []
+        sharedCount = sharedMatches.count
     }
 
     private func syncRosterIdentities() async throws {
@@ -265,25 +270,56 @@ struct EventDashboardView: View {
                 }
                 HStack(spacing: -8) {
                     ForEach(members.prefix(6)) { member in
-                        ZStack {
-                            Circle().fill(Theme.socialGradient)
-                            Text(initial(for: member)).font(.caption.bold()).foregroundStyle(.white)
-                        }
-                        .frame(width: 38, height: 38)
-                        .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                        memberAvatar(member)
                     }
                     if members.count > 6 {
                         ZStack {
                             Circle().fill(Theme.peach.opacity(0.55))
                             Text("+\(members.count - 6)").font(.caption2.bold()).foregroundStyle(Theme.ink)
                         }
-                        .frame(width: 38, height: 38)
+                        .frame(width: 42, height: 42)
                         .overlay(Circle().strokeBorder(.white, lineWidth: 2))
                     }
                 }
+                Text("Member thumbnails use already-shared event previews; your own saved face reference stays on this device.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private func memberAvatar(_ member: EventMember) -> some View {
+        if member.userId == session.user?.id,
+           let data = localFaceReferenceData,
+           let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 42, height: 42)
+                .clipShape(Circle())
+                .clipped()
+                .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+        } else if let path = memberThumbnailPath(for: member.userId) {
+            ThumbnailCell(path: path)
+                .frame(width: 42, height: 42)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+        } else {
+            ZStack {
+                Circle().fill(member.role == .organizer ? Theme.brandGradient : Theme.socialGradient)
+                Text(initial(for: member)).font(.caption.bold()).foregroundStyle(.white)
+            }
+            .frame(width: 42, height: 42)
+            .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+        }
+    }
+
+    private func memberThumbnailPath(for userId: String) -> String? {
+        sharedMatches.first {
+            $0.thumbnailPath != nil && $0.activeParticipantIds.contains(userId)
+        }?.thumbnailPath
     }
 
     private var invitePeopleRow: some View {
