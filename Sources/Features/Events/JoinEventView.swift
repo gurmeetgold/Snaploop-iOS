@@ -122,7 +122,7 @@ struct JoinEventView: View {
         ScrollView {
             VStack(spacing: 18) {
                 ZStack {
-                    Circle().fill(Theme.socialGradient.opacity(0.16))
+                    Circle().fill(Theme.sky.opacity(0.14))
                     Image(systemName: event.category.systemImage)
                         .font(.system(size: 38)).foregroundStyle(Theme.violet)
                 }
