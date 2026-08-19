@@ -6,6 +6,7 @@ final class ParticipantsModel: ObservableObject {
     @Published var members: [EventMember] = []
     @Published var participants: [EventParticipant] = []
     @Published var sharingEnabled = true
+    @Published var errorMessage: String?
 
     private var env: AppEnvironment?
     private var session: AppSession?
@@ -30,7 +31,9 @@ final class ParticipantsModel: ObservableObject {
         async let participantsResult = env.events.participants(eventId: event.id)
         members = (try? await membersResult) ?? []
         participants = (try? await participantsResult) ?? []
-        if let me = members.first(where: { $0.userId == session?.user?.id }) { sharingEnabled = me.sharingEnabled }
+        if let me = members.first(where: { $0.userId == session?.user?.id }) {
+            sharingEnabled = me.sharingEnabled
+        }
     }
 
     private func syncRosterIdentity() async throws {
@@ -46,14 +49,14 @@ final class ParticipantsModel: ObservableObject {
 
     func displayName(for member: EventMember) -> String {
         if member.userId == session?.user?.id {
-            if let myName = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !myName.isEmpty { return "\(myName) (You)" }
+            if let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return "\(name) (You)" }
             if let phone = session?.user?.phoneNumber, !phone.isEmpty { return "\(phone) (You)" }
         }
         if let participant = participants.first(where: { $0.userId == member.userId }) {
             if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
             if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
         }
-        return member.role == .organizer ? "Organizer" : "Participant"
+        return member.role.displayName
     }
 
     func initial(for member: EventMember) -> String {
@@ -61,20 +64,65 @@ final class ParticipantsModel: ObservableObject {
         return String(name.prefix(1)).uppercased()
     }
 
-    var currentUserIsOrganizer: Bool {
-        guard let userId = session?.user?.id else { return false }
-        return members.first(where: { $0.userId == userId })?.role == .organizer || event.creatorUserId == userId
+    var currentUserRole: EventMember.Role? {
+        guard let userId = session?.user?.id else { return nil }
+        if event.creatorUserId == userId { return .organizer }
+        return members.first(where: { $0.userId == userId })?.role
+    }
+
+    var currentUserCanInvite: Bool { currentUserRole?.canManageMembers == true }
+    var currentUserIsOrganizer: Bool { currentUserRole == .organizer }
+
+    func canManage(_ member: EventMember) -> Bool {
+        guard member.userId != session?.user?.id, member.role != .organizer else { return false }
+        switch currentUserRole {
+        case .organizer: return true
+        case .admin: return member.role == .participant
+        default: return false
+        }
     }
 
     func setSharing(_ enabled: Bool) async {
         guard let userId = session?.user?.id else { return }
-        try? await service?.setSharing(eventId: event.id, userId: userId, enabled: enabled)
-        sharingEnabled = enabled
+        do {
+            try await service?.setSharing(eventId: event.id, userId: userId, enabled: enabled)
+            sharingEnabled = enabled
+        } catch {
+            errorMessage = (error as NSError).localizedDescription
+        }
     }
 
     func leave() async {
-        guard !currentUserIsOrganizer, let userId = session?.user?.id else { return }
-        try? await service?.leave(eventId: event.id, userId: userId)
+        guard currentUserRole != .organizer, let userId = session?.user?.id else { return }
+        do { try await service?.leave(eventId: event.id, userId: userId) }
+        catch { errorMessage = (error as NSError).localizedDescription }
+    }
+
+    func remove(_ member: EventMember) async {
+        do {
+            if AppEnvironment.useLiveServices {
+                try await EventManagementClient.remove(eventId: event.id, userId: member.userId)
+            } else {
+                try await env?.events.removeMember(eventId: event.id, userId: member.userId)
+            }
+            await reload()
+        } catch { errorMessage = (error as NSError).localizedDescription }
+    }
+
+    func setRole(_ role: EventMember.Role, for member: EventMember) async {
+        guard currentUserIsOrganizer else { return }
+        do {
+            if AppEnvironment.useLiveServices {
+                try await EventManagementClient.setRole(eventId: event.id, userId: member.userId, role: role)
+            } else {
+                // Dev-only role mutation isn't persisted by the legacy in-memory
+                // repository; update local presentation for UI testing.
+                if let index = members.firstIndex(where: { $0.userId == member.userId }) {
+                    members[index].role = role
+                }
+            }
+            await reload()
+        } catch { errorMessage = (error as NSError).localizedDescription }
     }
 }
 
@@ -104,18 +152,20 @@ struct ParticipantsView: View {
                             ))
                             .tint(Theme.sunset)
 
-                            NavigationLink { ShareEventView(event: model.event) } label: {
-                                Label("Invite People", systemImage: "person.badge.plus")
-                                    .font(.subheadline.bold())
-                                    .foregroundStyle(Theme.sunset)
+                            if model.currentUserCanInvite {
+                                NavigationLink { ShareEventView(event: model.event) } label: {
+                                    Label("Invite People", systemImage: "person.badge.plus")
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(Theme.sunset)
+                                }
                             }
 
-                            if !model.currentUserIsOrganizer {
+                            if model.currentUserRole != .organizer {
                                 Button(role: .destructive) { confirmLeave = true } label: {
                                     Label("Leave Event", systemImage: "rectangle.portrait.and.arrow.right")
                                 }
                             } else {
-                                Label("As organizer, manage ending or deleting this event from Organizer Controls.", systemImage: "crown.fill")
+                                Label("Organizer controls for editing, ending and deleting are on the event screen.", systemImage: "crown.fill")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -131,14 +181,17 @@ struct ParticipantsView: View {
                                     memberAvatar(member)
 
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(model.displayName(for: member)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
-                                        Text(member.role == .organizer ? "Event organizer" : "Event member")
-                                            .font(.caption).foregroundStyle(.secondary)
+                                        Text(model.displayName(for: member))
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(Theme.ink)
+                                        Text(member.role.displayName)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
                                     Spacer()
-                                    if member.role == .organizer {
-                                        Label("Organizer", systemImage: "crown.fill")
-                                            .font(.caption2.bold()).foregroundStyle(Theme.sunset)
+                                    roleBadge(member.role)
+                                    if model.canManage(member) {
+                                        managementMenu(member)
                                     }
                                 }
                                 .padding(.vertical, 10)
@@ -147,6 +200,11 @@ struct ParticipantsView: View {
                                 }
                             }
                         }
+                    }
+
+                    if let error = model.errorMessage {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote).foregroundStyle(.red)
                     }
                 }
                 .padding(20)
@@ -161,7 +219,13 @@ struct ParticipantsView: View {
         .refreshable { await model.reload() }
         .confirmationDialog("Leave this event?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Leave Event", role: .destructive) {
-                Task { await model.leave(); session.activeEvent = nil; dismiss() }
+                Task {
+                    await model.leave()
+                    if model.errorMessage == nil {
+                        session.activeEvent = nil
+                        dismiss()
+                    }
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -171,10 +235,45 @@ struct ParticipantsView: View {
 
     private func memberAvatar(_ member: EventMember) -> some View {
         ZStack {
-            Circle().fill(member.role == .organizer ? Theme.brandGradient : Theme.socialGradient)
+            Circle().fill(member.role == .organizer ? Theme.brandGradient : member.role == .admin ? Theme.violetGradient : Theme.socialGradient)
             Text(model.initial(for: member)).font(.subheadline.bold()).foregroundStyle(.white)
         }
         .frame(width: 44, height: 44)
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func roleBadge(_ role: EventMember.Role) -> some View {
+        if role == .organizer {
+            Label("Organizer", systemImage: "crown.fill")
+                .font(.caption2.bold()).foregroundStyle(Theme.sunset)
+        } else if role == .admin {
+            Label("Admin", systemImage: "shield.fill")
+                .font(.caption2.bold()).foregroundStyle(Theme.violet)
+        }
+    }
+
+    private func managementMenu(_ member: EventMember) -> some View {
+        Menu {
+            if model.currentUserIsOrganizer {
+                if member.role == .participant {
+                    Button { Task { await model.setRole(.admin, for: member) } } label: {
+                        Label("Make Admin", systemImage: "shield.fill")
+                    }
+                } else if member.role == .admin {
+                    Button { Task { await model.setRole(.participant, for: member) } } label: {
+                        Label("Change to Member", systemImage: "person.fill")
+                    }
+                }
+            }
+            Button(role: .destructive) { Task { await model.remove(member) } } label: {
+                Label("Remove from Event", systemImage: "person.crop.circle.badge.minus")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityLabel("Manage \(model.displayName(for: member))")
     }
 }
