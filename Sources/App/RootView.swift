@@ -16,7 +16,7 @@ struct RootView: View {
                         BrandMark(size: 68)
                         ProgressView()
                             .tint(Theme.sunset)
-                        Text("Opening MyPicsTube…")
+                        Text("Opening MyPicsRoom…")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
