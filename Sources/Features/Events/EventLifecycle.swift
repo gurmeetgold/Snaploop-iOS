@@ -37,8 +37,6 @@ public enum EventLifecycle {
         event.status == .active && clock.now() <= graceEnd(for: event, config: config)
     }
 
-    /// Calendar-day boundary used by both Create/Edit UI. Server validation
-    /// independently enforces the same fixed MVP rule.
     public static func allowedDateRange(now: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
         let today = calendar.startOfDay(for: now)
         let lower = calendar.date(byAdding: .day, value: -mvpDateWindowDays, to: today) ?? today
@@ -66,6 +64,16 @@ public enum EventLifecycle {
         guard allowed.contains(startsAt), allowed.contains(endsAt) else {
             throw AppError.eventDatesOutsideAllowedWindow(days: mvpDateWindowDays)
         }
+    }
+
+    /// Compatibility overload for existing call sites/tests. Production create
+    /// and edit flows pass their injectable clock explicitly via EventFactory.
+    public static func validateDates(
+        startsAt: Date,
+        endsAt: Date,
+        config: RemoteConfigValues
+    ) throws {
+        try validateDates(startsAt: startsAt, endsAt: endsAt, now: Date(), config: config)
     }
 
     public static func defaultEndDate(from startsAt: Date, config: RemoteConfigValues) -> Date {
