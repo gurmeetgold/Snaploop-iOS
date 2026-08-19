@@ -21,17 +21,6 @@ service cloud.firestore {
         get(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
     }
 
-    function validMVPEventDates(data) {
-      return data.startsAt is timestamp
-        && data.endsAt is timestamp
-        && data.endsAt > data.startsAt
-        && data.endsAt - data.startsAt <= duration.value(15, 'd')
-        && data.startsAt >= request.time - duration.value(15, 'd')
-        && data.startsAt <= request.time + duration.value(15, 'd')
-        && data.endsAt >= request.time - duration.value(15, 'd')
-        && data.endsAt <= request.time + duration.value(15, 'd');
-    }
-
     match /users/{userId} {
       allow read, create, update, delete: if isSelf(userId);
 
@@ -69,17 +58,23 @@ service cloud.firestore {
       allow list: if false;
       allow create: if false;
 
+      // Client-side direct updates are retained only for organizer lifecycle
+      // status controls. Name/details/date edits must go through the trusted
+      // updateEventManaged callable, which validates the fixed 15-day MVP rule
+      // and generates notifications for current members.
       allow update: if isOrganizer(eventId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.joinCode == resource.data.joinCode
         && request.resource.data.inviteToken == resource.data.inviteToken
         && request.resource.data.creatorUserId == resource.data.creatorUserId
         && request.resource.data.createdAt == resource.data.createdAt
-        && (
-          (request.resource.data.startsAt == resource.data.startsAt
-           && request.resource.data.endsAt == resource.data.endsAt)
-          || validMVPEventDates(request.resource.data)
-        );
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.category == resource.data.category
+        && request.resource.data.coverImagePath == resource.data.coverImagePath
+        && request.resource.data.locationName == resource.data.locationName
+        && request.resource.data.startsAt == resource.data.startsAt
+        && request.resource.data.endsAt == resource.data.endsAt
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
 
       allow delete: if false;
 
