@@ -188,7 +188,7 @@ struct FaceSetupView: View {
                     Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("A guided selfie scan gives MyPicsTube the most reliable reference. You can also add one optional gallery photo.")
+                    Text("A guided selfie scan gives MyPicsRoom the most reliable reference. You can also add one optional gallery photo.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -343,7 +343,7 @@ struct FaceSetupView: View {
                     .font(.caption.bold())
                     .foregroundStyle(model.hasGalleryReference ? .green : .secondary)
             }
-            Text("MVP allows one gallery face only. If the photo has several people, MyPicsTube asks you to choose your face.")
+            Text("MVP allows one gallery face only. If the photo has several people, MyPicsRoom asks you to choose your face.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }
