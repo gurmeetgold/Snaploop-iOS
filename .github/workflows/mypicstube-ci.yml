@@ -1,4 +1,4 @@
-name: MyPicsTube iOS Verify
+name: MyPicsRoom iOS Verify
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
           chmod +x scripts/install_face_model_v5.sh
           ./scripts/install_face_model_v5.sh
 
-      - name: Generate MyPicsTube icons
+      - name: Generate MyPicsRoom icons
         run: /usr/bin/xcrun swift scripts/generate_mypicstube_icons.swift
 
       - name: Generate Xcode project
@@ -42,7 +42,7 @@ jobs:
             -project SnapLoop.xcodeproj \
             -scheme SnapLoop
 
-      - name: Build MyPicsTube
+      - name: Build MyPicsRoom
         env:
           FIREBASE_SOURCE_FIRESTORE: "1"
         run: |
