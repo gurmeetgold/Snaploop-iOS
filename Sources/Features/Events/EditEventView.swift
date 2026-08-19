@@ -22,7 +22,32 @@ final class EditEventModel: ObservableObject {
         locationName = event.locationName ?? ""
     }
 
-    func configure(env: AppEnvironment) { self.env = env }
+    func configure(env: AppEnvironment) {
+        self.env = env
+        let allowed = EventLifecycle.allowedDateRange(now: env.clock.now())
+        var adjusted = false
+
+        if startsAt < allowed.lowerBound {
+            startsAt = allowed.lowerBound
+            adjusted = true
+        } else if startsAt > allowed.upperBound {
+            startsAt = allowed.upperBound.addingTimeInterval(-86_400)
+            adjusted = true
+        }
+
+        let maximumEnd = min(
+            allowed.upperBound,
+            startsAt.addingTimeInterval(TimeInterval(EventLifecycle.mvpMaximumDurationDays) * 86_400)
+        )
+        if endsAt <= startsAt || endsAt > maximumEnd || !allowed.contains(endsAt) {
+            endsAt = min(maximumEnd, startsAt.addingTimeInterval(3 * 86_400))
+            adjusted = true
+        }
+
+        if adjusted {
+            errorMessage = "This older event used dates outside the current MVP limits. Review the adjusted dates before saving."
+        }
+    }
 
     func save() async -> Event? {
         guard let env else { return nil }
