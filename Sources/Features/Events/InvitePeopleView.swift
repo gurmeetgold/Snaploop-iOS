@@ -150,6 +150,7 @@ struct InvitePeopleView: View {
         .sheet(isPresented: $showContacts) {
             ContactPhonePicker { selected in
                 phone = selected
+                errorMessage = nil
                 showContacts = false
             }
         }
@@ -234,7 +235,7 @@ struct InvitePeopleView: View {
             }
             await refreshStatuses()
         } catch {
-            errorMessage = (error as NSError).localizedDescription
+            errorMessage = EventInviteClient.userMessage(for: error)
         }
     }
 
