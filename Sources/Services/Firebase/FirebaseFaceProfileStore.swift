@@ -1,5 +1,6 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseFunctions
 
 /// Firestore-backed private face-profile store.
 /// Path: users/{uid}/faceProfile/current
@@ -8,9 +9,14 @@ import FirebaseFirestore
 /// The source selfie itself is not written to Firestore by this store.
 public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendable {
     private let db: Firestore
+    private let functions: Functions
 
-    public init(db: Firestore = Firestore.firestore()) {
+    public init(
+        db: Firestore = Firestore.firestore(),
+        functions: Functions = Functions.functions()
+    ) {
         self.db = db
+        self.functions = functions
     }
 
     public func load(userId: String) async throws -> FaceProfile? {
@@ -52,10 +58,11 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
     }
 
     public func delete(userId: String) async throws {
-        do {
-            try await ref(userId: userId).delete()
-        } catch {
-            throw Self.mapFirestoreError(error)
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+            functions.httpsCallable("eraseMyFaceProfile").call(["userId": userId]) { result, error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume(returning: result?.data as Any)
+            }
         }
     }
 
@@ -90,7 +97,6 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
         } else {
             throw AppError.decoding("faceProfile/current missing updatedAt")
         }
-
 
         var templates: [FaceTemplate] = []
 
