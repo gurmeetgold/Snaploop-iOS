@@ -1,4 +1,4 @@
-# SnapLoop MVP 1–12 integrated test
+# MyPicsRoom MVP 1–12 integrated test
 
 Branch: `chatgpt/mvp-bulk-1-12`
 
@@ -70,8 +70,8 @@ The v5.1 scanner requests a 2048px working image so more distant faces reach Vis
 The new callable functions must be deployed first.
 
 - Organizer → Invite → Add by Phone or Contacts.
-- Existing SnapLoop account: server returns `in_app`; no SMS composer should open.
-- Recipient: open/foreground SnapLoop; pending trip invitation should appear. Accept or Decline.
+- Existing MyPicsRoom account: server returns `in_app`; no SMS composer should open.
+- Recipient: open/foreground MyPicsRoom; pending trip invitation should appear. Accept or Decline.
 - Non-existing phone number: server returns `sms`; prepared Messages composer should open with the stable HTTPS trip link.
 - Organizer invite screen shows Invited / Joined / Declined / Expired status as applicable.
 - Nobody is silently auto-joined.
@@ -80,7 +80,7 @@ The new callable functions must be deployed first.
 
 Current development URL: `https://snaploop-dev.web.app/e/<token>`.
 
-- Installed app: landing page's Open SnapLoop button uses `snaploop://e/<token>` and routes to the exact trip.
+- Installed app: landing page's Open MyPicsRoom button uses `snaploop://e/<token>` and routes to the exact trip.
 - SwiftUI also handles HTTPS browsing user activities in preparation for Universal Links.
 - True one-tap Universal Links and install→resume require the production Apple Associated Domains/AASA setup and final App Store listing. Do not treat those external release prerequisites as completed by this development build.
 
