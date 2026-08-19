@@ -17,11 +17,11 @@ final class HomeModel: ObservableObject {
 
     func totalPhotosOfMe() async -> Int {
         guard let env, let userId = session?.user?.id else { return 0 }
-        var total = 0
+        var matches: [PhotoMatch] = []
         for event in events where event.status != .deletedByOrganizer {
-            total += ((try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []).count
+            matches.append(contentsOf: (try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? [])
         }
-        return total
+        return PhotoMatchDeduplication.unique(matches).count
     }
 }
 
@@ -48,8 +48,12 @@ struct HomeView: View {
                         greeting
                         createJoinRow
                         if !visibleEvents.isEmpty {
-                            InsightBanner(value: "\(photosOfMe)", label: "photos found of you", systemImage: "sparkles")
-                                .padding(.horizontal)
+                            NavigationLink { AllMyPhotosView() } label: {
+                                InsightBanner(value: "\(photosOfMe)", label: "photos found of you", systemImage: "sparkles")
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal)
+                            .accessibilityHint("Shows matched photos from all of your events")
                         }
                     }
 
@@ -279,7 +283,7 @@ struct EnterCodeView: View {
                     BrandMark(size: 62)
                     Text("Join an Event").font(.title2.bold())
                     TextField("Event code or invite link", text: $text)
-                        .textInputAutocapitalization(.characters)
+                        .textInputAutapitalization(.characters)
                         .autocorrectionDisabled()
                         .padding()
                         .background(.white, in: RoundedRectangle(cornerRadius: 16))
