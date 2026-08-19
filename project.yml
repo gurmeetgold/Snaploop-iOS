@@ -65,7 +65,8 @@ targets:
         product: FirebaseFunctions
       - package: Firebase
         product: FirebaseStorage
-      - package: FirebaseRemoteConfig
+      - package: Firebase
+        product: FirebaseRemoteConfig
 
     settings:
       base:
@@ -98,11 +99,11 @@ targets:
         product: FirebaseAuth
       - package: Firebase
         product: FirebaseFirestore
-      - package: FirebaseFunctions
+      - package: Firebase
         product: FirebaseFunctions
-      - package: FirebaseStorage
+      - package: Firebase
         product: FirebaseStorage
-      - package: FirebaseRemoteConfig
+      - package: Firebase
         product: FirebaseRemoteConfig
 
     settings:
