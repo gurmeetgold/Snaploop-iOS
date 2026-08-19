@@ -6,6 +6,7 @@
 const legacy = require("./index");
 const invites = require("./invites");
 const managed = require("./eventManagement");
+const lifecycle = require("./lifecycle");
 const profile = require("./profileManaged");
 const leave = require("./leaveManaged");
 const security = require("./security");
@@ -16,6 +17,7 @@ exports.createEvent = managed.createEventMVP;
 exports.joinEvent = managed.joinEventManaged;
 exports.resolveInvite = legacy.resolveInvite;
 exports.updateEventManaged = managed.updateEventManaged;
+exports.setEventStatus = lifecycle.setEventStatusManaged;
 exports.manageEventMember = managed.manageEventMember;
 exports.leaveEvent = leave.leaveEventManaged;
 
