@@ -48,12 +48,6 @@ public struct RemoteConfigValues: Equatable, Sendable {
         self.aiHighlightsEnabled = aiHighlightsEnabled
     }
 
-    /// v5 evaluation defaults. These are intentionally NOT the old Vision
-    /// feature-print values. Final values come from genuine/impostor calibration.
-    ///
-    /// Camera sync is deliberately conservative in beta: 25 assets per pass.
-    /// CameraSyncCoordinator also enforces a hard client-side safety ceiling,
-    /// so an accidentally high Remote Config value cannot create a huge pass.
     public static let `default` = RemoteConfigValues(
         matchConfidenceThreshold: FaceModelPolicy.evaluationMatchThreshold,
         matchAmbiguityMargin: FaceModelPolicy.evaluationAmbiguityMargin,
@@ -63,7 +57,7 @@ public struct RemoteConfigValues: Equatable, Sendable {
         thumbnailJPEGQuality: 0.72,
         signedURLTTLHours: 48,
         defaultEventDurationDays: 15,
-        maxEventDurationDays: 30,
+        maxEventDurationDays: 15,
         eventGracePeriodDays: 3,
         maxParticipantsPerEvent: 250,
         aiBestShotEnabled: true,
@@ -74,8 +68,6 @@ public struct RemoteConfigValues: Equatable, Sendable {
 
 public extension RemoteConfigValues {
     enum Key: String, CaseIterable {
-        // New keys prevent stale v2-v4 Remote Config values (0.90/0.04) from
-        // overriding the v5 identity-model evaluation operating point.
         case matchConfidenceThreshold = "face_v5_match_confidence_threshold"
         case matchAmbiguityMargin = "face_v5_match_ambiguity_margin"
         case minFaceSizeFraction = "min_face_size_fraction"
