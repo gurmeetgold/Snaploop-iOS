@@ -41,7 +41,11 @@ final class AllMyPhotosModel: ObservableObject {
         for event in events where event.status != .deletedByOrganizer {
             do {
                 let eventMatches = try await env.matches.myPhotos(eventId: event.id, userId: userId)
-                allMatches.append(contentsOf: eventMatches)
+                // This all-events surface fulfills the product promise "my photos
+                // found on others' phones". Matches originating from this user's
+                // own camera remain available in the per-event views but are not
+                // counted or shown here.
+                allMatches.append(contentsOf: eventMatches.filter { $0.ownerUserId != userId })
             } catch {
                 if errorMessage == nil { errorMessage = (error as NSError).localizedDescription }
             }
@@ -111,6 +115,12 @@ struct AllMyPhotosView: View {
                     InsightBanner(value: "\(model.photos.count)", label: "total photos found of you", systemImage: "sparkles")
                         .padding(.horizontal)
 
+                    Text("Across all your events · found on other members’ phones")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.horizontal)
+
                     if let errorMessage = model.errorMessage {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
@@ -121,7 +131,7 @@ struct AllMyPhotosView: View {
                     if model.photos.isEmpty && !model.isLoading {
                         ContentUnavailableViewCompat(
                             title: "No photos of you yet",
-                            message: "As you and other event members sync your cameras, your matched photos will appear here.",
+                            message: "As other event members sync their cameras, photos of you found on their phones will appear here.",
                             systemImage: "person.crop.square"
                         )
                         .frame(minHeight: 300)
