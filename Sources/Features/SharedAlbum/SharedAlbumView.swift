@@ -37,7 +37,7 @@ struct SharedAlbumView: View {
     init(event: Event) { _model = StateObject(wrappedValue: SharedAlbumModel(event: event)) }
 
     private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: columnCount >= 6 ? 4 : 8), count: columnCount)
+        Array(repeating: GridItem(.flexible(), spacing: columnCount >= 6 ? 4 : 8, alignment: .top), count: columnCount)
     }
 
     var body: some View {
@@ -46,6 +46,13 @@ struct SharedAlbumView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     statsCard.padding(.horizontal)
+
+                    Text("Shared Album is for this event only. It shows all matched previews members shared here — not only photos containing you.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 24)
 
                     HStack {
                         Label("Shared moments", systemImage: "person.2.fill")
@@ -72,7 +79,7 @@ struct SharedAlbumView: View {
                     if model.photos.isEmpty {
                         ContentUnavailableViewCompat(
                             title: "No shared photos yet",
-                            message: "Matched previews appear here as event members sync their cameras.",
+                            message: "Matched previews shared by members in this event will appear here.",
                             systemImage: "photo.stack"
                         )
                         .frame(minHeight: 280)
@@ -100,7 +107,7 @@ struct SharedAlbumView: View {
 
     private var statsCard: some View {
         HStack(spacing: 0) {
-            statTile(value: "\(model.photos.count)", label: "Shared Previews", icon: "photo.stack.fill", tint: Theme.sunset)
+            statTile(value: "\(model.photos.count)", label: "Shared in this event", icon: "photo.stack.fill", tint: Theme.sunset)
             Divider().frame(height: 46)
             statTile(value: "\(model.contributorCount)", label: "Contributors", icon: "person.2.fill", tint: Theme.aqua)
         }
@@ -117,7 +124,7 @@ struct SharedAlbumView: View {
             }
             .frame(width: 36, height: 36)
             Text(value).font(.title3.bold()).foregroundStyle(Theme.ink)
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(label).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
     }
