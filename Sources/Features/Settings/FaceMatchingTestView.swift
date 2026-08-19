@@ -125,22 +125,18 @@ struct FaceMatchingTestView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @StateObject private var model = FaceMatchingTestModel()
+    @State private var faceReferenceData: Data?
 
     var body: some View {
         ZStack {
             BrandScreenBackground()
             ScrollView {
                 VStack(spacing: 18) {
-                    ZStack {
-                        Circle().fill(Theme.violet.opacity(0.14))
-                        Image(systemName: "checkmark.viewfinder")
-                            .font(.system(size: 42)).foregroundStyle(Theme.violet)
-                    }
-                    .frame(width: 84, height: 84)
+                    referenceAvatar
                     Text("Test My Face Setup")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("Choose a photo, tell MyPicsTube whether it really contains you, and record the score. Test both genuine and wrong-person photos before changing the threshold.")
+                    Text("Choose a photo, tell MyPicsRoom whether it really contains you, and record the score. Test both genuine and wrong-person photos before changing the threshold.")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
                     Picker("Expected", selection: $model.expected) {
@@ -184,6 +180,49 @@ struct FaceMatchingTestView: View {
         }
         .navigationTitle("Face Test")
         .navigationBarTitleDisplayMode(.inline)
+        .task { loadFaceReference() }
+        .onChange(of: session.hasFaceProfile) { _, _ in loadFaceReference() }
+    }
+
+    @ViewBuilder
+    private var referenceAvatar: some View {
+        VStack(spacing: 7) {
+            ZStack(alignment: .bottomTrailing) {
+                if let data = faceReferenceData, let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 88, height: 88)
+                        .clipShape(Circle())
+                        .clipped()
+                } else {
+                    Circle()
+                        .fill(Theme.softWash)
+                        .frame(width: 88, height: 88)
+                        .overlay {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 50))
+                                .foregroundStyle(Theme.violet.opacity(0.70))
+                        }
+                }
+
+                ZStack {
+                    Circle().fill(.white)
+                    Image(systemName: "checkmark.viewfinder")
+                        .font(.caption.bold())
+                        .foregroundStyle(Theme.violet)
+                }
+                .frame(width: 30, height: 30)
+                .shadow(color: Theme.ink.opacity(0.08), radius: 4, y: 2)
+            }
+            .overlay(Circle().strokeBorder(.white, lineWidth: 3))
+            .shadow(color: Theme.ink.opacity(0.10), radius: 10, y: 5)
+
+            Text(faceReferenceData == nil ? "Face Setup reference unavailable on this phone" : "Your Face Setup reference")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
     }
 
     @ViewBuilder
@@ -262,6 +301,14 @@ struct FaceMatchingTestView: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func loadFaceReference() {
+        guard let userId = session.user?.id else {
+            faceReferenceData = nil
+            return
+        }
+        faceReferenceData = LocalFaceReferenceStore.load(userId: userId)
     }
 
     private func angle(_ value: Double?) -> String {
