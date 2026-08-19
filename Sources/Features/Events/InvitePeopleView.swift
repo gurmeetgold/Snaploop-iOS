@@ -60,7 +60,7 @@ struct InvitePeopleView: View {
 
     private var token: InviteToken { InviteToken(event.inviteToken) ?? InviteToken(unchecked: event.inviteToken) }
     private var inviteURL: URL { InviteLink.url(forToken: token) }
-    private var messageBody: String { "Join \(event.name) on MyPicsTube: \(inviteURL.absoluteString)" }
+    private var messageBody: String { "Join \(event.name) on MyPicsRoom: \(inviteURL.absoluteString)" }
 
     var body: some View {
         ZStack {
@@ -193,7 +193,7 @@ struct InvitePeopleView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("How it works", systemImage: "sparkles")
                     .font(.headline).foregroundStyle(Theme.ink)
-                Text("MyPicsTube checks the phone number on the server. Existing users receive an in-app event invitation, so no SMS is needed. If the person does not have MyPicsTube yet, you can send the prepared SMS invite link.")
+                Text("MyPicsRoom checks the phone number on the server. Existing users receive an in-app event invitation, so no SMS is needed. If the person does not have MyPicsRoom yet, you can send the prepared SMS invite link.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("Nobody is silently added. The recipient accepts the invitation before membership and face matching begin.")
                     .font(.footnote).foregroundStyle(.secondary)
@@ -221,15 +221,15 @@ struct InvitePeopleView: View {
             phone = normalized
             switch delivery.kind {
             case .inApp:
-                message = "Invitation delivered inside MyPicsTube. No SMS was sent."
+                message = "Invitation delivered inside MyPicsRoom. No SMS was sent."
             case .sms:
                 smsRecipient = normalized
                 guard MFMessageComposeViewController.canSendText() else {
-                    message = "This person does not have MyPicsTube yet. Use Share Invite to send the event link."
+                    message = "This person does not have MyPicsRoom yet. Use Share Invite to send the event link."
                     await refreshStatuses()
                     return
                 }
-                message = "This person does not have MyPicsTube yet. Send the prepared SMS invitation."
+                message = "This person does not have MyPicsRoom yet. Send the prepared SMS invitation."
                 showMessage = true
             }
             await refreshStatuses()
