@@ -29,7 +29,7 @@ cat > "$LOCAL_SIGNING" <<EOF
 DEVELOPMENT_TEAM = $TEAM_ID
 EOF
 
-echo "Configured MyPicsTube DEVELOPMENT_TEAM=$TEAM_ID in Config/Signing.local.xcconfig"
+echo "Configured MyPicsRoom DEVELOPMENT_TEAM=$TEAM_ID in Config/Signing.local.xcconfig"
 
 if command -v xcodegen >/dev/null 2>&1; then
   cd "$ROOT_DIR"
