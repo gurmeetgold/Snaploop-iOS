@@ -37,7 +37,7 @@ public final class FirebaseUserDirectory: UserDirectory, @unchecked Sendable {
     public func save(_ user: User) async throws {
         let payload: [String: Any] = [
             "userId": user.id,
-            "displayName": user.displayName as Any
+            "displayName": user.displayName ?? NSNull()
         ]
 
         do {
