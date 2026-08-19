@@ -163,13 +163,16 @@ test("biometric consent withdrawal cannot be forged with a direct client write",
   await assertFails(updateDoc(consentRef, { withdrawnAt: new Date() }));
 });
 
-test("organizer may end an event but event details cannot bypass managed update", async () => {
+test("organizer may only directly end an active event", async () => {
   await seedEvent({ photo: false });
   const alice = env.authenticatedContext("alice").firestore();
   const event = doc(alice, "events/event-1");
 
   await assertFails(updateDoc(event, { name: "Forged direct edit" }));
-  await assertSucceeds(updateDoc(event, { status: "ended_by_organizer", updatedAt: new Date() }));
+  await assertFails(updateDoc(event, { status: "deletedByOrganizer", updatedAt: new Date() }));
+  await assertFails(updateDoc(event, { status: "not-a-real-status", updatedAt: new Date() }));
+  await assertSucceeds(updateDoc(event, { status: "endedByOrganizer", updatedAt: new Date() }));
+  await assertFails(updateDoc(event, { status: "active", updatedAt: new Date() }));
 });
 
 test("thumbnail access requires event membership and trusted backing photo metadata", async () => {
