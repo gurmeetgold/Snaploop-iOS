@@ -10,7 +10,7 @@ on:
 jobs:
   backend-validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,11 +33,17 @@ jobs:
             node --check "$file"
           done
 
-      - name: Install Firebase CLI
-        run: npm install --global firebase-tools
+      - name: Install Firebase emulator test tools
+        run: |
+          npm install --global firebase-tools
+          npm install --no-save @firebase/rules-unit-testing firebase
 
-      - name: Parse Firestore and Storage rules in emulators
-        run: firebase emulators:exec --only firestore,storage "echo Firebase rules loaded"
+      - name: Run Firestore and Storage security regression tests
+        run: |
+          firebase emulators:exec \
+            --project demo-mypicsroom-security \
+            --only firestore,storage \
+            "node --test tests/backend/security-rules.test.mjs"
 
   build-test:
     runs-on: macos-15
