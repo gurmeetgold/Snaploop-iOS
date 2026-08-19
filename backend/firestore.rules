@@ -58,10 +58,9 @@ service cloud.firestore {
       allow list: if false;
       allow create: if false;
 
-      // Client-side direct updates are retained only for organizer lifecycle
-      // status controls. Name/details/date edits must go through the trusted
-      // updateEventManaged callable, which validates the fixed 15-day MVP rule
-      // and generates notifications for current members.
+      // Direct client writes are retained only for organizer lifecycle status.
+      // Name/details/date changes must use updateEventManaged so old clients
+      // cannot bypass server validation or member notifications.
       allow update: if isOrganizer(eventId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.joinCode == resource.data.joinCode
@@ -70,8 +69,8 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.name == resource.data.name
         && request.resource.data.category == resource.data.category
-        && request.resource.data.coverImagePath == resource.data.coverImagePath
-        && request.resource.data.locationName == resource.data.locationName
+        && request.resource.data.get('coverImagePath', null) == resource.data.get('coverImagePath', null)
+        && request.resource.data.get('locationName', null) == resource.data.get('locationName', null)
         && request.resource.data.startsAt == resource.data.startsAt
         && request.resource.data.endsAt == resource.data.endsAt
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
