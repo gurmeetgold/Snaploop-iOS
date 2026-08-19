@@ -22,17 +22,36 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, create, update, delete: if isSelf(userId);
+      // Phone number, identity fields and account lifecycle are server-owned.
+      // Clients synchronize them through syncMyUserProfile/updateDisplayName/
+      // deleteMyAccount callables so a forged phone number cannot be persisted.
+      allow read: if isSelf(userId);
+      allow create, update, delete: if false;
 
       match /faceProfile/{doc} {
-        allow read, write: if isSelf(userId);
+        allow read: if isSelf(userId);
+        allow create, update: if isSelf(userId)
+          && request.resource.data.userId == userId;
+        // Deletion must also scrub event-scoped biometric copies and matches.
+        allow delete: if false;
       }
 
       match /privacy/{doc} {
-        allow read, write: if isSelf(userId);
+        allow read: if isSelf(userId);
+        // Consent acceptance may be persisted by the signed-in user. Withdrawal
+        // is callable-only because it must erase all biometric derivatives.
+        allow create, update: if isSelf(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.get('withdrawnAt', null) == null;
+        allow delete: if false;
       }
 
       match /eventRefs/{eventId} {
+        allow read: if isSelf(userId);
+        allow write: if false;
+      }
+
+      match /pendingInvites/{eventId} {
         allow read: if isSelf(userId);
         allow write: if false;
       }
@@ -58,9 +77,8 @@ service cloud.firestore {
       allow list: if false;
       allow create: if false;
 
-      // Direct client writes are retained only for organizer lifecycle status.
-      // Name/details/date changes must use updateEventManaged so old clients
-      // cannot bypass server validation or member notifications.
+      // Only organizer lifecycle status remains a direct client write. Event
+      // details and dates go through updateEventManaged for validation/auditing.
       allow update: if isOrganizer(eventId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.joinCode == resource.data.joinCode
@@ -79,9 +97,8 @@ service cloud.firestore {
 
       match /members/{userId} {
         allow read: if isMember(eventId);
-        allow update: if isSelf(userId)
-          && request.resource.data.role == resource.data.role;
-        allow create, delete: if false;
+        // Roles and sharingEnabled are server-authoritative.
+        allow create, update, delete: if false;
       }
 
       match /participants/{userId} {
@@ -89,13 +106,15 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      match /invites/{inviteId} {
+        allow read, write: if false;
+      }
+
       match /photos/{photoId} {
+        // Only trusted callables publish/update/delete match metadata. This
+        // prevents forged sourceUserId, matchedUserIds and confidence records.
         allow read: if isMember(eventId);
-        allow create: if isMember(eventId)
-          && request.resource.data.sourceUserId == request.auth.uid
-          && request.resource.data.eventId == eventId;
-        allow update, delete: if isMember(eventId)
-          && resource.data.sourceUserId == request.auth.uid;
+        allow create, update, delete: if false;
       }
     }
 
@@ -103,9 +122,7 @@ service cloud.firestore {
       allow read: if isSignedIn() &&
         (resource.data.requestingUserId == request.auth.uid ||
          resource.data.sourceUserId == request.auth.uid);
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
   }
 }
