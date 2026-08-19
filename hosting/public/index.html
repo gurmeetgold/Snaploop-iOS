@@ -3,58 +3,55 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="theme-color" content="#FF7A45" />
-  <title>Join on MyPicsRoom</title>
+  <meta name="theme-color" content="#FF6B5E" />
+  <title>Open invitation in MyPicsRoom</title>
   <style>
-    :root { color-scheme: light; font-family: -apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif; }
+    :root { color-scheme: light; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif; }
     * { box-sizing:border-box; }
     body {
       margin:0; min-height:100vh; display:grid; place-items:center; padding:22px;
-      background:linear-gradient(145deg,#FFF8F2 0%,#FFE7DE 45%,#F6E8FF 100%);
-      color:#161C2E;
+      background:linear-gradient(145deg,#FFF9F7 0%,#FFE8E3 48%,#F1EEFF 100%); color:#161C2E;
     }
     main {
       width:min(430px,100%); background:rgba(255,255,255,.95); border-radius:32px;
       padding:34px 28px; box-shadow:0 24px 70px rgba(42,35,65,.12); text-align:center;
-      border:1px solid rgba(255,122,69,.10);
+      border:1px solid rgba(255,107,94,.11);
     }
-    .mark {
-      position:relative; width:78px; height:78px; border-radius:50%; margin:0 auto 20px;
-      background:linear-gradient(135deg,#FF7A45,#FB7185); box-shadow:0 12px 28px rgba(251,113,133,.22);
-    }
-    .person { position:absolute; width:18px; height:18px; border-radius:50%; background:white; top:24px; }
-    .person:after { content:""; position:absolute; left:-7px; top:18px; width:32px; height:18px; border-radius:18px 18px 10px 10px; background:white; }
-    .p1 { left:19px; } .p2 { right:19px; }
-    .spark { position:absolute; right:8px; top:7px; color:#FBBF24; font-size:19px; font-weight:800; }
-    h1 { margin:0 0 8px; font-size:30px; letter-spacing:-.5px; }
-    .brand { font-size:18px; font-weight:800; margin-bottom:24px; }
-    .brand span { color:#FF7A45; }
+    .mark { position:relative; width:78px; height:62px; border:5px solid #FF6B5E; border-radius:19px; margin:0 auto 22px; background:#fff; }
+    .mark:before { content:""; position:absolute; width:26px; height:10px; border-radius:5px 5px 0 0; background:#FF6B5E; left:10px; top:-13px; }
+    .lens { position:absolute; width:28px; height:28px; border-radius:50%; border:5px solid #4F8DFD; left:20px; top:13px; }
+    .dot { position:absolute; width:9px; height:9px; border-radius:50%; background:#A78BFA; right:9px; top:11px; }
+    .brand { font-size:20px; font-weight:800; margin-bottom:22px; color:#FF6B5E; }
+    h1 { margin:0 0 9px; font-size:30px; letter-spacing:-.5px; }
     p { line-height:1.5; color:#6B7280; margin:8px 0; }
     a.button { display:block; text-decoration:none; padding:15px 18px; border-radius:18px; font-weight:750; margin-top:14px; }
-    #open { background:linear-gradient(135deg,#FF7A45,#FB7185); color:#fff; box-shadow:0 10px 22px rgba(251,113,133,.18); }
-    .secondary { background:#FFF1EC; color:#E85C43; }
-    .small { font-size:13px; margin-top:22px; }
+    #open { background:linear-gradient(135deg,#FF6B5E,#F45A4B); color:#fff; box-shadow:0 10px 22px rgba(244,90,75,.18); }
+    #store { background:#FFF0ED; color:#E85C4A; }
+    .small { font-size:13px; margin-top:20px; }
   </style>
 </head>
 <body>
-  <main>
-    <div class="mark"><div class="person p1"></div><div class="person p2"></div><div class="spark">✦</div></div>
-    <div class="brand">MyPics<span>Room</span></div>
-    <h1>Join this event</h1>
-    <p id="message">If MyPicsRoom is installed, open this invitation in the app.</p>
+  <main id="card">
+    <div class="mark"><div class="lens"></div><div class="dot"></div></div>
+    <div class="brand">MyPicsRoom</div>
+    <h1>Opening your event…</h1>
+    <p id="message">If MyPicsRoom is installed, this invitation will open directly in the app.</p>
     <a id="open" class="button" href="#">Open MyPicsRoom</a>
-    <a id="store" class="button secondary" href="#" hidden>Get MyPicsRoom</a>
-    <p id="dev" class="small">Beta invite page. App Store installation and automatic post-install invite recovery will be enabled when the production listing and Universal Links are live.</p>
+    <a id="store" class="button" href="#" hidden>Get MyPicsRoom</a>
+    <p id="dev" class="small">If the app does not open, use the button above. App Store fallback becomes automatic after the production App Store URL is configured.</p>
   </main>
 <script>
 (() => {
-  const path = window.location.pathname;
-  const match = path.match(/^\/(e|c)\/([^/]+)/);
+  const match = window.location.pathname.match(/^\/(e|c)\/([^/]+)/);
   const open = document.getElementById("open");
+  const store = document.getElementById("store");
   const message = document.getElementById("message");
 
+  // Keep the technical scheme for backward compatibility. It is never shown as
+  // user-facing copy. Set the final App Store URL here when the listing exists.
+  const APP_STORE_URL = "";
+
   if (!match) {
-    open.textContent = "Open MyPicsRoom";
     open.href = "snaploop://";
     message.textContent = "Open MyPicsRoom to continue.";
     return;
@@ -62,16 +59,28 @@
 
   const kind = match[1];
   const value = encodeURIComponent(match[2]);
-  // Keep the existing technical URL scheme during the visual rebrand so old
-  // invites continue to work. It can be migrated after Universal Links ship.
-  open.href = `snaploop://${kind}/${value}`;
+  const appURL = `snaploop://${kind}/${value}`;
+  open.href = appURL;
 
-  const APP_STORE_URL = "";
   if (APP_STORE_URL) {
-    const store = document.getElementById("store");
     store.href = APP_STORE_URL;
     store.hidden = false;
-    document.getElementById("dev").hidden = true;
+  }
+
+  // Attempt the installed-app path immediately instead of forcing an extra tap.
+  // iOS/Safari may keep this page visible when custom-scheme launch is blocked;
+  // the explicit Open button remains a reliable fallback.
+  window.location.replace(appURL);
+
+  if (APP_STORE_URL) {
+    const started = Date.now();
+    setTimeout(() => {
+      // If Safari is still visible after the launch attempt, send the user to
+      // the App Store. Leaving the page for the app normally suspends this timer.
+      if (document.visibilityState === "visible" && Date.now() - started >= 1100) {
+        window.location.replace(APP_STORE_URL);
+      }
+    }, 1200);
   }
 })();
 </script>
