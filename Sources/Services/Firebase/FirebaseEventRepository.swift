@@ -4,15 +4,16 @@ import FirebaseFunctions
 
 /// Live Firebase implementation of EventRepository.
 ///
-/// Trusted membership transitions and invite resolution are performed through
-/// callable Cloud Functions. Ordinary member-authorized reads and organizer
-/// edits use Firestore directly.
+/// Trusted membership transitions, event edits, sharing changes and invite
+/// resolution are performed through callable Cloud Functions. Member-authorized
+/// reads and organizer lifecycle status changes use Firestore directly.
 ///
 /// Server functions are responsible for:
 /// - creating the organizer membership + participant roster entry atomically
 /// - resolving join codes / invite tokens without exposing event enumeration
 /// - joining/leaving events and maintaining the per-user eventRefs index
 /// - enforcing event capacity and lifecycle constraints
+/// - validating event edits and sharing revocation side effects
 public final class FirebaseEventRepository: EventRepository, @unchecked Sendable {
 
     private let db: Firestore
@@ -88,19 +89,14 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AppError.invalidEventName }
 
-        do {
-            var data: [String: Any] = [
-                "name": trimmed,
-                "category": category.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ]
-            data["coverImagePath"] = coverImagePath ?? NSNull()
-            data["locationName"] = locationName ?? NSNull()
-
-            try await eventRef(id).updateData(data)
-        } catch {
-            throw Self.mapFirestoreError(error)
-        }
+        var payload: [String: Any] = [
+            "eventId": id,
+            "name": trimmed,
+            "category": category.rawValue
+        ]
+        payload["coverImagePath"] = coverImagePath ?? NSNull()
+        payload["locationName"] = locationName ?? NSNull()
+        _ = try await call("updateEventManaged", data: payload)
     }
 
     public func updateEventDates(
@@ -109,16 +105,14 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
         endsAt: Date
     ) async throws {
         guard endsAt >= startsAt else { throw AppError.invalidEventDates }
-
-        do {
-            try await eventRef(id).updateData([
-                "startsAt": Timestamp(date: startsAt),
-                "endsAt": Timestamp(date: endsAt),
-                "updatedAt": FieldValue.serverTimestamp()
-            ])
-        } catch {
-            throw Self.mapFirestoreError(error)
-        }
+        _ = try await call(
+            "updateEventManaged",
+            data: [
+                "eventId": id,
+                "startsAtMillis": Self.millis(startsAt),
+                "endsAtMillis": Self.millis(endsAt)
+            ]
+        )
     }
 
     public func endEvent(id: String) async throws {
@@ -156,13 +150,14 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
         userId: String,
         enabled: Bool
     ) async throws {
-        do {
-            try await memberRef(eventId: eventId, userId: userId).updateData([
-                "sharingEnabled": enabled
-            ])
-        } catch {
-            throw Self.mapFirestoreError(error)
-        }
+        _ = try await call(
+            "setSharing",
+            data: [
+                "eventId": eventId,
+                "userId": userId,
+                "enabled": enabled
+            ]
+        )
     }
 
     public func members(eventId: String) async throws -> [EventMember] {
