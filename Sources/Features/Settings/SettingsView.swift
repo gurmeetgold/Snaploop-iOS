@@ -80,8 +80,8 @@ struct SettingsView: View {
                         Label("Your saved face reference", systemImage: "checkmark.circle.fill")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Theme.coral)
-                    } else {
-                        Label("Face reference not saved on this phone", systemImage: "person.crop.circle")
+                    } else if session.hasFaceProfile {
+                        Label("Face Setup ready", systemImage: "checkmark.circle.fill")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
