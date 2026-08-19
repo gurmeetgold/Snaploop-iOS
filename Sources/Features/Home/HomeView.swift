@@ -283,7 +283,7 @@ struct EnterCodeView: View {
                     BrandMark(size: 62)
                     Text("Join an Event").font(.title2.bold())
                     TextField("Event code or invite link", text: $text)
-                        .textInputAutapitalization(.characters)
+                        .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .padding()
                         .background(.white, in: RoundedRectangle(cornerRadius: 16))
