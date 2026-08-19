@@ -1,27 +1,20 @@
 import Foundation
 
-/// One unit of erasure work. Modeled explicitly so the *plan* is pure and
-/// testable, separately from the I/O that carries it out.
+/// One unit of local/in-memory erasure work. The live Firebase repositories
+/// delegate destructive cascades to authenticated backend callables so account
+/// and biometric cleanup cannot be interrupted between client-side steps.
 public enum ErasureOperation: Equatable, Sendable {
     case deleteFaceProfile(userId: String)
-    case removeEventMembership(eventId: String, userId: String)  // also revokes the event embedding
+    case removeEventMembership(eventId: String, userId: String)
     case deleteUserDocument(userId: String)
 }
 
-/// Builds erasure plans. Pure — no side effects — so the cascade is auditable.
+/// Retained for deterministic unit tests and development repositories.
 public enum ErasurePlanner {
-
-    /// Deleting only the face profile: the embedding is removed; the user must
-    /// redo face setup to participate in matching again. Memberships stay.
     public static func planDeleteFaceProfile(userId: String) -> [ErasureOperation] {
         [.deleteFaceProfile(userId: userId)]
     }
 
-    /// Deleting the whole account cascades: leave every event (removing
-    /// membership + revoking the event-side embedding), delete the face
-    /// profile, then delete the user document. Photos the user *sourced* remain
-    /// event property (documented tradeoff) — they are intentionally NOT in this
-    /// plan.
     public static func planDeleteAccount(userId: String, memberEventIds: [String]) -> [ErasureOperation] {
         var ops: [ErasureOperation] = memberEventIds
             .sorted()
@@ -32,9 +25,12 @@ public enum ErasurePlanner {
     }
 }
 
-/// Executes erasure plans against the repositories. Ordering matters: revoke
-/// event embeddings and memberships first, then the profile, then the user doc,
-/// so a partial failure never leaves the biometric template reachable.
+/// Privacy erasure facade.
+///
+/// In live mode `FaceProfileStore.delete` and `UserDirectory.delete` are trusted
+/// Cloud Function calls. The server owns the full cascade: event-scoped face
+/// snapshots, photo appearances, authored shared previews, memberships, user
+/// documents and (for account deletion) Firebase Auth identity.
 public struct ErasureService {
     private let events: EventRepository
     private let faceProfiles: FaceProfileStore
@@ -47,15 +43,15 @@ public struct ErasureService {
     }
 
     public func deleteFaceProfile(userId: String) async throws {
-        try await run(ErasurePlanner.planDeleteFaceProfile(userId: userId))
+        try await faceProfiles.delete(userId: userId)
     }
 
     public func deleteAccount(userId: String) async throws {
-        let eventIds = (try? await events.events(forUserId: userId).map(\.id)) ?? []
-        try await run(ErasurePlanner.planDeleteAccount(userId: userId, memberEventIds: eventIds))
+        try await users.delete(userId: userId)
     }
 
-    /// Executes a plan step by step.
+    /// Explicit plan execution remains available to unit tests and in-memory
+    /// repositories. Production UI paths above use the server-owned cascades.
     public func run(_ plan: [ErasureOperation]) async throws {
         for op in plan {
             switch op {
