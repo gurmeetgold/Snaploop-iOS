@@ -49,11 +49,18 @@ struct HomeView: View {
                         createJoinRow
                         if !visibleEvents.isEmpty {
                             NavigationLink { AllMyPhotosView() } label: {
-                                InsightBanner(value: "\(photosOfMe)", label: "photos found of you", systemImage: "sparkles")
+                                ZStack(alignment: .trailing) {
+                                    InsightBanner(value: "\(photosOfMe)", label: "total photos found of you", systemImage: "sparkles")
+                                    Image(systemName: "chevron.right")
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(Theme.violet)
+                                        .padding(.trailing, 18)
+                                }
                             }
                             .buttonStyle(.plain)
                             .padding(.horizontal)
-                            .accessibilityHint("Shows matched photos from all of your events")
+                            .accessibilityLabel("\(photosOfMe) total photos found of you")
+                            .accessibilityHint("Opens photos found across all of your events")
                         }
                     }
 
@@ -147,7 +154,7 @@ struct HomeView: View {
                 Text("Hi, \(session.user?.displayName ?? "there") 👋")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.ink)
-                Text("My Pics found from everyone’s phone.")
+                Text("My photos found on others’ phones.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
