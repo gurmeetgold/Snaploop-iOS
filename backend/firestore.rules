@@ -21,6 +21,17 @@ service cloud.firestore {
         get(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
     }
 
+    function validMVPEventDates(data) {
+      return data.startsAt is timestamp
+        && data.endsAt is timestamp
+        && data.endsAt > data.startsAt
+        && data.endsAt - data.startsAt <= duration.value(15, 'd')
+        && data.startsAt >= request.time - duration.value(15, 'd')
+        && data.startsAt <= request.time + duration.value(15, 'd')
+        && data.endsAt >= request.time - duration.value(15, 'd')
+        && data.endsAt <= request.time + duration.value(15, 'd');
+    }
+
     match /users/{userId} {
       allow read, create, update, delete: if isSelf(userId);
 
@@ -37,9 +48,6 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Event-change notifications are created only by trusted Cloud Functions.
-      // The account owner may read them and update read-state, but cannot forge
-      // or delete server notifications from the client.
       match /notifications/{notificationId} {
         allow read: if isSelf(userId);
         allow create, delete: if false;
@@ -66,7 +74,12 @@ service cloud.firestore {
         && request.resource.data.joinCode == resource.data.joinCode
         && request.resource.data.inviteToken == resource.data.inviteToken
         && request.resource.data.creatorUserId == resource.data.creatorUserId
-        && request.resource.data.createdAt == resource.data.createdAt;
+        && request.resource.data.createdAt == resource.data.createdAt
+        && (
+          (request.resource.data.startsAt == resource.data.startsAt
+           && request.resource.data.endsAt == resource.data.endsAt)
+          || validMVPEventDates(request.resource.data)
+        );
 
       allow delete: if false;
 
