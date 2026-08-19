@@ -17,7 +17,7 @@ struct EventInviteStatusRow: Identifiable, Sendable {
 enum EventInviteClient {
     @MainActor
     static func invite(eventId: String, phoneNumber: String) async throws -> EventInviteDelivery {
-        let data = try await call("inviteByPhone", data: [
+        let data = try await call("inviteByPhoneManaged", data: [
             "eventId": eventId,
             "phoneNumber": phoneNumber,
         ])
@@ -33,7 +33,6 @@ enum EventInviteClient {
     static func nextPendingRoute() async throws -> DeepLinkRoute? {
         let data = try await call("nextPendingInvite", data: [:])
         guard let dict = data as? [String: Any] else { return nil }
-        // Function may return {invite:null} when nothing is waiting.
         if dict["invite"] is NSNull { return nil }
         guard let tokenRaw = dict["inviteToken"] as? String,
               let token = InviteToken(tokenRaw) else { return nil }
@@ -42,7 +41,7 @@ enum EventInviteClient {
 
     @MainActor
     static func list(eventId: String) async throws -> [EventInviteStatusRow] {
-        let data = try await call("listEventInvites", data: ["eventId": eventId])
+        let data = try await call("listEventInvitesManaged", data: ["eventId": eventId])
         guard let dict = data as? [String: Any], let rows = dict["invites"] as? [[String: Any]] else { return [] }
         return rows.map {
             EventInviteStatusRow(
