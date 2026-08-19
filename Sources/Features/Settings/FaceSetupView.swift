@@ -11,9 +11,12 @@ final class FaceSetupModel: ObservableObject {
     @Published var message: String?
     @Published var didSave = false
     @Published var consentActive = false
+    @Published var hasChanges = false
 
     private var env: AppEnvironment?
     private var session: AppSession?
+    private var pendingGuidedReferenceData: Data?
+    private var pendingGalleryReferenceData: Data?
 
     var guidedTemplateCount: Int { templates.filter { $0.pose != .imported }.count }
     var hasGalleryReference: Bool { templates.contains { $0.pose == .imported } }
@@ -21,6 +24,8 @@ final class FaceSetupModel: ObservableObject {
     func configure(env: AppEnvironment, session: AppSession) async {
         self.env = env
         self.session = session
+        pendingGuidedReferenceData = nil
+        pendingGalleryReferenceData = nil
         previewData = session.user.flatMap { LocalFaceReferenceStore.load(userId: $0.id) }
         if let profile = session.faceProfile, profile.version == FaceModelPolicy.currentVersion {
             templates = profile.templates
@@ -28,6 +33,8 @@ final class FaceSetupModel: ObservableObject {
             templates = []
         }
         faceCandidates = []
+        didSave = false
+        hasChanges = false
         await refreshConsent()
     }
 
@@ -75,7 +82,9 @@ final class FaceSetupModel: ObservableObject {
             guard newGuidedTemplates.count >= 3 else { throw AppError.faceEmbeddingFailed }
             let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }.prefix(FaceModelPolicy.targetTemplateCount))
             templates = guided + imported
-            previewData = bestReference?.data
+            pendingGuidedReferenceData = bestReference?.data
+            previewData = bestReference?.data ?? previewData
+            hasChanges = true
             message = "Captured \(guided.count) guided angles. Save Face Setup when you're ready."
         } catch let error as AppError { message = error.userMessage }
         catch { message = (error as NSError).localizedDescription }
@@ -122,7 +131,15 @@ final class FaceSetupModel: ObservableObject {
                 quality: 0.75,
                 createdAt: env.clock.now()
             ))
-            previewData = candidate.jpegData
+            pendingGalleryReferenceData = candidate.jpegData
+            if let userId = session?.user?.id {
+                previewData = pendingGuidedReferenceData
+                    ?? LocalFaceReferenceStore.load(userId: userId, kind: .guided)
+                    ?? candidate.jpegData
+            } else {
+                previewData = pendingGuidedReferenceData ?? candidate.jpegData
+            }
+            hasChanges = true
             message = "Your optional gallery reference is ready."
         } catch let error as AppError { message = error.userMessage }
         catch { message = (error as NSError).localizedDescription }
@@ -131,6 +148,13 @@ final class FaceSetupModel: ObservableObject {
     func saveFaceSetup() async {
         guard let env, let session, var user = session.user,
               consentActive, !templates.isEmpty else { return }
+
+        if session.hasFaceProfile && !hasChanges {
+            didSave = false
+            message = "No changes to save."
+            return
+        }
+
         isBusy = true
         message = nil
         didSave = false
@@ -146,12 +170,23 @@ final class FaceSetupModel: ObservableObject {
                 updatedAt: env.clock.now()
             )
             try await env.faceProfiles.save(profile)
-            if let previewData { try LocalFaceReferenceStore.save(previewData, userId: user.id) }
+
+            if let pendingGuidedReferenceData {
+                try LocalFaceReferenceStore.save(pendingGuidedReferenceData, userId: user.id, kind: .guided)
+            }
+            if let pendingGalleryReferenceData {
+                try LocalFaceReferenceStore.save(pendingGalleryReferenceData, userId: user.id, kind: .gallery)
+            }
+
             user.hasFaceProfile = true
             try await env.users.save(user)
             try await refreshEventFaceProfiles()
             session.faceProfile = profile
             session.user = user
+            previewData = LocalFaceReferenceStore.load(userId: user.id) ?? previewData
+            pendingGuidedReferenceData = nil
+            pendingGalleryReferenceData = nil
+            hasChanges = false
             didSave = true
             message = "Face Setup saved. Guided: \(guidedTemplateCount)/\(FaceModelPolicy.targetTemplateCount)\(hasGalleryReference ? ", plus 1 gallery reference" : "")."
         } catch let error as AppError { message = error.userMessage }
@@ -178,6 +213,10 @@ struct FaceSetupView: View {
     @State private var showGuidedEnrollment = false
     @State private var showGalleryPicker = false
     @State private var showConsent = false
+
+    private var saveDisabled: Bool {
+        !model.consentActive || model.templates.isEmpty || model.isBusy || (session.hasFaceProfile && !model.hasChanges)
+    }
 
     var body: some View {
         ZStack {
@@ -239,8 +278,8 @@ struct FaceSetupView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
                     .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .disabled(!model.consentActive || model.templates.isEmpty || model.isBusy)
-                    .opacity((!model.consentActive || model.templates.isEmpty || model.isBusy) ? 0.5 : 1)
+                    .disabled(saveDisabled)
+                    .opacity(saveDisabled ? 0.5 : 1)
 
                     if session.hasFaceProfile {
                         NavigationLink {
@@ -300,17 +339,14 @@ struct FaceSetupView: View {
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Theme.softWash)
-                    Image(systemName: "person.crop.square.filled.and.at.rectangle")
-                        .font(.system(size: 48)).foregroundStyle(Theme.violet)
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 58)).foregroundStyle(Theme.violet.opacity(0.72))
                 }
                 .frame(width: 190, height: 190)
-                if session.hasFaceProfile {
-                    Text("Your face profile already exists. This phone does not have a local preview image yet; run Face Setup once here to refresh it.")
-                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                } else {
-                    Text("Your reference preview will appear here.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                Text(session.hasFaceProfile
+                     ? "Your Face Setup is active. Add or redo a selfie or gallery reference to show a preview here."
+                     : "Your face reference will appear here after Face Setup.")
+                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity)
