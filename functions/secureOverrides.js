@@ -4,9 +4,11 @@
 // simply by using an older client.
 const managed = require("./eventManagement");
 const profile = require("./profileManaged");
+const leave = require("./leaveManaged");
 
 exports.createEvent = managed.createEventMVP;
 exports.joinEvent = managed.joinEventManaged;
+exports.leaveEvent = leave.leaveEventManaged;
 exports.inviteByPhone = managed.inviteByPhoneManaged;
 exports.listEventInvites = managed.listEventInvitesManaged;
 exports.refreshMyFaceProfile = profile.refreshMyFaceProfileManaged;
