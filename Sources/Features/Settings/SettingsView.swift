@@ -23,7 +23,6 @@ struct SettingsView: View {
     @StateObject private var model = SettingsModel()
     @State private var confirmSignOut = false
     @State private var facePreviewData: Data?
-    @State private var recentPhotoPaths: [String] = []
 
     var body: some View {
         ZStack {
@@ -33,27 +32,29 @@ struct SettingsView: View {
                     Text("You")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                        .padding(.horizontal)
 
                     profileCard
-                    if !recentPhotoPaths.isEmpty { yourPhotosCard }
                     accountActions
                     privacyCard
                     signOutCard
 
-                    Text("MyPicsTube finds confident photo matches from your events on-device. Only matched optimized previews are shared with event members in the current MVP.")
+                    Text("MyPicsRoom finds confident photo matches from your events on-device. Only matched optimized previews are shared with event members in the current MVP.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 30)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 14)
                         .padding(.top, 4)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
                 .padding(.vertical, 16)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .task { await refreshProfileContent() }
-        .confirmationDialog("Sign out of MyPicsTube?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+        .task { refreshFaceReference() }
+        .onChange(of: session.hasFaceProfile) { _, _ in refreshFaceReference() }
+        .confirmationDialog("Sign out of MyPicsRoom?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) {
                 model.signOut(env: env, session: session)
             }
@@ -79,17 +80,16 @@ struct SettingsView: View {
                         Label("Your saved face reference", systemImage: "checkmark.circle.fill")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Theme.coral)
-                    } else if !recentPhotoPaths.isEmpty {
-                        Label("Showing a recent photo of you", systemImage: "photo.fill")
+                    } else {
+                        Label("Face reference not saved on this phone", systemImage: "person.crop.circle")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Theme.blue)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 BrandMark(size: 34)
             }
         }
-        .padding(.horizontal)
     }
 
     @ViewBuilder
@@ -103,50 +103,16 @@ struct SettingsView: View {
                 .clipped()
                 .overlay(Circle().strokeBorder(.white, lineWidth: 3))
                 .shadow(color: Theme.navy.opacity(0.12), radius: 8, y: 4)
-        } else if let path = recentPhotoPaths.first {
-            ThumbnailCell(path: path)
-                .frame(width: 66, height: 66)
-                .clipShape(Circle())
-                .clipped()
-                .overlay(Circle().strokeBorder(.white, lineWidth: 3))
-                .shadow(color: Theme.navy.opacity(0.12), radius: 8, y: 4)
         } else {
             ZStack {
-                Circle().fill(Theme.brandGradient)
-                Text(profileInitial)
-                    .font(.title2.bold())
-                    .foregroundStyle(.white)
+                Circle().fill(Theme.softWash)
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(Theme.violet.opacity(0.72))
             }
             .frame(width: 66, height: 66)
+            .overlay(Circle().strokeBorder(.white, lineWidth: 3))
         }
-    }
-
-    private var yourPhotosCard: some View {
-        PremiumCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Label("Your photos", systemImage: "person.crop.rectangle.stack.fill")
-                        .font(.headline)
-                        .foregroundStyle(Theme.ink)
-                    Spacer()
-                    Text("Recent matches")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 10) {
-                    ForEach(recentPhotoPaths.prefix(5), id: \.self) { path in
-                        ThumbnailCell(path: path)
-                            .frame(maxWidth: .infinity)
-                            .aspectRatio(1, contentMode: .fill)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .clipped()
-                    }
-                }
-                .frame(height: 62)
-            }
-        }
-        .padding(.horizontal)
     }
 
     private var accountActions: some View {
@@ -167,7 +133,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .padding(.horizontal)
     }
 
     private var privacyCard: some View {
@@ -186,7 +151,6 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal)
     }
 
     private var signOutCard: some View {
@@ -204,7 +168,6 @@ struct SettingsView: View {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
         }
-        .padding(.horizontal)
     }
 
     private func menuLink<Destination: View>(title: String, icon: String, tint: Color, @ViewBuilder destination: () -> Destination) -> some View {
@@ -231,35 +194,11 @@ struct SettingsView: View {
         .frame(width: 36, height: 36)
     }
 
-    @MainActor
-    private func refreshProfileContent() async {
-        guard let user = session.user else {
+    private func refreshFaceReference() {
+        guard let userId = session.user?.id else {
             facePreviewData = nil
-            recentPhotoPaths = []
             return
         }
-
-        facePreviewData = LocalFaceReferenceStore.load(userId: user.id)
-
-        let events = (try? await env.events.events(forUserId: user.id)) ?? []
-        var matches: [PhotoMatch] = []
-        for event in events where event.status != .deletedByOrganizer {
-            let eventMatches = (try? await env.matches.myPhotos(eventId: event.id, userId: user.id)) ?? []
-            matches.append(contentsOf: eventMatches)
-        }
-
-        var seen = Set<String>()
-        recentPhotoPaths = matches
-            .sorted { $0.capturedAt > $1.capturedAt }
-            .compactMap(\.thumbnailPath)
-            .filter { seen.insert($0).inserted }
-            .prefix(5)
-            .map { $0 }
-    }
-
-    private var profileInitial: String {
-        if let name = session.user?.displayName, let first = name.first { return String(first).uppercased() }
-        if let phone = session.user?.phoneNumber { return String(phone.suffix(2)) }
-        return "?"
+        facePreviewData = LocalFaceReferenceStore.load(userId: userId)
     }
 }
