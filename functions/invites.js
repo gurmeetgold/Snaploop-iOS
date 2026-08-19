@@ -65,7 +65,7 @@ exports.inviteByPhone = onCall(async (request) => {
 
   const invite = {
     eventId,
-    eventName: event.name || "SnapLoop event",
+    eventName: event.name || "MyPicsRoom event",
     inviteToken: event.inviteToken,
     phoneNumber,
     targetUserId,
@@ -134,7 +134,7 @@ exports.nextPendingInvite = onCall(async (request) => {
 
     return {
       eventId,
-      eventName: invite.eventName || eventSnap.data().name || "SnapLoop event",
+      eventName: invite.eventName || eventSnap.data().name || "MyPicsRoom event",
       inviteToken: invite.inviteToken || eventSnap.data().inviteToken,
       status: "invited",
     };
