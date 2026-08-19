@@ -28,8 +28,6 @@ service cloud.firestore {
         allow read, write: if isSelf(userId);
       }
 
-      // Explicit biometric consent record. Only the account owner can read or
-      // write it; event members never receive this record.
       match /privacy/{doc} {
         allow read, write: if isSelf(userId);
       }
@@ -37,6 +35,16 @@ service cloud.firestore {
       match /eventRefs/{eventId} {
         allow read: if isSelf(userId);
         allow write: if false;
+      }
+
+      // Event-change notifications are created only by trusted Cloud Functions.
+      // The account owner may read them and update read-state, but cannot forge
+      // or delete server notifications from the client.
+      match /notifications/{notificationId} {
+        allow read: if isSelf(userId);
+        allow create, delete: if false;
+        allow update: if isSelf(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
       }
     }
 
