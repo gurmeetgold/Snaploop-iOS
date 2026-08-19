@@ -41,8 +41,8 @@ public enum EventLifecycle {
         let today = calendar.startOfDay(for: now)
         let lower = calendar.date(byAdding: .day, value: -mvpDateWindowDays, to: today) ?? today
         let upperDay = calendar.date(byAdding: .day, value: mvpDateWindowDays, to: today) ?? today
-        let upper = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: upperDay) ?? upperDay
-        return lower...upper
+        let dayAfterUpper = calendar.date(byAdding: .day, value: 1, to: upperDay) ?? upperDay.addingTimeInterval(86_400)
+        return lower...dayAfterUpper.addingTimeInterval(-1)
     }
 
     public static func validateDates(
@@ -52,28 +52,30 @@ public enum EventLifecycle {
         config: RemoteConfigValues,
         calendar: Calendar = .current
     ) throws {
-        guard endsAt > startsAt else { throw AppError.invalidEventDates }
-
-        let maxDays = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
-        let maxSeconds = TimeInterval(maxDays) * 86_400
-        if endsAt.timeIntervalSince(startsAt) > maxSeconds {
-            throw AppError.eventDurationTooLong(maxDays: maxDays)
-        }
-
+        try validateDuration(startsAt: startsAt, endsAt: endsAt, config: config)
         let allowed = allowedDateRange(now: now, calendar: calendar)
         guard allowed.contains(startsAt), allowed.contains(endsAt) else {
             throw AppError.eventDatesOutsideAllowedWindow(days: mvpDateWindowDays)
         }
     }
 
-    /// Compatibility overload for existing call sites/tests. Production create
-    /// and edit flows pass their injectable clock explicitly via EventFactory.
+    /// Compatibility overload used by older pure unit tests/call sites that do
+    /// not inject a current date. Production Create/Edit flows use the overload
+    /// above with their injectable clock and therefore enforce both constraints.
     public static func validateDates(
         startsAt: Date,
         endsAt: Date,
         config: RemoteConfigValues
     ) throws {
-        try validateDates(startsAt: startsAt, endsAt: endsAt, now: Date(), config: config)
+        try validateDuration(startsAt: startsAt, endsAt: endsAt, config: config)
+    }
+
+    private static func validateDuration(startsAt: Date, endsAt: Date, config: RemoteConfigValues) throws {
+        guard endsAt > startsAt else { throw AppError.invalidEventDates }
+        let maxDays = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
+        if endsAt.timeIntervalSince(startsAt) > TimeInterval(maxDays) * 86_400 {
+            throw AppError.eventDurationTooLong(maxDays: maxDays)
+        }
     }
 
     public static func defaultEndDate(from startsAt: Date, config: RemoteConfigValues) -> Date {
