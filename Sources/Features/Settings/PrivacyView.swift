@@ -25,7 +25,7 @@ final class PrivacyModel: ObservableObject {
             try await env.makeErasureService().deleteAccount(userId: userId)
             session?.user = nil
             session?.faceProfile = nil
-            message = "Your MyPicsRoom account and face data were deleted."
+            message = "Your MyPicsRoom account, face data, memberships, and shared previews were deleted."
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
 }
@@ -76,7 +76,7 @@ struct PrivacyView: View {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently removes your account and face data and cannot be undone.")
+            Text("This permanently removes your account, face data, event memberships, and previews you shared. It cannot be undone.")
         }
     }
 
@@ -103,7 +103,7 @@ struct PrivacyView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Delete Face Setup", systemImage: "faceid")
                     .font(.headline).foregroundStyle(.red)
-                Text("Removes your face data. You can set it up again later if you want automatic photo matching.")
+                Text("Removes your face data and your face matches from event metadata. You can set it up again later if you want automatic photo matching.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmProfile = true } label: {
                     Label("Delete Face Setup", systemImage: "trash.fill")
@@ -120,7 +120,7 @@ struct PrivacyView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Delete Account", systemImage: "person.crop.circle.badge.xmark")
                     .font(.headline).foregroundStyle(.red)
-                Text("Deletes your account and face data. Photos already shared to events can remain part of those event albums, but your personal account data is removed.")
+                Text("Deletes your account, face data, event memberships, and shared preview photos sourced from this account.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmAccount = true } label: {
                     Label("Delete MyPicsRoom Account", systemImage: "trash.fill")
