@@ -18,6 +18,60 @@ function requireString(value, name) {
   return value.trim();
 }
 
+async function commitOperations(operations) {
+  for (let offset = 0; offset < operations.length; offset += 400) {
+    const batch = db.batch();
+    for (const op of operations.slice(offset, offset + 400)) {
+      if (op.type === "delete") batch.delete(op.ref);
+      else batch.update(op.ref, op.data);
+    }
+    await batch.commit();
+  }
+}
+
+async function scrubMemberPhotoData(eventId, targetUid) {
+  const [matchedSnap, sourceSnap] = await Promise.all([
+    db.collection(`events/${eventId}/photos`)
+      .where("matchedUserIds", "array-contains", targetUid)
+      .get(),
+    db.collection(`events/${eventId}/photos`)
+      .where("sourceUserId", "==", targetUid)
+      .get(),
+  ]);
+
+  const sourceIds = new Set(sourceSnap.docs.map((doc) => doc.id));
+  const operations = [];
+  for (const doc of matchedSnap.docs) {
+    if (sourceIds.has(doc.id)) continue;
+    const data = doc.data() || {};
+    operations.push({
+      type: "update",
+      ref: doc.ref,
+      data: {
+        appearances: Array.isArray(data.appearances)
+          ? data.appearances.filter((appearance) => appearance.participantUserId !== targetUid)
+          : [],
+        matchedUserIds: Array.isArray(data.matchedUserIds)
+          ? data.matchedUserIds.filter((uid) => uid !== targetUid)
+          : [],
+        updatedAt: Timestamp.now(),
+      },
+    });
+  }
+  for (const doc of sourceSnap.docs) {
+    operations.push({ type: "delete", ref: doc.ref });
+  }
+  await commitOperations(operations);
+
+  try {
+    await admin.storage().bucket().deleteFiles({ prefix: `events/${eventId}/photos/${targetUid}/` });
+  } catch (error) {
+    // Membership removal already blocks the path in Storage Rules. Object
+    // deletion is best-effort cleanup and can be retried administratively.
+    console.error("member thumbnail cleanup failed", { eventId, targetUid, error });
+  }
+}
+
 async function notifyRemainingMembers(eventId, actorUid, body) {
   const [eventSnap, membersSnap] = await Promise.all([
     db.doc(`events/${eventId}`).get(),
@@ -85,11 +139,12 @@ exports.leaveEventManaged = onCall(async (request) => {
     tx.delete(targetRef);
     tx.delete(participantRef);
     tx.delete(userEventRef);
-    tx.update(eventRef, { memberCount });
+    tx.update(eventRef, { memberCount, updatedAt: Timestamp.now() });
     changed = true;
   });
 
   if (changed) {
+    await scrubMemberPhotoData(eventId, targetUid);
     await notifyRemainingMembers(eventId, actorUid, "A member left or was removed from the event.");
   }
   return { eventId, userId: targetUid, changed };
