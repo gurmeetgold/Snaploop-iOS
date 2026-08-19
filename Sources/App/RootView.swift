@@ -14,8 +14,7 @@ struct RootView: View {
                     BrandScreenBackground()
                     VStack(spacing: 18) {
                         BrandMark(size: 68)
-                        ProgressView()
-                            .tint(Theme.sunset)
+                        ProgressView().tint(Theme.sunset)
                         Text("Opening MyPicsRoom…")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -26,6 +25,7 @@ struct RootView: View {
                     .sheet(item: $session.pendingRoute) { route in
                         NavigationStack {
                             JoinEventView(route: route) { event in
+                                PendingInviteStore.clear()
                                 session.pendingRoute = nil
                                 session.activeEvent = event
                             }
@@ -57,17 +57,24 @@ struct RootView: View {
     @MainActor
     private func captureInvite(_ url: URL) {
         if let route = DeepLinkRouter.route(for: url) {
+            PendingInviteStore.save(route)
             session.pendingRoute = route
         }
     }
 
     @MainActor
     private func loadPendingInviteIfNeeded() async {
-        guard AppEnvironment.useLiveServices,
-              session.user != nil,
-              session.pendingRoute == nil else { return }
+        guard session.user != nil, session.pendingRoute == nil else { return }
+
+        if let stored = PendingInviteStore.load() {
+            session.pendingRoute = stored
+            return
+        }
+
+        guard AppEnvironment.useLiveServices else { return }
         do {
             if let route = try await EventInviteClient.nextPendingRoute() {
+                PendingInviteStore.save(route)
                 session.pendingRoute = route
             }
         } catch {
@@ -86,8 +93,7 @@ struct RootView: View {
         do {
             var user = try await environment.users.fetch(userId: uid)
             let storedFaceProfile = try await environment.faceProfiles.load(userId: uid)
-            let faceProfile = storedFaceProfile?.version == FaceModelPolicy.currentVersion
-                ? storedFaceProfile : nil
+            let faceProfile = storedFaceProfile?.version == FaceModelPolicy.currentVersion ? storedFaceProfile : nil
 
             if (faceProfile != nil) != user.hasFaceProfile {
                 user.hasFaceProfile = faceProfile != nil
@@ -96,7 +102,7 @@ struct RootView: View {
             session.beginAuthenticatedSession(user: user, faceProfile: faceProfile)
         } catch {
             try? environment.auth.signOut()
-            session.clearAuthenticatedSession()
+            session.clearAuthenticatedSession(preservePendingRoute: true)
         }
     }
 }
@@ -145,13 +151,9 @@ private struct ActiveEventSharedView: View {
                                 .foregroundStyle(Theme.sky)
                         }
                         .frame(width: 76, height: 76)
-                        Text("Pick an event")
-                            .font(.title3.bold())
-                            .foregroundStyle(Theme.ink)
+                        Text("Pick an event").font(.title3.bold()).foregroundStyle(Theme.ink)
                         Text("Open an event from Home or Events to see its shared album here.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                            .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
