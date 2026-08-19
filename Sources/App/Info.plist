@@ -13,7 +13,7 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleDisplayName</key>
-	<string>MyPicsTube</string>
+	<string>MyPicsRoom</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -28,7 +28,7 @@
 		</dict>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>MyPicsTube Invite</string>
+			<string>MyPicsRoom Invite</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>snaploop</string>
