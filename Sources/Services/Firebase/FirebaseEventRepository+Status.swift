@@ -1,4 +1,4 @@
-import FirebaseFirestore
+import FirebaseFunctions
 import Foundation
 
 extension FirebaseEventRepository {
@@ -15,12 +15,19 @@ extension FirebaseEventRepository {
     }
 
     private func setOrganizerStatus(id: String, status: EventStatus) async throws {
-        try await Firestore.firestore()
-            .collection("events")
-            .document(id)
-            .updateData([
-                "status": status.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ])
+        let payload: [String: Any] = [
+            "eventId": id,
+            "status": status.rawValue
+        ]
+
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+            Functions.functions().httpsCallable("setEventStatus").call(payload) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: result?.data as Any)
+            }
+        }
     }
 }
