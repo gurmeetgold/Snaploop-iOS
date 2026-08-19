@@ -32,7 +32,7 @@ public enum InviteLink {
     public static let customScheme = "snaploop"
 
     /// TestFlight/beta builds must use a host that is actually deployed.
-    /// Do not switch this to a MyPicsTube production domain until DNS,
+    /// Do not switch this to a MyPicsRoom production domain until DNS,
     /// Associated Domains, AASA and the App Store landing path are all live.
     public static let host = "snaploop-dev.web.app"
 
@@ -49,6 +49,6 @@ public enum InviteLink {
     }
 
     public static func shareText(eventName: String, token: InviteToken) -> String {
-        "Join \"\(eventName)\" on MyPicsTube:\n\(url(forToken: token).absoluteString)"
+        "Join \"\(eventName)\" on MyPicsRoom:\n\(url(forToken: token).absoluteString)"
     }
 }
