@@ -3,3 +3,6 @@
 Object.assign(exports, require("./index"));
 Object.assign(exports, require("./invites"));
 Object.assign(exports, require("./eventManagement"));
+// Must be last: older installed clients keep their callable names but receive
+// the same hardened validation/authorization as the new handlers.
+Object.assign(exports, require("./secureOverrides"));
