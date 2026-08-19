@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// MyPicsTube visual identity used throughout the MVP.
+/// MyPicsRoom visual identity used throughout the MVP.
 /// Camera-first, light and compact: inspired by the simple camera + wordmark
 /// treatment the product team selected, while remaining an original mark.
 struct BrandMark: View {
@@ -46,13 +46,13 @@ struct BrandWordmark: View {
             HStack(spacing: 0) {
                 Text("MyPics")
                     .foregroundStyle(Theme.coral)
-                Text("Tube")
+                Text("Room")
                     .foregroundStyle(Theme.blue)
             }
             .font(compact ? .system(.headline, design: .rounded, weight: .bold) : .system(size: 34, weight: .bold, design: .rounded))
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("MyPicsTube")
+        .accessibilityLabel("MyPicsRoom")
     }
 }
 
