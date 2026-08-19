@@ -1,5 +1,6 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseFunctions
 
 /// Firestore path:
 /// users/{uid}/privacy/biometricConsent
@@ -8,11 +9,14 @@ public final class FirebaseBiometricConsentStore:
     @unchecked Sendable {
 
     private let db: Firestore
+    private let functions: Functions
 
     public init(
-        db: Firestore = Firestore.firestore()
+        db: Firestore = Firestore.firestore(),
+        functions: Functions = Functions.functions()
     ) {
         self.db = db
+        self.functions = functions
     }
 
     public func load(
@@ -66,12 +70,13 @@ public final class FirebaseBiometricConsentStore:
         userId: String,
         at date: Date
     ) async throws {
-        try await ref(userId).setData(
-            [
-                "withdrawnAt": Timestamp(date: date)
-            ],
-            merge: true
-        )
+        _ = date // Server timestamp is authoritative for withdrawal/audit ordering.
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+            functions.httpsCallable("withdrawBiometricConsent").call(["userId": userId]) { result, error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume(returning: result?.data as Any)
+            }
+        }
     }
 
     private func ref(
