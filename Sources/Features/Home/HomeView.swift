@@ -17,11 +17,16 @@ final class HomeModel: ObservableObject {
         notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? []
     }
 
+    /// Home's "photos found of you" promise is specifically about photos found
+    /// on other members' phones, not matches produced from the user's own camera.
+    /// The count is combined across all accessible events and deduplicated by the
+    /// source owner + stable PhotoKit asset id.
     func totalPhotosOfMe() async -> Int {
         guard let env, let userId = session?.user?.id else { return 0 }
         var matches: [PhotoMatch] = []
         for event in events where event.status != .deletedByOrganizer {
-            matches.append(contentsOf: (try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? [])
+            let eventMatches = (try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []
+            matches.append(contentsOf: eventMatches.filter { $0.ownerUserId != userId })
         }
         return PhotoMatchDeduplication.unique(matches).count
     }
@@ -57,17 +62,11 @@ struct HomeView: View {
                         createJoinRow
                         if !visibleEvents.isEmpty {
                             NavigationLink { AllMyPhotosView() } label: {
-                                ZStack(alignment: .trailing) {
-                                    InsightBanner(value: "\(photosOfMe)", label: "total photos found of you", systemImage: "sparkles")
-                                    Image(systemName: "chevron.right")
-                                        .font(.subheadline.bold())
-                                        .foregroundStyle(Theme.violet)
-                                        .padding(.trailing, 18)
-                                }
+                                photosFoundCard
                             }
                             .buttonStyle(.plain)
                             .padding(.horizontal)
-                            .accessibilityLabel("\(photosOfMe) total photos found of you")
+                            .accessibilityLabel("\(photosOfMe) total photos found of you on other members' phones")
                             .accessibilityHint("Opens photos found across all of your events")
                         }
 
@@ -138,6 +137,42 @@ struct HomeView: View {
                 }
             }
         }
+    }
+
+    private var photosFoundCard: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Theme.peach.opacity(0.38))
+                Image(systemName: "sparkles")
+                    .font(.title2.bold())
+                    .foregroundStyle(Theme.sunset)
+            }
+            .frame(width: 64, height: 64)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(photosOfMe)")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.ink)
+                Text("total photos found of you")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.ink.opacity(0.72))
+                Text("Across all events · from others’ phones")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.title3.bold())
+                .foregroundStyle(Theme.violet)
+                .padding(.trailing, 2)
+        }
+        .padding(16)
+        .background(Theme.softWash, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(.white.opacity(0.72)))
+        .shadow(color: Theme.ink.opacity(0.055), radius: 14, y: 7)
     }
 
     private func eventNotificationCard(_ notification: EventNotification) -> some View {
