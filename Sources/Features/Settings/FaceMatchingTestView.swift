@@ -218,7 +218,7 @@ struct FaceMatchingTestView: View {
             .overlay(Circle().strokeBorder(.white, lineWidth: 3))
             .shadow(color: Theme.ink.opacity(0.10), radius: 10, y: 5)
 
-            Text(faceReferenceData == nil ? "Face Setup reference unavailable on this phone" : "Your Face Setup reference")
+            Text(faceReferenceData == nil ? "Face Setup reference" : "Your Face Setup reference")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
