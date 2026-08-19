@@ -2,7 +2,15 @@ import SwiftUI
 
 @MainActor
 final class JoinEventModel: ObservableObject {
-    enum Phase: Equatable { case loading, ready(Event), needsFaceSetup(Event), error(String), joined, declined }
+    enum Phase: Equatable {
+        case loading
+        case ready(Event)
+        case needsFaceSetup(Event)
+        case error(String)
+        case joined(Event)
+        case declined
+    }
+
     @Published var phase: Phase = .loading
     @Published var participantCount = 0
     @Published var isJoining = false
@@ -10,30 +18,56 @@ final class JoinEventModel: ObservableObject {
 
     private var env: AppEnvironment?
     private var session: AppSession?
-    init() {}
-    func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
 
+    func configure(env: AppEnvironment, session: AppSession) {
+        self.env = env
+        self.session = session
+    }
+
+    /// Link, QR and short code all converge here. Both token and code resolution
+    /// use the same EventRepository/resolveInvite backend and then the same
+    /// trusted joinEvent membership pathway.
     func load(route: DeepLinkRoute) async {
-        guard let env else { return }
+        guard let env, let session else { return }
         phase = .loading
         do {
             let event: Event
             switch route {
-            case .joinEventByToken(let token): event = try await env.events.fetchEvent(inviteToken: token)
-            case .joinEventByCode(let code): event = try await env.events.fetchEvent(joinCode: code)
+            case .joinEventByToken(let token):
+                event = try await env.events.fetchEvent(inviteToken: token)
+            case .joinEventByCode(let code):
+                event = try await env.events.fetchEvent(joinCode: code)
             }
 
             switch event.status {
             case .active: break
-            case .endedByOrganizer: phase = .error("The organizer ended this event."); return
-            case .deletedByOrganizer: phase = .error("This event is no longer accepting joins."); return
-            case .expired: phase = .error("This event has expired."); return
+            case .endedByOrganizer:
+                phase = .error("The organizer ended this event."); return
+            case .deletedByOrganizer:
+                phase = .error("This event is no longer accepting joins."); return
+            case .expired:
+                phase = .error("This event has expired."); return
             }
 
-            participantCount = (try? await env.events.members(eventId: event.id).count) ?? 0
-            phase = session?.hasFaceProfile == true ? .ready(event) : .needsFaceSetup(event)
-        } catch let error as AppError { phase = .error(error.userMessage) }
-        catch { phase = .error(AppError.unknown("\(error)").userMessage) }
+            // A member can read the roster. A non-member may correctly receive a
+            // permission error here; that must never block their chance to join.
+            if let roster = try? await env.events.members(eventId: event.id) {
+                participantCount = roster.count
+                if let userId = session.user?.id,
+                   roster.contains(where: { $0.userId == userId }) {
+                    phase = .joined(event)
+                    return
+                }
+            } else {
+                participantCount = 0
+            }
+
+            phase = session.hasFaceProfile ? .ready(event) : .needsFaceSetup(event)
+        } catch let error as AppError {
+            phase = .error(error.userMessage)
+        } catch {
+            phase = .error(AppError.unknown("\(error)").userMessage)
+        }
     }
 
     func join(event: Event) async {
@@ -41,11 +75,14 @@ final class JoinEventModel: ObservableObject {
         isJoining = true
         defer { isJoining = false }
         do {
-            let svc = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
-            try await svc.join(event: event, user: user, faceProfile: profile)
-            phase = .joined
-        } catch let error as AppError { phase = .error(error.userMessage) }
-        catch { phase = .error(AppError.unknown("\(error)").userMessage) }
+            let service = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
+            try await service.join(event: event, user: user, faceProfile: profile)
+            phase = .joined(event)
+        } catch let error as AppError {
+            phase = .error(error.userMessage)
+        } catch {
+            phase = .error(AppError.unknown("\(error)").userMessage)
+        }
     }
 
     func decline(event: Event) async {
@@ -54,7 +91,9 @@ final class JoinEventModel: ObservableObject {
         do {
             try await EventInviteClient.decline(eventId: event.id)
             phase = .declined
-        } catch { phase = .error((error as NSError).localizedDescription) }
+        } catch {
+            phase = .error((error as NSError).localizedDescription)
+        }
     }
 }
 
@@ -82,12 +121,15 @@ struct JoinEventView: View {
                         ProgressView()
                         Text("Opening invitation…").font(.subheadline).foregroundStyle(.secondary)
                     }
-                case .ready(let event): joinCard(event, needsFaceSetup: false)
-                case .needsFaceSetup(let event): joinCard(event, needsFaceSetup: true)
+                case .ready(let event):
+                    joinCard(event, needsFaceSetup: false)
+                case .needsFaceSetup(let event):
+                    joinCard(event, needsFaceSetup: true)
                 case .error(let message):
                     PremiumCard {
                         VStack(spacing: 14) {
-                            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 38)).foregroundStyle(Theme.sunset)
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 38)).foregroundStyle(Theme.sunset)
                             Text("Couldn't open this invite").font(.title3.bold())
                             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         }
@@ -95,7 +137,10 @@ struct JoinEventView: View {
                     }
                     .padding(24)
                 case .joined:
-                    VStack(spacing: 12) { ProgressView(); Text("Joining event…").foregroundStyle(.secondary) }
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Opening event…").foregroundStyle(.secondary)
+                    }
                 case .declined:
                     PremiumCard {
                         VStack(spacing: 12) {
@@ -114,6 +159,15 @@ struct JoinEventView: View {
         .task {
             model.configure(env: env, session: session)
             await model.load(route: route)
+            openIfJoined()
+        }
+        .onChange(of: model.phase) { _, _ in openIfJoined() }
+    }
+
+    private func openIfJoined() {
+        if case .joined(let event) = model.phase {
+            onJoined(event)
+            dismiss()
         }
     }
 
@@ -155,10 +209,7 @@ struct JoinEventView: View {
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 } else {
                     Button {
-                        Task {
-                            await model.join(event: event)
-                            if case .joined = model.phase { onJoined(event) }
-                        }
+                        Task { await model.join(event: event) }
                     } label: {
                         HStack {
                             if model.isJoining { ProgressView().tint(.white) }
