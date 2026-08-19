@@ -1,13 +1,23 @@
 import Foundation
 import FirebaseFirestore
+import FirebaseFunctions
 
 /// Firestore-backed user document store.
 /// Path: users/{uid}
+///
+/// Identity fields are server-owned. The client may request profile sync, but
+/// the backend derives the canonical phone number from Firebase Auth rather
+/// than trusting a client-provided value.
 public final class FirebaseUserDirectory: UserDirectory, @unchecked Sendable {
     private let db: Firestore
+    private let functions: Functions
 
-    public init(db: Firestore = Firestore.firestore()) {
+    public init(
+        db: Firestore = Firestore.firestore(),
+        functions: Functions = Functions.functions()
+    ) {
         self.db = db
+        self.functions = functions
     }
 
     public func fetch(userId: String) async throws -> User {
@@ -25,26 +35,47 @@ public final class FirebaseUserDirectory: UserDirectory, @unchecked Sendable {
     }
 
     public func save(_ user: User) async throws {
-        let data: [String: Any] = [
-            "id": user.id,
-            "phoneNumber": user.phoneNumber,
-            "displayName": user.displayName as Any,
-            "hasFaceProfile": user.hasFaceProfile,
-            "createdAt": Timestamp(date: user.createdAt)
+        let payload: [String: Any] = [
+            "userId": user.id,
+            "displayName": user.displayName as Any
         ]
 
         do {
-            try await db.collection("users").document(user.id).setData(data, merge: true)
+            _ = try await Self.call(
+                functions: functions,
+                name: "syncMyUserProfile",
+                data: payload
+            )
         } catch {
-            throw Self.mapFirestoreError(error)
+            throw Self.mapFunctionsError(error)
         }
     }
 
     public func delete(userId: String) async throws {
         do {
-            try await db.collection("users").document(userId).delete()
+            _ = try await Self.call(
+                functions: functions,
+                name: "deleteMyAccount",
+                data: ["userId": userId]
+            )
         } catch {
-            throw Self.mapFirestoreError(error)
+            throw Self.mapFunctionsError(error)
+        }
+    }
+
+    private static func call(
+        functions: Functions,
+        name: String,
+        data: [String: Any]
+    ) async throws -> Any {
+        try await withCheckedThrowingContinuation { continuation in
+            functions.httpsCallable(name).call(data) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: result?.data as Any)
+            }
         }
     }
 
@@ -72,6 +103,27 @@ public final class FirebaseUserDirectory: UserDirectory, @unchecked Sendable {
             hasFaceProfile: hasFaceProfile,
             createdAt: createdAt
         )
+    }
+
+    private static func mapFunctionsError(_ error: Error) -> AppError {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return .network(underlying: nsError.localizedDescription)
+        }
+        if nsError.domain == FunctionsErrorDomain,
+           let code = FunctionsErrorCode(rawValue: nsError.code) {
+            switch code {
+            case .unauthenticated:
+                return .notAuthenticated
+            case .failedPrecondition:
+                return .backend(code: "failed_precondition", message: nsError.localizedDescription)
+            case .permissionDenied:
+                return .backend(code: "permission_denied", message: nsError.localizedDescription)
+            default:
+                return .backend(code: "function_\(code.rawValue)", message: nsError.localizedDescription)
+            }
+        }
+        return .backend(code: "function_\(nsError.code)", message: nsError.localizedDescription)
     }
 
     private static func mapFirestoreError(_ error: Error) -> AppError {
