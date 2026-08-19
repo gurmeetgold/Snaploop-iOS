@@ -77,9 +77,12 @@ service cloud.firestore {
       allow list: if false;
       allow create: if false;
 
-      // Only organizer lifecycle status remains a direct client write. Event
-      // details and dates go through updateEventManaged for validation/auditing.
+      // The existing end-event UI keeps a single tightly constrained direct
+      // transition: active -> endedByOrganizer. Reopen/delete/restore and all
+      // event detail/date edits go through trusted callables.
       allow update: if isOrganizer(eventId)
+        && resource.data.status == 'active'
+        && request.resource.data.status == 'endedByOrganizer'
         && request.resource.data.id == resource.data.id
         && request.resource.data.joinCode == resource.data.joinCode
         && request.resource.data.inviteToken == resource.data.inviteToken
