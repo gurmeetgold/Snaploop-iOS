@@ -1,9 +1,9 @@
 import Foundation
 
-/// Pure event-lifecycle logic. Persisted organizer actions always override the
-/// date-derived phase, so the UI and server cannot disagree about an ended or
-/// deleted event.
 public enum EventLifecycle {
+    public static let mvpMaximumDurationDays = 15
+    public static let mvpDateWindowDays = 15
+
     public enum Status: String, Equatable, Sendable {
         case upcoming
         case active
@@ -16,14 +16,8 @@ public enum EventLifecycle {
         return event.endsAt.addingTimeInterval(TimeInterval(days) * 86_400)
     }
 
-    public static func status(
-        for event: Event,
-        clock: Clock,
-        config: RemoteConfigValues
-    ) -> Status {
-        // Explicit organizer/server lifecycle state wins over the calendar.
+    public static func status(for event: Event, clock: Clock, config: RemoteConfigValues) -> Status {
         guard event.status == .active else { return .expired }
-
         let now = clock.now()
         if now < event.startsAt { return .upcoming }
         if now <= event.endsAt { return .active }
@@ -43,19 +37,39 @@ public enum EventLifecycle {
         event.status == .active && clock.now() <= graceEnd(for: event, config: config)
     }
 
+    /// Calendar-day boundary used by both Create/Edit UI. Server validation
+    /// independently enforces the same fixed MVP rule.
+    public static func allowedDateRange(now: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
+        let today = calendar.startOfDay(for: now)
+        let lower = calendar.date(byAdding: .day, value: -mvpDateWindowDays, to: today) ?? today
+        let upperDay = calendar.date(byAdding: .day, value: mvpDateWindowDays, to: today) ?? today
+        let upper = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: upperDay) ?? upperDay
+        return lower...upper
+    }
+
     public static func validateDates(
         startsAt: Date,
         endsAt: Date,
-        config: RemoteConfigValues
+        now: Date,
+        config: RemoteConfigValues,
+        calendar: Calendar = .current
     ) throws {
         guard endsAt > startsAt else { throw AppError.invalidEventDates }
-        let maxSeconds = TimeInterval(max(1, config.maxEventDurationDays)) * 86_400
+
+        let maxDays = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
+        let maxSeconds = TimeInterval(maxDays) * 86_400
         if endsAt.timeIntervalSince(startsAt) > maxSeconds {
-            throw AppError.eventDurationTooLong(maxDays: config.maxEventDurationDays)
+            throw AppError.eventDurationTooLong(maxDays: maxDays)
+        }
+
+        let allowed = allowedDateRange(now: now, calendar: calendar)
+        guard allowed.contains(startsAt), allowed.contains(endsAt) else {
+            throw AppError.eventDatesOutsideAllowedWindow(days: mvpDateWindowDays)
         }
     }
 
     public static func defaultEndDate(from startsAt: Date, config: RemoteConfigValues) -> Date {
-        startsAt.addingTimeInterval(TimeInterval(max(1, config.defaultEventDurationDays)) * 86_400)
+        let days = min(mvpMaximumDurationDays, max(1, config.defaultEventDurationDays))
+        return startsAt.addingTimeInterval(TimeInterval(days) * 86_400)
     }
 }
