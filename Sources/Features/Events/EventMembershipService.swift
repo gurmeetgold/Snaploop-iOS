@@ -1,11 +1,9 @@
 import Foundation
 
-/// Orchestrates event membership transitions. In live Firebase builds the
-/// trusted `joinEvent` callable is the authority for capacity, lifecycle and
-/// idempotency checks; a non-member must never need permission to read the
-/// private member roster before that callable is allowed to join them.
+/// Orchestrates event membership transitions. Live Firebase builds route
+/// security-sensitive mutations through trusted callable Functions; in-memory
+/// development builds retain the protocol-based implementation.
 public struct EventMembershipService {
-
     private let repository: EventRepository
     private let config: ConfigProviding
     private let clock: Clock
@@ -17,12 +15,17 @@ public struct EventMembershipService {
     }
 
     public func create(event: Event, creator: User, faceProfile: FaceProfile) async throws {
+        if AppEnvironment.useLiveServices {
+            try await EventManagementClient.create(event)
+            return
+        }
         try await repository.createEvent(event)
-        // Live Firebase createEvent already creates organizer membership and the
-        // participant snapshot atomically. The duplicate calls below are
-        // idempotent and keep in-memory/dev repositories behaving the same.
         try await addMembership(
-            eventId: event.id, user: creator, faceProfile: faceProfile, role: .organizer)
+            eventId: event.id,
+            user: creator,
+            faceProfile: faceProfile,
+            role: .organizer
+        )
     }
 
     public func join(event: Event, user: User, faceProfile: FaceProfile) async throws {
@@ -32,21 +35,30 @@ public struct EventMembershipService {
             throw AppError.eventExpired
         }
 
-        // If roster access is already authorized (the user is already a member,
-        // or a dev repository is in use), preserve the local idempotency/cap
-        // checks. A permission error for a genuine non-member is intentionally
-        // ignored so the trusted joinEvent callable can create membership.
-        if let current = try? await repository.members(eventId: event.id) {
-            if current.contains(where: { $0.userId == user.id }) { return }
-            guard current.count < values.maxParticipantsPerEvent else { throw AppError.eventFull }
+        if AppEnvironment.useLiveServices {
+            // The server is authoritative for membership existence, capacity and
+            // lifecycle. Crucially, no private roster read is required first.
+            try await EventManagementClient.join(eventId: event.id)
+            return
         }
 
+        let current = try await repository.members(eventId: event.id)
+        if current.contains(where: { $0.userId == user.id }) { return }
+        guard current.count < values.maxParticipantsPerEvent else { throw AppError.eventFull }
         try await addMembership(
-            eventId: event.id, user: user, faceProfile: faceProfile, role: .participant)
+            eventId: event.id,
+            user: user,
+            faceProfile: faceProfile,
+            role: .participant
+        )
     }
 
     public func leave(eventId: String, userId: String) async throws {
-        try await repository.removeMember(eventId: eventId, userId: userId)
+        if AppEnvironment.useLiveServices {
+            try await EventManagementClient.remove(eventId: eventId, userId: userId)
+        } else {
+            try await repository.removeMember(eventId: eventId, userId: userId)
+        }
     }
 
     public func setSharing(eventId: String, userId: String, enabled: Bool) async throws {
@@ -54,21 +66,31 @@ public struct EventMembershipService {
     }
 
     private func addMembership(
-        eventId: String, user: User, faceProfile: FaceProfile, role: EventMember.Role
+        eventId: String,
+        user: User,
+        faceProfile: FaceProfile,
+        role: EventMember.Role
     ) async throws {
         let now = clock.now()
         let member = EventMember(
-            userId: user.id, role: role, joinedAt: now,
-            sharingEnabled: true, lastSyncAt: nil,
-            faceTemplateVersion: faceProfile.version)
+            userId: user.id,
+            role: role,
+            joinedAt: now,
+            sharingEnabled: true,
+            lastSyncAt: nil,
+            faceTemplateVersion: faceProfile.version
+        )
         try await repository.addMember(eventId: eventId, member: member)
 
         let participant = EventParticipant(
-            userId: user.id, displayName: user.displayName ?? "Someone",
+            userId: user.id,
+            displayName: user.displayName ?? "Someone",
             phoneNumber: user.phoneNumber,
             faceEmbedding: faceProfile.embedding,
             faceTemplates: faceProfile.templates,
-            faceProfileVersion: faceProfile.version, joinedAt: now)
+            faceProfileVersion: faceProfile.version,
+            joinedAt: now
+        )
         try await repository.join(eventId: eventId, participant: participant)
     }
 }
