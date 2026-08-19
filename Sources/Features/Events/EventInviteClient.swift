@@ -17,7 +17,10 @@ struct EventInviteStatusRow: Identifiable, Sendable {
 enum EventInviteClient {
     @MainActor
     static func invite(eventId: String, phoneNumber: String) async throws -> EventInviteDelivery {
-        let data = try await call("inviteByPhoneManaged", data: [
+        // Use the long-lived callable name. New deployments override this alias
+        // with the managed implementation, while older deployed backends already
+        // expose it, preventing a needless Functions NOT_FOUND during rollout.
+        let data = try await call("inviteByPhone", data: [
             "eventId": eventId,
             "phoneNumber": phoneNumber,
         ])
@@ -41,7 +44,8 @@ enum EventInviteClient {
 
     @MainActor
     static func list(eventId: String) async throws -> [EventInviteStatusRow] {
-        let data = try await call("listEventInvitesManaged", data: ["eventId": eventId])
+        // Same compatibility rule as inviteByPhone above.
+        let data = try await call("listEventInvites", data: ["eventId": eventId])
         guard let dict = data as? [String: Any], let rows = dict["invites"] as? [[String: Any]] else { return [] }
         return rows.map {
             EventInviteStatusRow(
@@ -55,6 +59,15 @@ enum EventInviteClient {
     @MainActor
     static func decline(eventId: String) async throws {
         _ = try await call("declineEventInvite", data: ["eventId": eventId])
+    }
+
+    static func userMessage(for error: Error) -> String {
+        let text = (error as NSError).localizedDescription
+        if text.uppercased().contains("NOT FOUND") {
+            return "MyPicsRoom's event service needs to be updated. Deploy the latest Firebase Functions, then try again."
+        }
+        if let appError = error as? AppError { return appError.userMessage }
+        return text
     }
 
     @MainActor
