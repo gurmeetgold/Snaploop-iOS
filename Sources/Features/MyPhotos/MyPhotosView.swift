@@ -84,7 +84,7 @@ struct MyPhotosView: View {
     init(event: Event) { _model = StateObject(wrappedValue: MyPhotosModel(event: event)) }
 
     private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: columnCount >= 6 ? 4 : 8), count: columnCount)
+        Array(repeating: GridItem(.flexible(), spacing: columnCount >= 6 ? 4 : 8, alignment: .top), count: columnCount)
     }
 
     private var filtered: [PhotoMatch] {
@@ -152,7 +152,12 @@ struct MyPhotosView: View {
                                         onNotMe: { Task { await model.markNotMe(match) } }
                                     )
                                 } label: {
-                                    PhotoCard(match: match, ownerLabel: model.ownerLabel(for: match.ownerUserId), isFavorite: model.isFavorite(match), compact: columnCount >= 6)
+                                    PhotoCard(
+                                        match: match,
+                                        ownerLabel: model.ownerLabel(for: match.ownerUserId),
+                                        isFavorite: model.isFavorite(match),
+                                        compact: columnCount >= 6
+                                    )
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -172,35 +177,31 @@ struct MyPhotosView: View {
 
 struct PhotoCard: View {
     let match: PhotoMatch
+    /// Attribution stays available to the detail screen/callers, but the grid
+    /// deliberately does not cover photos with names or initials.
     var ownerLabel: String = "Event member"
     var isFavorite = false
     var compact = false
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            ThumbnailCell(path: match.thumbnailPath).frame(maxWidth: .infinity, maxHeight: .infinity)
-            if !compact {
-                LinearGradient(colors: [.clear, .black.opacity(0.58)], startPoint: .center, endPoint: .bottom)
-                HStack(spacing: 4) {
-                    Circle().fill(Theme.brandGradient).frame(width: 16, height: 16)
-                    Text(ownerLabel).font(.caption2).bold().foregroundStyle(.white).lineLimit(1)
-                    Spacer()
+        GeometryReader { geometry in
+            ThumbnailCell(path: match.thumbnailPath)
+                .frame(width: geometry.size.width, height: geometry.size.width)
+                .clipped()
+                .overlay(alignment: .topTrailing) {
+                    if isFavorite {
+                        Image(systemName: "heart.fill")
+                            .font(compact ? .system(size: 8) : .caption)
+                            .foregroundStyle(Theme.pink)
+                            .padding(compact ? 3 : 7)
+                    }
                 }
-                .padding(6)
-            }
         }
         .aspectRatio(1, contentMode: .fit)
-        .overlay(alignment: .topTrailing) {
-            if isFavorite {
-                Image(systemName: "heart.fill")
-                    .font(compact ? .system(size: 8) : .caption)
-                    .foregroundStyle(Theme.pink)
-                    .padding(compact ? 3 : 7)
-            }
-        }
         .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 14, style: .continuous))
         .shadow(color: Theme.ink.opacity(compact ? 0 : 0.06), radius: 8, y: 4)
         .contentShape(Rectangle())
+        .accessibilityLabel("Photo shared by \(ownerLabel)")
     }
 }
 
