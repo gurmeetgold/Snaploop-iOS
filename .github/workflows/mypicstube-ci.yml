@@ -27,9 +27,6 @@ jobs:
           chmod +x scripts/install_face_model_v5.sh
           ./scripts/install_face_model_v5.sh
 
-      - name: Generate MyPicsRoom icons
-        run: /usr/bin/xcrun swift scripts/generate_mypicstube_icons.swift
-
       - name: Generate Xcode project
         run: xcodegen generate
 
