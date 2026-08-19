@@ -7,34 +7,61 @@ service firebase.storage {
       return request.auth != null;
     }
 
+    function memberPath(eventId, userId) {
+      return /databases/(default)/documents/events/$(eventId)/members/$(userId);
+    }
+
+    function photoPath(eventId, photoId) {
+      return /databases/(default)/documents/events/$(eventId)/photos/$(photoId);
+    }
+
     function isMember(eventId) {
-      return isSignedIn() &&
-        firestore.exists(/databases/(default)/documents/events/$(eventId)/members/$(request.auth.uid));
+      return isSignedIn() && firestore.exists(memberPath(eventId, request.auth.uid));
     }
 
     function isOrganizer(eventId) {
       return isMember(eventId) &&
-        firestore.get(/databases/(default)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
+        firestore.get(memberPath(eventId, request.auth.uid)).data.role == 'organizer';
+    }
+
+    function ownerSharingEnabled(eventId, ownerUserId) {
+      return firestore.exists(memberPath(eventId, ownerUserId)) &&
+        firestore.get(memberPath(eventId, ownerUserId)).data.sharingEnabled == true;
+    }
+
+    function publishedPhotoMatchesOwner(eventId, ownerUserId, photoId) {
+      return firestore.exists(photoPath(eventId, photoId)) &&
+        firestore.get(photoPath(eventId, photoId)).data.sourceUserId == ownerUserId;
     }
 
     match /events/{eventId}/cover.jpg {
       allow read: if isMember(eventId);
-      allow write: if isOrganizer(eventId)
+      allow create, update: if isOrganizer(eventId)
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
+      allow delete: if isOrganizer(eventId);
     }
 
-    // Thumbnails are readable by event members. Only the source user's device
-    // may write under its own UID folder.
     match /events/{eventId}/photos/{ownerUserId}/{photoId}/thumbnail.jpg {
-      allow read: if isMember(eventId);
-      allow write: if isMember(eventId)
+      // A thumbnail is readable only while the viewer belongs to the event,
+      // the owner is actively sharing, and a trusted publishMatch callable has
+      // created the backing photo metadata for this exact photo id.
+      allow read: if isMember(eventId)
+        && ownerSharingEnabled(eventId, ownerUserId)
+        && publishedPhotoMatchesOwner(eventId, ownerUserId, photoId);
+
+      // Upload is allowed only into the signed-in user's own event namespace
+      // while sharing is enabled. The callable later validates the object and
+      // publishes all match metadata using Admin credentials.
+      allow create, update: if isMember(eventId)
         && request.auth.uid == ownerUserId
+        && ownerSharingEnabled(eventId, ownerUserId)
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType == 'image/jpeg';
+      allow delete: if isMember(eventId) && request.auth.uid == ownerUserId;
     }
 
-    // Originals are never directly exposed through normal client Storage rules.
+    // Originals are never exposed through ordinary client Storage rules.
     match /events/{eventId}/transfers/{transferId}/{file} {
       allow read, write: if false;
     }
