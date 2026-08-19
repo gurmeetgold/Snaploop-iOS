@@ -100,7 +100,7 @@ struct SyncView: View {
         .onDisappear { model.cancel() }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase != .active {
-                model.cancelForSafety(message: "Camera sync stopped because MyPicsTube left the foreground. You can continue when you return.")
+                model.cancelForSafety(message: "Camera sync stopped because MyPicsRoom left the foreground. You can continue when you return.")
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
@@ -121,7 +121,7 @@ struct SyncView: View {
 
                 Text("Find your event photos")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
-                Text("MyPicsTube scans photos from this event's date window on this iPhone and looks for confident matches on-device.")
+                Text("MyPicsRoom scans photos from this event's date window on this iPhone and looks for confident matches on-device.")
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
@@ -151,7 +151,7 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Keep MyPicsTube in the foreground while scanning. The scan pauses automatically for heat, memory pressure, or when you leave the app.")
+                Text("Keep MyPicsRoom in the foreground while scanning. The scan pauses automatically for heat, memory pressure, or when you leave the app.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
