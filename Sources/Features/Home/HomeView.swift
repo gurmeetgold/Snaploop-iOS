@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 final class HomeModel: ObservableObject {
     @Published var events: [Event] = []
+    @Published var notifications: [EventNotification] = []
     @Published var isLoading = false
 
     private var env: AppEnvironment?
@@ -13,6 +14,7 @@ final class HomeModel: ObservableObject {
         guard let env, let userId = session?.user?.id else { return }
         isLoading = true; defer { isLoading = false }
         events = (try? await env.events.events(forUserId: userId)) ?? []
+        notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? []
     }
 
     func totalPhotosOfMe() async -> Int {
@@ -22,6 +24,12 @@ final class HomeModel: ObservableObject {
             matches.append(contentsOf: (try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? [])
         }
         return PhotoMatchDeduplication.unique(matches).count
+    }
+
+    func dismissNotification(_ notification: EventNotification) async {
+        guard let userId = session?.user?.id else { return }
+        notifications.removeAll { $0.id == notification.id }
+        try? await EventNotificationClient.markRead(userId: userId, notificationId: notification.id)
     }
 }
 
@@ -61,6 +69,11 @@ struct HomeView: View {
                             .padding(.horizontal)
                             .accessibilityLabel("\(photosOfMe) total photos found of you")
                             .accessibilityHint("Opens photos found across all of your events")
+                        }
+
+                        if let notification = model.notifications.first {
+                            eventNotificationCard(notification)
+                                .padding(.horizontal)
                         }
                     }
 
@@ -127,6 +140,30 @@ struct HomeView: View {
         }
     }
 
+    private func eventNotificationCard(_ notification: EventNotification) -> some View {
+        PremiumCard {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle().fill(Theme.aqua.opacity(0.14))
+                    Image(systemName: "bell.fill").foregroundStyle(Theme.aqua)
+                }
+                .frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(notification.title).font(.subheadline.bold()).foregroundStyle(Theme.ink)
+                    Text(notification.body).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    Task { await model.dismissNotification(notification) }
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss notification")
+            }
+        }
+    }
+
     private func sectionHeader(_ title: String) -> some View {
         HStack {
             Text(title).font(.title3.weight(.bold)).foregroundStyle(Theme.ink)
@@ -180,11 +217,8 @@ struct HomeView: View {
     private func actionCard(title: String, subtitle: String, icon: String, gradient: LinearGradient) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(.white.opacity(0.22))
-                Image(systemName: icon)
-                    .font(.headline)
-                    .foregroundStyle(.white)
+                RoundedRectangle(cornerRadius: 13, style: .continuous).fill(.white.opacity(0.22))
+                Image(systemName: icon).font(.headline).foregroundStyle(.white)
             }
             .frame(width: 44, height: 44)
             Spacer(minLength: 4)
@@ -202,8 +236,7 @@ struct HomeView: View {
             VStack(spacing: 14) {
                 ZStack {
                     Circle().fill(Theme.peach.opacity(0.25))
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 34)).foregroundStyle(Theme.sunset)
+                    Image(systemName: "photo.on.rectangle.angled").font(.system(size: 34)).foregroundStyle(Theme.sunset)
                 }
                 .frame(width: 74, height: 74)
                 Text("No events yet").font(.headline)
@@ -250,8 +283,7 @@ private struct EventCard: View {
         HStack(spacing: 14) {
             ZStack {
                 Theme.violetGradient
-                Image(systemName: event.category.systemImage)
-                    .font(.title2).foregroundStyle(.white)
+                Image(systemName: event.category.systemImage).font(.title2).foregroundStyle(.white)
             }
             .frame(width: 72, height: 72)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -302,8 +334,7 @@ struct EnterCodeView: View {
                         Label("Continue", systemImage: "arrow.right.circle.fill")
                             .font(.headline).frame(maxWidth: .infinity).frame(height: 52)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
+                    .buttonStyle(.plain).foregroundStyle(.white)
                     .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18))
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
