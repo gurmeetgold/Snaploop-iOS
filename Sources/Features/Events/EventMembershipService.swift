@@ -1,8 +1,8 @@
 import Foundation
 
-/// Orchestrates event membership transitions. Live Firebase builds route
-/// security-sensitive mutations through trusted callable Functions; in-memory
-/// development builds retain the protocol-based implementation.
+/// Orchestrates event membership transitions. Firebase performs trusted
+/// membership mutations through callable Functions; in-memory repositories keep
+/// the same protocol-driven behavior for tests and development.
 public struct EventMembershipService {
     private let repository: EventRepository
     private let config: ConfigProviding
@@ -14,12 +14,16 @@ public struct EventMembershipService {
         self.clock = clock
     }
 
+    /// Creates the event and organizer membership. The Firebase repository's
+    /// createEvent callable already creates the organizer membership/roster
+    /// atomically, while in-memory repositories still need the explicit seed.
     public func create(event: Event, creator: User, faceProfile: FaceProfile) async throws {
-        if AppEnvironment.useLiveServices {
-            try await EventManagementClient.create(event)
+        try await repository.createEvent(event)
+
+        if repository is FirebaseEventRepository {
             return
         }
-        try await repository.createEvent(event)
+
         try await addMembership(
             eventId: event.id,
             user: creator,
@@ -28,6 +32,10 @@ public struct EventMembershipService {
         )
     }
 
+    /// Joins an existing event. For Firebase, do not read the private roster
+    /// before joining: the trusted joinEvent callable is authoritative for
+    /// idempotency, capacity and membership creation. That fixes the backwards
+    /// "join first" permission failure for invite/code/QR entry.
     public func join(event: Event, user: User, faceProfile: FaceProfile) async throws {
         let values = config.current
         guard event.status == .active,
@@ -35,16 +43,25 @@ public struct EventMembershipService {
             throw AppError.eventExpired
         }
 
-        if AppEnvironment.useLiveServices {
-            // The server is authoritative for membership existence, capacity and
-            // lifecycle. Crucially, no private roster read is required first.
-            try await EventManagementClient.join(eventId: event.id)
+        if repository is FirebaseEventRepository {
+            let member = EventMember(
+                userId: user.id,
+                role: .participant,
+                joinedAt: clock.now(),
+                sharingEnabled: true,
+                lastSyncAt: nil,
+                faceTemplateVersion: faceProfile.version
+            )
+            // FirebaseEventRepository.addMember delegates to the trusted server,
+            // which also writes the participant roster entry atomically.
+            try await repository.addMember(eventId: event.id, member: member)
             return
         }
 
         let current = try await repository.members(eventId: event.id)
         if current.contains(where: { $0.userId == user.id }) { return }
         guard current.count < values.maxParticipantsPerEvent else { throw AppError.eventFull }
+
         try await addMembership(
             eventId: event.id,
             user: user,
@@ -54,11 +71,7 @@ public struct EventMembershipService {
     }
 
     public func leave(eventId: String, userId: String) async throws {
-        if AppEnvironment.useLiveServices {
-            try await EventManagementClient.remove(eventId: eventId, userId: userId)
-        } else {
-            try await repository.removeMember(eventId: eventId, userId: userId)
-        }
+        try await repository.removeMember(eventId: eventId, userId: userId)
     }
 
     public func setSharing(eventId: String, userId: String, enabled: Bool) async throws {
