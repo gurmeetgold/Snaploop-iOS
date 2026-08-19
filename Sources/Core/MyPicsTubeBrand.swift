@@ -1,10 +1,10 @@
 import SwiftUI
 import UIKit
 
-/// Brand metadata and system chrome for the MyPicsTube MVP/TestFlight build.
+/// Brand metadata and system chrome for the MyPicsRoom MVP/TestFlight build.
 /// Visual colors live in `Theme` so there is one source of truth.
 enum MyPicsTubeBrand {
-    static let name = "MyPicsTube"
+    static let name = "MyPicsRoom"
     static let tagline = "My pics, found from everyone’s phone."
 
     static func configureUIKitAppearance() {
