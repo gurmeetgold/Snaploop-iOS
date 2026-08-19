@@ -136,4 +136,4 @@ func render(size: Int, to path: String) throws {
 for spec in specs {
     try render(size: spec.pixels, to: outDir + "/" + spec.name)
 }
-print("Generated Coral Luxe camera-view MyPicsTube AppIcon assets in \(outDir)")
+print("Generated Coral Luxe camera-view MyPicsRoom AppIcon assets in \(outDir)")
