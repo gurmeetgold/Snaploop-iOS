@@ -8,6 +8,7 @@ const expectedExports = new Set([
   "joinEvent",
   "resolveInvite",
   "updateEventManaged",
+  "setEventStatus",
   "manageEventMember",
   "leaveEvent",
   "inviteByPhone",
