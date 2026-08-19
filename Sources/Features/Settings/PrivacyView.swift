@@ -25,7 +25,7 @@ final class PrivacyModel: ObservableObject {
             try await env.makeErasureService().deleteAccount(userId: userId)
             session?.user = nil
             session?.faceProfile = nil
-            message = "Your MyPicsTube account and face data were deleted."
+            message = "Your MyPicsRoom account and face data were deleted."
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
 }
@@ -72,7 +72,7 @@ struct PrivacyView: View {
         } message: {
             Text("Automatic face matching will stop until you set it up again.")
         }
-        .confirmationDialog("Delete your MyPicsTube account?", isPresented: $confirmAccount, titleVisibility: .visible) {
+        .confirmationDialog("Delete your MyPicsRoom account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -123,7 +123,7 @@ struct PrivacyView: View {
                 Text("Deletes your account and face data. Photos already shared to events can remain part of those event albums, but your personal account data is removed.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmAccount = true } label: {
-                    Label("Delete MyPicsTube Account", systemImage: "trash.fill")
+                    Label("Delete MyPicsRoom Account", systemImage: "trash.fill")
                 }
                 .disabled(model.busy)
             }
