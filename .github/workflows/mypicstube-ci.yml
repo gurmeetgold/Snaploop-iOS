@@ -4,12 +4,44 @@ on:
   push:
     branches:
       - chatgpt/mvp-stabilization-2
+      - chatgpt/principal-release-hardening
   workflow_dispatch:
 
 jobs:
-  build:
+  backend-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Check callable JavaScript syntax
+        run: |
+          set -euo pipefail
+          for file in functions/*.js; do
+            node --check "$file"
+          done
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+
+      - name: Parse Firestore and Storage rules in emulators
+        run: firebase emulators:exec --only firestore,storage "echo Firebase rules loaded"
+
+  build-test:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,10 +54,11 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Install evaluation face model
+      - name: Install and verify evaluation face model
         run: |
-          chmod +x scripts/install_face_model_v5.sh
+          chmod +x scripts/install_face_model_v5.sh scripts/verify_face_model_v5.sh
           ./scripts/install_face_model_v5.sh
+          ./scripts/verify_face_model_v5.sh
 
       - name: Generate Xcode project
         run: xcodegen generate
@@ -50,3 +83,16 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Run unit tests
+        env:
+          FIREBASE_SOURCE_FIRESTORE: "1"
+        run: |
+          set -o pipefail
+          DEVICE_ID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for runtime in d.values() for x in runtime if x["name"].startswith("iPhone") and x.get("isAvailable", False)))')"
+          xcodebuild \
+            -project SnapLoop.xcodeproj \
+            -scheme SnapLoop \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            CODE_SIGNING_ALLOWED=NO \
+            test
