@@ -312,7 +312,7 @@ struct PhotoDetailView: View {
             Button("Not Me", role: .destructive) { onNotMe(); dismiss() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("MyPicsTube will hide this photo from My Photos and record the false match so matching can improve.")
+            Text("MyPicsRoom will hide this photo from My Photos and record the false match so matching can improve.")
         }
     }
 
@@ -331,7 +331,7 @@ struct PhotoDetailView: View {
         guard let image = loader.image else { statusMessage = "The preview is still loading."; return }
         let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard authorization == .authorized || authorization == .limited else {
-            statusMessage = "Allow MyPicsTube to add photos in iPhone Settings, then try Save again."; return
+            statusMessage = "Allow MyPicsRoom to add photos in iPhone Settings, then try Save again."; return
         }
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
