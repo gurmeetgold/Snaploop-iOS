@@ -9,6 +9,7 @@ const managed = require("./eventManagement");
 const profile = require("./profileManaged");
 const leave = require("./leaveManaged");
 const security = require("./security");
+const memberCleanup = require("./memberCleanup");
 
 // Event lifecycle + invite resolution.
 exports.createEvent = managed.createEventMVP;
@@ -36,6 +37,11 @@ exports.deleteMyAccount = security.deleteMyAccount;
 exports.setSharing = security.setSharingManaged;
 exports.publishMatch = security.publishMatch;
 exports.dismissAppearance = security.dismissAppearanceTrusted;
+
+// Membership deletion is defense-in-depth: every removal path, including role
+// management and future trusted admin flows, scrubs that member's event photo
+// appearances and authored shared previews.
+exports.cleanupRemovedMemberPhotoData = memberCleanup.cleanupRemovedMemberPhotoData;
 
 // Roster snapshots are still read/rewritten by a trusted callable; no direct
 // client write permission is granted to participant documents.
