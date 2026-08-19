@@ -23,12 +23,14 @@ enum EventManagementClient {
         ]
         if let cover = event.coverImagePath { data["coverImagePath"] = cover }
         if let location = event.locationName { data["locationName"] = location }
-        _ = try await call("createEventMVP", data: data)
+        // Stable alias exists on both the older backend and the managed rollout.
+        _ = try await call("createEvent", data: data)
     }
 
     @MainActor
     static func join(eventId: String) async throws {
-        _ = try await call("joinEventManaged", data: ["eventId": eventId])
+        // Stable alias exists on both the older backend and the managed rollout.
+        _ = try await call("joinEvent", data: ["eventId": eventId])
     }
 
     @MainActor
@@ -61,11 +63,22 @@ enum EventManagementClient {
 
     @MainActor
     static func remove(eventId: String, userId: String) async throws {
-        _ = try await call("manageEventMember", data: [
+        // `leaveEvent` is deliberately kept as the stable public callable. The
+        // latest backend overrides it with the managed implementation, while an
+        // older deployed backend can still remove/leave without NOT_FOUND.
+        _ = try await call("leaveEvent", data: [
             "eventId": eventId,
             "userId": userId,
-            "action": "remove",
         ])
+    }
+
+    static func userMessage(for error: Error) -> String {
+        let text = (error as NSError).localizedDescription
+        if text.uppercased().contains("NOT FOUND") {
+            return "MyPicsRoom's event service needs to be updated. Deploy the latest Firebase Functions, then try again."
+        }
+        if let appError = error as? AppError { return appError.userMessage }
+        return text
     }
 
     @MainActor
