@@ -4,7 +4,7 @@ import XCTest
 final class EventLifecycleTests: XCTestCase {
 
     private let day: TimeInterval = 86_400
-    private var config = RemoteConfigValues.default   // grace = 3 days by default
+    private var config = RemoteConfigValues.default
 
     private func event(start: Date, end: Date) -> Event {
         Event(id: "e", joinCode: "ABC234", creatorUserId: "u", name: "Party",
@@ -33,7 +33,6 @@ final class EventLifecycleTests: XCTestCase {
     func testGraceAfterEndWithinWindow() {
         let start = Date(timeIntervalSince1970: 1_000_000)
         let end = start + 5 * day
-        // grace = 3 days
         let s = lifecycleStatus(at: end + 2 * day, start: start, end: end)
         XCTAssertEqual(s, .grace)
     }
@@ -53,16 +52,14 @@ final class EventLifecycleTests: XCTestCase {
         XCTAssertEqual(lifecycleStatus(at: graceEnd + 1, start: start, end: end), .expired)
     }
 
-    // MARK: Capability gates
-
     func testCanSyncDuringActiveAndGraceOnly() {
         let start = Date(timeIntervalSince1970: 1_000_000)
         let end = start + 5 * day
         let e = event(start: start, end: end)
         XCTAssertFalse(EventLifecycle.canSync(e, clock: FixedClock(start - 1), config: config))
         XCTAssertTrue(EventLifecycle.canSync(e, clock: FixedClock(start + day), config: config))
-        XCTAssertTrue(EventLifecycle.canSync(e, clock: FixedClock(end + day), config: config))    // grace
-        XCTAssertFalse(EventLifecycle.canSync(e, clock: FixedClock(end + 4 * day), config: config)) // expired
+        XCTAssertTrue(EventLifecycle.canSync(e, clock: FixedClock(end + day), config: config))
+        XCTAssertFalse(EventLifecycle.canSync(e, clock: FixedClock(end + 4 * day), config: config))
     }
 
     func testCanDownloadThroughGraceButNotAfter() {
@@ -76,32 +73,76 @@ final class EventLifecycleTests: XCTestCase {
     // MARK: Validation
 
     func testValidateDatesRejectsEndBeforeStart() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
+        let now = Date(timeIntervalSince1970: 1_000_000)
         XCTAssertThrowsError(try EventLifecycle.validateDates(
-            startsAt: start, endsAt: start - day, config: config)) { error in
+            startsAt: now,
+            endsAt: now - day,
+            now: now,
+            config: config
+        )) { error in
             XCTAssertEqual(error as? AppError, .invalidEventDates)
         }
     }
 
     func testValidateDatesRejectsOverlongEvent() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let tooLong = start + TimeInterval(config.maxEventDurationDays + 1) * day
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let start = now - 7 * day
+        let tooLong = start + TimeInterval(EventLifecycle.mvpMaximumDurationDays + 1) * day
         XCTAssertThrowsError(try EventLifecycle.validateDates(
-            startsAt: start, endsAt: tooLong, config: config)) { error in
-            XCTAssertEqual(error as? AppError, .eventDurationTooLong(maxDays: config.maxEventDurationDays))
+            startsAt: start,
+            endsAt: tooLong,
+            now: now,
+            config: config
+        )) { error in
+            XCTAssertEqual(error as? AppError, .eventDurationTooLong(maxDays: EventLifecycle.mvpMaximumDurationDays))
         }
     }
 
     func testValidateDatesAcceptsInRange() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let ok = start + TimeInterval(config.defaultEventDurationDays) * day
-        XCTAssertNoThrow(try EventLifecycle.validateDates(startsAt: start, endsAt: ok, config: config))
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let start = now - 2 * day
+        let end = now + 3 * day
+        XCTAssertNoThrow(try EventLifecycle.validateDates(
+            startsAt: start,
+            endsAt: end,
+            now: now,
+            config: config
+        ))
     }
 
-    func testDefaultEndDateUsesConfiguredDuration() {
+    func testValidateDatesRejectsStartMoreThan15DaysAgo() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let start = now - 16 * day
+        let end = now - 14 * day
+        XCTAssertThrowsError(try EventLifecycle.validateDates(
+            startsAt: start,
+            endsAt: end,
+            now: now,
+            config: config
+        )) { error in
+            XCTAssertEqual(error as? AppError, .eventDatesOutsideAllowedWindow(days: 15))
+        }
+    }
+
+    func testValidateDatesRejectsEndMoreThan15DaysAhead() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let start = now + 10 * day
+        let end = now + 16 * day
+        XCTAssertThrowsError(try EventLifecycle.validateDates(
+            startsAt: start,
+            endsAt: end,
+            now: now,
+            config: config
+        )) { error in
+            XCTAssertEqual(error as? AppError, .eventDatesOutsideAllowedWindow(days: 15))
+        }
+    }
+
+    func testDefaultEndDateNeverExceeds15Days() {
+        var longConfig = config
+        longConfig.defaultEventDurationDays = 30
         let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = EventLifecycle.defaultEndDate(from: start, config: config)
-        XCTAssertEqual(end.timeIntervalSince(start),
-                       TimeInterval(config.defaultEventDurationDays) * day, accuracy: 0.5)
+        let end = EventLifecycle.defaultEndDate(from: start, config: longConfig)
+        XCTAssertEqual(end.timeIntervalSince(start), 15 * day, accuracy: 0.5)
     }
 }
