@@ -38,28 +38,38 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         let appearances: [[String: Any]] = match.appearances.map {
             [
                 "participantUserId": $0.participantUserId,
-                "confidence": $0.confidence,
-                "dismissedByUser": $0.dismissedByUser
+                "confidence": $0.confidence
             ]
         }
 
-        let data: [String: Any] = [
+        let payload: [String: Any] = [
             "id": match.id,
             "eventId": match.eventId,
-            "sourceUserId": match.ownerUserId,
             "assetLocalId": match.assetLocalId,
             "appearances": appearances,
-            "matchedUserIds": match.activeParticipantIds,
-            "capturedAt": Timestamp(date: match.capturedAt),
-            "matchedAt": Timestamp(date: match.matchedAt),
+            "capturedAtMillis": Int64(match.capturedAt.timeIntervalSince1970 * 1000),
+            "matchedAtMillis": Int64(match.matchedAt.timeIntervalSince1970 * 1000),
             "thumbnailPath": path
         ]
 
-        try await db.collection("events")
-            .document(match.eventId)
-            .collection("photos")
-            .document(docId)
-            .setData(data, merge: true)
+        do {
+            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+                functions.httpsCallable("publishMatch").call(payload) { result, error in
+                    if let error { continuation.resume(throwing: error); return }
+                    continuation.resume(returning: result?.data as Any)
+                }
+            }
+        } catch {
+            // A failed trusted publish leaves no readable metadata document.
+            // Remove the unreferenced thumbnail when possible.
+            try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                ref.delete { cleanupError in
+                    if let cleanupError { continuation.resume(throwing: cleanupError) }
+                    else { continuation.resume(returning: ()) }
+                }
+            }
+            throw error
+        }
     }
 
     public func dismissAppearance(matchId: String, participantUserId: String) async throws {
@@ -139,7 +149,7 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             )
         }
 
-        var match = PhotoMatch(
+        let match = PhotoMatch(
             eventId: eventId,
             ownerUserId: sourceUserId,
             assetLocalId: assetLocalId,
