@@ -1,8 +1,5 @@
 import Foundation
 
-/// A single typed error surface for the whole app. Every service throws these
-/// so higher layers can switch exhaustively and map to human copy without ever
-/// leaking a raw `NSError` into the UI.
 public enum AppError: Error, Equatable, Sendable {
     case notAuthenticated
     case invalidPhoneNumber
@@ -21,6 +18,7 @@ public enum AppError: Error, Equatable, Sendable {
     case eventFull
     case invalidEventName
     case invalidEventDates
+    case eventDatesOutsideAllowedWindow(days: Int)
     case notAMember
     case eventDurationTooLong(maxDays: Int)
     case invalidJoinCode
@@ -70,6 +68,8 @@ public extension AppError {
             return "Please give your event a name."
         case .invalidEventDates:
             return "Please pick a valid start and end date."
+        case .eventDatesOutsideAllowedWindow(let days):
+            return "Event dates must be within \(days) days before today and \(days) days after today."
         case .notAMember:
             return "You need to join this event first."
         case .eventDurationTooLong(let maxDays):
