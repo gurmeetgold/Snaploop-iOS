@@ -23,9 +23,9 @@ struct BiometricConsentView: View {
 
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                consentPoint("Purpose", "MyPicsTube uses your face template only to help find photos of you in events you join. It is not used for advertising, stranger identification, or account authentication.", icon: "sparkles", tint: Theme.sunset)
+                                consentPoint("Purpose", "MyPicsRoom uses your face template only to help find photos of you in events you join. It is not used for advertising, stranger identification, or account authentication.", icon: "sparkles", tint: Theme.sunset)
                                 Divider()
-                                consentPoint("What is stored", "MyPicsTube stores mathematical face descriptors. Raw guided-scan video is not saved. The reference preview shown in Face Setup stays on this device.", icon: "function", tint: Theme.violet)
+                                consentPoint("What is stored", "MyPicsRoom stores mathematical face descriptors. Raw guided-scan video is not saved. The reference preview shown in Face Setup stays on this device.", icon: "function", tint: Theme.violet)
                                 Divider()
                                 consentPoint("Event matching", "For the current MVP, event-scoped descriptors can be shared with authorized event members' devices so matching can happen on-device.", icon: "person.2.fill", tint: Theme.aqua)
                                 Divider()
@@ -33,7 +33,7 @@ struct BiometricConsentView: View {
                             }
                         }
 
-                        Toggle("I understand why MyPicsTube uses my face data.", isOn: $understandsPurpose)
+                        Toggle("I understand why MyPicsRoom uses my face data.", isOn: $understandsPurpose)
                             .tint(Theme.sunset)
                         Toggle("I understand I can delete Face Setup later.", isOn: $understandsDeletion)
                             .tint(Theme.sunset)
