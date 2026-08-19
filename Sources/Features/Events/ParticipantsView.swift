@@ -84,21 +84,27 @@ final class ParticipantsModel: ObservableObject {
 
     func setSharing(_ enabled: Bool) async {
         guard let userId = session?.user?.id else { return }
+        errorMessage = nil
         do {
             try await service?.setSharing(eventId: event.id, userId: userId, enabled: enabled)
             sharingEnabled = enabled
         } catch {
-            errorMessage = (error as NSError).localizedDescription
+            errorMessage = EventManagementClient.userMessage(for: error)
         }
     }
 
     func leave() async {
         guard currentUserRole != .organizer, let userId = session?.user?.id else { return }
-        do { try await service?.leave(eventId: event.id, userId: userId) }
-        catch { errorMessage = (error as NSError).localizedDescription }
+        errorMessage = nil
+        do {
+            try await service?.leave(eventId: event.id, userId: userId)
+        } catch {
+            errorMessage = EventManagementClient.userMessage(for: error)
+        }
     }
 
     func remove(_ member: EventMember) async {
+        errorMessage = nil
         do {
             if AppEnvironment.useLiveServices {
                 try await EventManagementClient.remove(eventId: event.id, userId: member.userId)
@@ -106,11 +112,15 @@ final class ParticipantsModel: ObservableObject {
                 try await env?.events.removeMember(eventId: event.id, userId: member.userId)
             }
             await reload()
-        } catch { errorMessage = (error as NSError).localizedDescription }
+            errorMessage = nil
+        } catch {
+            errorMessage = EventManagementClient.userMessage(for: error)
+        }
     }
 
     func setRole(_ role: EventMember.Role, for member: EventMember) async {
         guard currentUserIsOrganizer else { return }
+        errorMessage = nil
         do {
             if AppEnvironment.useLiveServices {
                 try await EventManagementClient.setRole(eventId: event.id, userId: member.userId, role: role)
@@ -122,7 +132,10 @@ final class ParticipantsModel: ObservableObject {
                 }
             }
             await reload()
-        } catch { errorMessage = (error as NSError).localizedDescription }
+            errorMessage = nil
+        } catch {
+            errorMessage = EventManagementClient.userMessage(for: error)
+        }
     }
 }
 
