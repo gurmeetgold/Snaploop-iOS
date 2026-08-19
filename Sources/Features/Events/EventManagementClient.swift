@@ -6,21 +6,24 @@ import Foundation
 enum EventManagementClient {
     @MainActor
     static func create(_ event: Event) async throws {
-        _ = try await call("createEventMVP", data: [
+        var data: [String: Any] = [
             "id": event.id,
             "joinCode": event.joinCode,
             "inviteToken": event.inviteToken,
             "creatorUserId": event.creatorUserId,
             "name": event.name,
             "category": event.category.rawValue,
-            "coverImagePath": event.coverImagePath as Any,
-            "locationName": event.locationName as Any,
+            "coverImagePath": NSNull(),
+            "locationName": NSNull(),
             "startsAtMillis": event.startsAt.timeIntervalSince1970 * 1000,
             "endsAtMillis": event.endsAt.timeIntervalSince1970 * 1000,
             "status": event.status.rawValue,
             "createdAtMillis": event.createdAt.timeIntervalSince1970 * 1000,
             "updatedAtMillis": event.updatedAt.timeIntervalSince1970 * 1000,
-        ])
+        ]
+        if let cover = event.coverImagePath { data["coverImagePath"] = cover }
+        if let location = event.locationName { data["locationName"] = location }
+        _ = try await call("createEventMVP", data: data)
     }
 
     @MainActor
@@ -30,15 +33,18 @@ enum EventManagementClient {
 
     @MainActor
     static func update(_ event: Event) async throws -> Bool {
-        let raw = try await call("updateEventManaged", data: [
+        var data: [String: Any] = [
             "eventId": event.id,
             "name": event.name,
             "category": event.category.rawValue,
-            "coverImagePath": event.coverImagePath as Any,
-            "locationName": event.locationName as Any,
+            "coverImagePath": NSNull(),
+            "locationName": NSNull(),
             "startsAtMillis": event.startsAt.timeIntervalSince1970 * 1000,
             "endsAtMillis": event.endsAt.timeIntervalSince1970 * 1000,
-        ])
+        ]
+        if let cover = event.coverImagePath { data["coverImagePath"] = cover }
+        if let location = event.locationName { data["locationName"] = location }
+        let raw = try await call("updateEventManaged", data: data)
         return (raw as? [String: Any])?["changed"] as? Bool ?? true
     }
 
