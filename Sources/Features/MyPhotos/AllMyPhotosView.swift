@@ -43,7 +43,6 @@ final class AllMyPhotosModel: ObservableObject {
                 let eventMatches = try await env.matches.myPhotos(eventId: event.id, userId: userId)
                 allMatches.append(contentsOf: eventMatches)
             } catch {
-                // Keep other accessible events visible if one event cannot load.
                 if errorMessage == nil { errorMessage = (error as NSError).localizedDescription }
             }
 
@@ -100,8 +99,8 @@ struct AllMyPhotosView: View {
     @StateObject private var model = AllMyPhotosModel()
 
     private let columns = [
-        GridItem(.flexible(), spacing: 8),
-        GridItem(.flexible(), spacing: 8)
+        GridItem(.flexible(), spacing: 8, alignment: .top),
+        GridItem(.flexible(), spacing: 8, alignment: .top)
     ]
 
     var body: some View {
@@ -109,7 +108,7 @@ struct AllMyPhotosView: View {
             BrandScreenBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    InsightBanner(value: "\(model.photos.count)", label: "photos found of you", systemImage: "sparkles")
+                    InsightBanner(value: "\(model.photos.count)", label: "total photos found of you", systemImage: "sparkles")
                         .padding(.horizontal)
 
                     if let errorMessage = model.errorMessage {
@@ -138,9 +137,8 @@ struct AllMyPhotosView: View {
                                         onNotMe: { Task { await model.markNotMe(match) } }
                                     )
                                 } label: {
-                                    PhotoCard(
+                                    AllMyPhotosGridCell(
                                         match: match,
-                                        ownerLabel: model.ownerLabel(for: match),
                                         isFavorite: model.isFavorite(match)
                                     )
                                 }
@@ -160,5 +158,32 @@ struct AllMyPhotosView: View {
             await model.reload()
         }
         .refreshable { await model.reload() }
+    }
+}
+
+/// Fixed square cells prevent a landscape thumbnail's intrinsic dimensions
+/// from changing the grid row height or drawing over a neighboring cell.
+private struct AllMyPhotosGridCell: View {
+    let match: PhotoMatch
+    let isFavorite: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            ThumbnailCell(path: match.thumbnailPath)
+                .frame(width: geometry.size.width, height: geometry.size.width)
+                .clipped()
+                .overlay(alignment: .topTrailing) {
+                    if isFavorite {
+                        Image(systemName: "heart.fill")
+                            .font(.caption)
+                            .foregroundStyle(Theme.pink)
+                            .padding(7)
+                    }
+                }
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(Rectangle())
+        .shadow(color: Theme.ink.opacity(0.06), radius: 8, y: 4)
     }
 }
