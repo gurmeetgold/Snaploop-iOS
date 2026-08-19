@@ -27,18 +27,6 @@ targets:
       Debug: Config/Signing.xcconfig
       Release: Config/Signing.xcconfig
 
-    preBuildScripts:
-      - name: Generate MyPicsRoom App Icons
-        script: |
-          cd "$SRCROOT"
-          # This script is a macOS host-side tool (it imports AppKit). Xcode
-          # exports the iOS target SDKROOT into build phases, which makes the
-          # host Swift compiler incorrectly target macOS with an iPhoneOS
-          # sysroot. Strip target SDK variables and explicitly use macOS.
-          /usr/bin/env -u SDKROOT -u IPHONEOS_DEPLOYMENT_TARGET -u MACOSX_DEPLOYMENT_TARGET \
-            /usr/bin/xcrun --sdk macosx swift scripts/generate_mypicstube_icons.swift
-        basedOnDependencyAnalysis: false
-
     info:
       path: Sources/App/Info.plist
       properties:
