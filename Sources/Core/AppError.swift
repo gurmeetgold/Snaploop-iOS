@@ -45,9 +45,9 @@ public extension AppError {
         case .verificationExpired:
             return "That code expired. We'll send you a new one."
         case .photoLibraryAccessDenied:
-            return "MyPicsTube needs access to your photos to find pictures of you. You can enable it in Settings."
+            return "MyPicsRoom needs access to your photos to find pictures of you. You can enable it in Settings."
         case .cameraAccessDenied:
-            return "MyPicsTube needs camera access to set up your face. You can enable it in Settings."
+            return "MyPicsRoom needs camera access to set up your face. You can enable it in Settings."
         case .noFaceDetectedInSelfie:
             return "We couldn't find a face in that photo. Try again in better light, facing the camera."
         case .multipleFacesInSelfie:
@@ -57,7 +57,7 @@ public extension AppError {
         case .faceRecognitionNotReady:
             return "Camera matching is not ready for this build. Your photos have not been marked as scanned."
         case .deviceTooWarm:
-            return "Your iPhone is getting warm, so MyPicsTube paused photo scanning. Let it cool down, then try again."
+            return "Your iPhone is getting warm, so MyPicsRoom paused photo scanning. Let it cool down, then try again."
         case .syncCancelled:
             return "Camera sync was stopped. Photos already processed are kept, and you can continue later."
         case .eventNotFound:
