@@ -1,12 +1,9 @@
 import Foundation
 
-/// The user-editable inputs for creating (or editing) an event. Deliberately
-/// excludes identity fields (id/joinCode/inviteToken) — those are minted once
-/// by the factory and never come from user input or an edit.
 public struct EventDraft: Equatable, Sendable {
     public var name: String
     public var category: EventCategory
-    public var startsAt: Date          // may be in the past ("Catch-up Scan")
+    public var startsAt: Date
     public var endsAt: Date
     public var locationName: String?
     public var coverImagePath: String?
@@ -28,11 +25,7 @@ public struct EventDraft: Equatable, Sendable {
     }
 }
 
-/// Creates and edits `Event` values, enforcing the rules and preserving stable
-/// identity. Generators are injectable for deterministic tests; production uses
-/// UUID + CSPRNG.
 public struct EventFactory {
-
     public struct Generators {
         public var id: () -> String
         public var joinCode: () -> String
@@ -58,15 +51,17 @@ public struct EventFactory {
         self.generators = generators
     }
 
-    /// Builds a new event from a draft. Validates duration against the config
-    /// limit; **allows a past start date** (catch-up scans). Throws typed
-    /// `AppError` for the UI to translate.
     public func make(draft: EventDraft, creatorUserId: String) throws -> Event {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw AppError.invalidEventName }
-        try EventLifecycle.validateDates(startsAt: draft.startsAt, endsAt: draft.endsAt, config: config)
-
         let now = clock.now()
+        try EventLifecycle.validateDates(
+            startsAt: draft.startsAt,
+            endsAt: draft.endsAt,
+            now: now,
+            config: config
+        )
+
         return Event(
             id: generators.id(),
             joinCode: generators.joinCode(),
@@ -84,23 +79,27 @@ public struct EventFactory {
         )
     }
 
-    /// Applies an edit to an existing event. **Never** touches id, joinCode,
-    /// inviteToken, creatorUserId, or createdAt — only presentation + dates +
-    /// updatedAt. Re-validates dates when they change.
     public func applyEdit(_ draft: EventDraft, to event: Event) throws -> Event {
-        try EventLifecycle.validateDates(startsAt: draft.startsAt, endsAt: draft.endsAt, config: config)
+        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw AppError.invalidEventName }
+        let now = clock.now()
+        try EventLifecycle.validateDates(
+            startsAt: draft.startsAt,
+            endsAt: draft.endsAt,
+            now: now,
+            config: config
+        )
         var updated = event
-        updated.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.name = name
         updated.category = draft.category
         updated.locationName = draft.locationName
         updated.coverImagePath = draft.coverImagePath
         updated.startsAt = draft.startsAt
         updated.endsAt = draft.endsAt
-        updated.updatedAt = clock.now()
+        updated.updatedAt = now
         return updated
     }
 
-    /// Default random short code from the unambiguous JoinCode alphabet.
     public static func randomJoinCode() -> String {
         let alphabet = Array(JoinCode.alphabet)
         var rng = SystemRandomNumberGenerator()
