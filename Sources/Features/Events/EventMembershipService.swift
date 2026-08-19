@@ -71,7 +71,13 @@ public struct EventMembershipService {
     }
 
     public func leave(eventId: String, userId: String) async throws {
-        try await repository.removeMember(eventId: eventId, userId: userId)
+        if repository is FirebaseEventRepository {
+            // Use the managed path so member removal is authorized consistently
+            // and current members receive the server-generated change notice.
+            try await EventManagementClient.remove(eventId: eventId, userId: userId)
+        } else {
+            try await repository.removeMember(eventId: eventId, userId: userId)
+        }
     }
 
     public func setSharing(eventId: String, userId: String, enabled: Bool) async throws {
