@@ -33,6 +33,9 @@ jobs:
             node --check "$file"
           done
 
+      - name: Verify client to callable contract
+        run: node --test tests/backend/callable-contract.test.mjs
+
       - name: Install Firebase emulator test tools
         run: |
           npm install --global firebase-tools
