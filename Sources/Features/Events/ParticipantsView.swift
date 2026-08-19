@@ -1,12 +1,10 @@
 import FirebaseFunctions
 import SwiftUI
-import UIKit
 
 @MainActor
 final class ParticipantsModel: ObservableObject {
     @Published var members: [EventMember] = []
     @Published var participants: [EventParticipant] = []
-    @Published var sharedMatches: [PhotoMatch] = []
     @Published var sharingEnabled = true
 
     private var env: AppEnvironment?
@@ -30,10 +28,8 @@ final class ParticipantsModel: ObservableObject {
         if AppEnvironment.useLiveServices { try? await syncRosterIdentity() }
         async let membersResult = env.events.members(eventId: event.id)
         async let participantsResult = env.events.participants(eventId: event.id)
-        async let sharedResult = env.matches.sharedAlbum(eventId: event.id)
         members = (try? await membersResult) ?? []
         participants = (try? await participantsResult) ?? []
-        sharedMatches = (try? await sharedResult) ?? []
         if let me = members.first(where: { $0.userId == session?.user?.id }) { sharingEnabled = me.sharingEnabled }
     }
 
@@ -65,12 +61,6 @@ final class ParticipantsModel: ObservableObject {
         return String(name.prefix(1)).uppercased()
     }
 
-    func thumbnailPath(for userId: String) -> String? {
-        sharedMatches.first {
-            $0.thumbnailPath != nil && $0.activeParticipantIds.contains(userId)
-        }?.thumbnailPath
-    }
-
     var currentUserIsOrganizer: Bool {
         guard let userId = session?.user?.id else { return false }
         return members.first(where: { $0.userId == userId })?.role == .organizer || event.creatorUserId == userId
@@ -94,7 +84,6 @@ struct ParticipantsView: View {
     @StateObject private var model: ParticipantsModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmLeave = false
-    @State private var localFaceReferenceData: Data?
 
     init(event: Event) {
         _model = StateObject(wrappedValue: ParticipantsModel(event: event))
@@ -159,11 +148,6 @@ struct ParticipantsView: View {
                             }
                         }
                     }
-
-                    Text("For privacy, other members use an already-shared event photo when available. Face-enrollment reference images are not uploaded just to create avatars.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 4)
                 }
                 .padding(20)
             }
@@ -172,9 +156,6 @@ struct ParticipantsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             model.configure(env: env, session: session)
-            if let userId = session.user?.id {
-                localFaceReferenceData = LocalFaceReferenceStore.load(userId: userId)
-            }
             await model.reload()
         }
         .refreshable { await model.reload() }
@@ -188,29 +169,12 @@ struct ParticipantsView: View {
         }
     }
 
-    @ViewBuilder
     private func memberAvatar(_ member: EventMember) -> some View {
-        if member.userId == session.user?.id,
-           let data = localFaceReferenceData,
-           let image = UIImage(data: data) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 44, height: 44)
-                .clipShape(Circle())
-                .clipped()
-                .overlay(Circle().strokeBorder(.white, lineWidth: 2))
-        } else if let path = model.thumbnailPath(for: member.userId) {
-            ThumbnailCell(path: path)
-                .frame(width: 44, height: 44)
-                .clipShape(Circle())
-                .overlay(Circle().strokeBorder(.white, lineWidth: 2))
-        } else {
-            ZStack {
-                Circle().fill(member.role == .organizer ? Theme.brandGradient : Theme.socialGradient)
-                Text(model.initial(for: member)).font(.subheadline.bold()).foregroundStyle(.white)
-            }
-            .frame(width: 44, height: 44)
+        ZStack {
+            Circle().fill(member.role == .organizer ? Theme.brandGradient : Theme.socialGradient)
+            Text(model.initial(for: member)).font(.subheadline.bold()).foregroundStyle(.white)
         }
+        .frame(width: 44, height: 44)
+        .accessibilityHidden(true)
     }
 }
