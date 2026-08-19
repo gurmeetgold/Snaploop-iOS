@@ -88,10 +88,8 @@ final class EditEventModel: ObservableObject {
                 try await env.events.updateEventDates(id: updated.id, startsAt: updated.startsAt, endsAt: updated.endsAt)
             }
             return updated
-        } catch let error as AppError {
-            errorMessage = error.userMessage
         } catch {
-            errorMessage = (error as NSError).localizedDescription
+            errorMessage = EventManagementClient.userMessage(for: error)
         }
         return nil
     }
