@@ -10,7 +10,7 @@ on:
 jobs:
   backend-validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,12 +41,12 @@ jobs:
           npm install --global firebase-tools
           npm install --no-save @firebase/rules-unit-testing firebase
 
-      - name: Run Firestore and Storage security regression tests
+      - name: Run backend authorization and callable integration tests
         run: |
           firebase emulators:exec \
             --project demo-mypicsroom-security \
-            --only firestore,storage \
-            "node --test tests/backend/security-rules.test.mjs"
+            --only auth,firestore,storage,functions \
+            "node --test tests/backend/security-rules.test.mjs && node --test tests/backend/functions-integration.test.mjs"
 
   build-test:
     runs-on: macos-15
