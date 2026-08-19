@@ -184,7 +184,7 @@ struct JoinEventView: View {
     private var consentBox: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 8) {
-                Label("How MyPicsTube works here", systemImage: "sparkles")
+                Label("How MyPicsRoom works here", systemImage: "sparkles")
                     .font(.subheadline.bold()).foregroundStyle(Theme.ink)
                 Text("Participating members scan their own photo libraries on-device for this event. You can leave the event or remove Face Setup later.")
                     .font(.footnote).foregroundStyle(.secondary)
