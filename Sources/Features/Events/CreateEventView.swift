@@ -12,27 +12,38 @@ final class CreateEventModel: ObservableObject {
 
     private var env: AppEnvironment?
     private var session: AppSession?
-    init() {}
-    func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
+
+    func configure(env: AppEnvironment, session: AppSession) {
+        self.env = env
+        self.session = session
+    }
 
     func create() async -> Event? {
         guard let env, let session else { return nil }
         guard let user = session.user, let profile = session.faceProfile else {
-            errorMessage = "Complete Face Setup before creating an event so MyPicsTube can find your photos."; return nil
+            errorMessage = "Complete Face Setup before creating an event so MyPicsRoom can find your photos."
+            return nil
         }
-        isSaving = true; defer { isSaving = false }
+        isSaving = true
+        defer { isSaving = false }
         do {
             let factory = EventFactory(config: env.config.current, clock: env.clock)
             let draft = EventDraft(
-                name: name, category: category,
-                startsAt: startsAt, endsAt: endsAt,
-                locationName: locationName.isEmpty ? nil : locationName)
+                name: name,
+                category: category,
+                startsAt: startsAt,
+                endsAt: endsAt,
+                locationName: locationName.isEmpty ? nil : locationName
+            )
             let event = try factory.make(draft: draft, creatorUserId: user.id)
             let membership = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
             try await membership.create(event: event, creator: user, faceProfile: profile)
             return event
-        } catch let error as AppError { errorMessage = error.userMessage }
-        catch { errorMessage = AppError.unknown("\(error)").userMessage }
+        } catch let error as AppError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = AppError.unknown("\(error)").userMessage
+        }
         return nil
     }
 }
@@ -47,6 +58,16 @@ struct CreateEventView: View {
     init(onCreated: @escaping (Event) -> Void) {
         self.onCreated = onCreated
         _model = StateObject(wrappedValue: CreateEventModel())
+    }
+
+    private var allowedDates: ClosedRange<Date> {
+        EventLifecycle.allowedDateRange(now: env.clock.now())
+    }
+
+    private var allowedEndDates: ClosedRange<Date> {
+        let durationEnd = model.startsAt.addingTimeInterval(TimeInterval(EventLifecycle.mvpMaximumDurationDays) * 86_400)
+        let upper = min(allowedDates.upperBound, durationEnd)
+        return model.startsAt...max(model.startsAt, upper)
     }
 
     var body: some View {
@@ -74,8 +95,8 @@ struct CreateEventView: View {
                                 Divider()
                                 fieldLabel("Type", icon: model.category.systemImage)
                                 Picker("Type", selection: $model.category) {
-                                    ForEach(EventCategory.allCases, id: \.self) { c in
-                                        Label(c.displayName, systemImage: c.systemImage).tag(c)
+                                    ForEach(EventCategory.allCases, id: \.self) { category in
+                                        Label(category.displayName, systemImage: category.systemImage).tag(category)
                                     }
                                 }
                                 .pickerStyle(.menu)
@@ -93,13 +114,17 @@ struct CreateEventView: View {
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
                                 fieldLabel("Event dates", icon: "calendar")
-                                DatePicker("Starts", selection: $model.startsAt, displayedComponents: [.date])
+                                DatePicker("Starts", selection: $model.startsAt, in: allowedDates, displayedComponents: [.date])
+                                    .onChange(of: model.startsAt) { _, newStart in
+                                        if model.endsAt < newStart || !allowedEndDates.contains(model.endsAt) {
+                                            model.endsAt = min(allowedEndDates.upperBound, newStart.addingTimeInterval(3 * 86_400))
+                                        }
+                                    }
                                 Divider()
-                                DatePicker("Ends", selection: $model.endsAt, in: model.startsAt..., displayedComponents: [.date])
-                                if model.startsAt < Calendar.current.startOfDay(for: Date()) {
-                                    Label("MyPicsTube can also scan photos from earlier dates in this event window.", systemImage: "clock.arrow.circlepath")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
+                                DatePicker("Ends", selection: $model.endsAt, in: allowedEndDates, displayedComponents: [.date])
+                                Text("For this MVP, dates must stay within 15 days before or after today, and an event can span at most 15 days.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
 
@@ -111,7 +136,10 @@ struct CreateEventView: View {
 
                         Button {
                             Task {
-                                if let event = await model.create() { onCreated(event); dismiss() }
+                                if let event = await model.create() {
+                                    onCreated(event)
+                                    dismiss()
+                                }
                             }
                         } label: {
                             HStack {
