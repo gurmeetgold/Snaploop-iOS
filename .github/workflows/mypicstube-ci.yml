@@ -55,6 +55,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Guard against automatic app icon generation
+        run: |
+          set -euo pipefail
+          if grep -nE 'preBuildScripts|Generate MyPicsRoom App Icons|generate_mypicstube_icons\.swift' project.yml; then
+            echo '::error::project.yml must not generate app icons during every Xcode build. Keep the committed static AppIcon assets instead.'
+            exit 1
+          fi
+
       - name: Show toolchain
         run: |
           xcodebuild -version
