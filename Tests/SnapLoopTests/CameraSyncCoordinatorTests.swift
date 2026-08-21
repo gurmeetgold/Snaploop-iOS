@@ -50,13 +50,13 @@ final class CameraSyncCoordinatorTests: XCTestCase {
                           faceTemplates: [
                             FaceTemplate(
                                 embedding: FaceEmbedding([1, 0, 0])!,
-                                pose: .frontal,
+                                pose: .center,
                                 quality: 1,
                                 createdAt: Date()
                             ),
                             FaceTemplate(
                                 embedding: FaceEmbedding([1, 0, 0])!,
-                                pose: .slightLeft,
+                                pose: .sideA,
                                 quality: 1,
                                 createdAt: Date()
                             )
