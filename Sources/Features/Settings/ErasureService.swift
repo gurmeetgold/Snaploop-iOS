@@ -47,7 +47,13 @@ public struct ErasureService {
     }
 
     public func deleteAccount(userId: String) async throws {
-        try await users.delete(userId: userId)
+        if events is FirebaseEventRepository {
+            try await users.delete(userId: userId)
+            return
+        }
+
+        let memberEventIds = try await events.events(forUserId: userId).map(\.id)
+        try await run(ErasurePlanner.planDeleteAccount(userId: userId, memberEventIds: memberEventIds))
     }
 
     /// Explicit plan execution remains available to unit tests and in-memory
