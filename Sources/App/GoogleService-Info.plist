@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.snaploop.app</string>
+	<string>com.gurmeetchhiber.snaploop.app</string>
 	<key>PROJECT_ID</key>
 	<string>snaploop-dev</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:254317517474:ios:fe19926e3a17d2661f95fb</string>
+	<string>1:254317517474:ios:c62155e2316187ee1f95fb</string>
 </dict>
 </plist>
