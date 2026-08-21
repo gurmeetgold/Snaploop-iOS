@@ -3,6 +3,7 @@ const admin = require("firebase-admin");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
+const FieldValue = admin.firestore.FieldValue;
 
 exports.refreshMyFaceProfileManaged = onCall(async (request) => {
   if (!request.auth || !request.auth.uid) {
@@ -45,7 +46,10 @@ exports.refreshMyFaceProfileManaged = onCall(async (request) => {
     writer.set(participantRef, {
       userId: uid,
       displayName: user.displayName || null,
-      phoneNumber: user.phoneNumber || null,
+      // Phone number is private account identity and must never be copied into
+      // the event-readable participant roster. Delete the legacy field during
+      // every profile refresh so existing events self-heal over time.
+      phoneNumber: FieldValue.delete(),
       faceEmbedding: profile.embedding,
       faceTemplates: Array.isArray(profile.templates) ? profile.templates : [],
       faceProfileVersion: version,
