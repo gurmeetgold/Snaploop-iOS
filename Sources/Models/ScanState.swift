@@ -36,5 +36,12 @@ public struct ScanState: Equatable, Codable, Sendable {
         scannedAssetIds.formUnion(ids)
     }
 
+    /// Removes identifiers that are no longer present in the event's current
+    /// PhotoKit date-window result. This prevents deleted photos and stale
+    /// limited-library identifiers from growing persisted scan state forever.
+    public mutating func retainScannedAssetIds(_ validIds: Set<String>) {
+        scannedAssetIds.formIntersection(validIds)
+    }
+
     public var scannedCount: Int { scannedAssetIds.count }
 }
