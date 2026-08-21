@@ -11,9 +11,14 @@ public enum EventLifecycle {
         case expired
     }
 
-    public static func graceEnd(for event: Event, config: RemoteConfigValues) -> Date {
+    public static func graceEnd(
+        for event: Event,
+        config: RemoteConfigValues,
+        calendar: Calendar = .current
+    ) -> Date {
         let days = max(0, config.eventGracePeriodDays)
-        return event.endsAt.addingTimeInterval(TimeInterval(days) * 86_400)
+        return calendar.date(byAdding: .day, value: days, to: event.endsAt)
+            ?? event.endsAt.addingTimeInterval(TimeInterval(days) * 86_400)
     }
 
     public static func status(for event: Event, clock: Clock, config: RemoteConfigValues) -> Status {
@@ -45,6 +50,16 @@ public enum EventLifecycle {
         return lower...dayAfterUpper.addingTimeInterval(-1)
     }
 
+    public static func maximumEndDate(
+        from startsAt: Date,
+        config: RemoteConfigValues,
+        calendar: Calendar = .current
+    ) -> Date {
+        let days = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
+        return calendar.date(byAdding: .day, value: days, to: startsAt)
+            ?? startsAt.addingTimeInterval(TimeInterval(days) * 86_400)
+    }
+
     public static func validateDates(
         startsAt: Date,
         endsAt: Date,
@@ -52,7 +67,12 @@ public enum EventLifecycle {
         config: RemoteConfigValues,
         calendar: Calendar = .current
     ) throws {
-        try validateDuration(startsAt: startsAt, endsAt: endsAt, config: config)
+        try validateDuration(
+            startsAt: startsAt,
+            endsAt: endsAt,
+            config: config,
+            calendar: calendar
+        )
         let allowed = allowedDateRange(now: now, calendar: calendar)
         guard allowed.contains(startsAt), allowed.contains(endsAt) else {
             throw AppError.eventDatesOutsideAllowedWindow(days: mvpDateWindowDays)
@@ -65,21 +85,39 @@ public enum EventLifecycle {
     public static func validateDates(
         startsAt: Date,
         endsAt: Date,
-        config: RemoteConfigValues
+        config: RemoteConfigValues,
+        calendar: Calendar = .current
     ) throws {
-        try validateDuration(startsAt: startsAt, endsAt: endsAt, config: config)
+        try validateDuration(
+            startsAt: startsAt,
+            endsAt: endsAt,
+            config: config,
+            calendar: calendar
+        )
     }
 
-    private static func validateDuration(startsAt: Date, endsAt: Date, config: RemoteConfigValues) throws {
+    private static func validateDuration(
+        startsAt: Date,
+        endsAt: Date,
+        config: RemoteConfigValues,
+        calendar: Calendar
+    ) throws {
         guard endsAt > startsAt else { throw AppError.invalidEventDates }
         let maxDays = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
-        if endsAt.timeIntervalSince(startsAt) > TimeInterval(maxDays) * 86_400 {
+        let maximumEnd = calendar.date(byAdding: .day, value: maxDays, to: startsAt)
+            ?? startsAt.addingTimeInterval(TimeInterval(maxDays) * 86_400)
+        if endsAt > maximumEnd {
             throw AppError.eventDurationTooLong(maxDays: maxDays)
         }
     }
 
-    public static func defaultEndDate(from startsAt: Date, config: RemoteConfigValues) -> Date {
+    public static func defaultEndDate(
+        from startsAt: Date,
+        config: RemoteConfigValues,
+        calendar: Calendar = .current
+    ) -> Date {
         let days = min(mvpMaximumDurationDays, max(1, config.defaultEventDurationDays))
-        return startsAt.addingTimeInterval(TimeInterval(days) * 86_400)
+        return calendar.date(byAdding: .day, value: days, to: startsAt)
+            ?? startsAt.addingTimeInterval(TimeInterval(days) * 86_400)
     }
 }
