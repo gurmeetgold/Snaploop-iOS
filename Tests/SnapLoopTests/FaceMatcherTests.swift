@@ -52,9 +52,11 @@ final class FaceMatcherTests: XCTestCase {
 
     func testBelowThresholdStaysSilent() {
         let matcher = FaceMatcher(config: config)
-        // ~0.5 cosine — below 0.60 threshold.
+        // Cosine similarity is 0.50 to [1, 0, 0], safely below the 0.60 threshold.
         let alice = participant("alice", [1, 0, 0])
-        let result = matcher.appearances(in: [face([1, 1, 0])], participants: [alice])
+        let x: Float = 0.50
+        let y = (1 - x * x).squareRoot()
+        let result = matcher.appearances(in: [face([x, y, 0])], participants: [alice])
         XCTAssertTrue(result.isEmpty)
     }
 
