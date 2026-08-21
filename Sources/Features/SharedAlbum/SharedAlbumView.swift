@@ -4,8 +4,11 @@ import SwiftUI
 final class SharedAlbumModel: ObservableObject {
     @Published var photos: [PhotoMatch] = []
     @Published var participants: [EventParticipant] = []
+    @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private var env: AppEnvironment?
+    private var reloadGeneration = 0
     let event: Event
 
     init(event: Event) { self.event = event }
@@ -13,16 +16,34 @@ final class SharedAlbumModel: ObservableObject {
 
     func reload() async {
         guard let env else { return }
+        reloadGeneration += 1
+        let generation = reloadGeneration
+        isLoading = true
+        errorMessage = nil
+
         async let photosResult = env.matches.sharedAlbum(eventId: event.id)
         async let participantsResult = env.events.participants(eventId: event.id)
-        photos = (try? await photosResult) ?? []
-        participants = (try? await participantsResult) ?? []
+
+        var loadedPhotos: [PhotoMatch] = []
+        var loadedParticipants: [EventParticipant] = []
+        var firstError: Error?
+
+        do { loadedPhotos = try await photosResult }
+        catch { firstError = error }
+
+        do { loadedParticipants = try await participantsResult }
+        catch { if firstError == nil { firstError = error } }
+
+        guard generation == reloadGeneration else { return }
+        photos = loadedPhotos
+        participants = loadedParticipants
+        errorMessage = firstError.map { ($0 as NSError).localizedDescription }
+        isLoading = false
     }
 
     func ownerLabel(for userId: String) -> String {
         guard let participant = participants.first(where: { $0.userId == userId }) else { return "Event member" }
         if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-        if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
         return "Event member"
     }
 
@@ -76,11 +97,20 @@ struct SharedAlbumView: View {
                     }
                     .padding(.horizontal)
 
-                    if model.photos.isEmpty {
+                    if let errorMessage = model.errorMessage {
+                        Label("Shared photos could not be fully refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal)
+                    }
+
+                    if model.photos.isEmpty && !model.isLoading {
                         ContentUnavailableViewCompat(
-                            title: "No shared photos yet",
-                            message: "Matched previews shared by members in this event will appear here.",
-                            systemImage: "photo.stack"
+                            title: model.errorMessage == nil ? "No shared photos yet" : "Shared photos unavailable",
+                            message: model.errorMessage == nil
+                                ? "Matched previews shared by members in this event will appear here."
+                                : "Pull to refresh. If the problem continues, check your connection and event membership.",
+                            systemImage: model.errorMessage == nil ? "photo.stack" : "exclamationmark.triangle"
                         )
                         .frame(minHeight: 280)
                     } else {
