@@ -5,6 +5,7 @@ final class HomeModel: ObservableObject {
     @Published var events: [Event] = []
     @Published var notifications: [EventNotification] = []
     @Published var isLoading = false
+    @Published var errorMessage: String?
 
     private var env: AppEnvironment?
     private var session: AppSession?
@@ -12,21 +13,42 @@ final class HomeModel: ObservableObject {
 
     func reload() async {
         guard let env, let userId = session?.user?.id else { return }
-        isLoading = true; defer { isLoading = false }
-        events = (try? await env.events.events(forUserId: userId)) ?? []
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            events = try await env.events.events(forUserId: userId)
+        } catch {
+            events = []
+            errorMessage = (error as NSError).localizedDescription
+        }
+
         notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? []
     }
 
-    /// Home's "photos found of you" promise is specifically about photos found
-    /// on other members' phones, not matches produced from the user's own camera.
-    /// The count is combined across all accessible events and deduplicated by the
-    /// source owner + stable PhotoKit asset id.
+    /// Home's headline count is the user's complete My Photos total across all
+    /// accessible events. Per-event My Photos already includes matches sourced
+    /// from the user's own camera, so the aggregate must use the same semantics
+    /// or the UI can claim 0 while an event visibly contains matches.
+    /// Cross-event duplicates are collapsed by source owner + stable PhotoKit
+    /// asset id.
     func totalPhotosOfMe() async -> Int {
         guard let env, let userId = session?.user?.id else { return 0 }
         var matches: [PhotoMatch] = []
+        var firstError: Error?
+
         for event in events where event.status != .deletedByOrganizer {
-            let eventMatches = (try? await env.matches.myPhotos(eventId: event.id, userId: userId)) ?? []
-            matches.append(contentsOf: eventMatches.filter { $0.ownerUserId != userId })
+            do {
+                let eventMatches = try await env.matches.myPhotos(eventId: event.id, userId: userId)
+                matches.append(contentsOf: eventMatches)
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+
+        if let firstError {
+            errorMessage = (firstError as NSError).localizedDescription
         }
         return PhotoMatchDeduplication.unique(matches).count
     }
@@ -66,8 +88,15 @@ struct HomeView: View {
                             }
                             .buttonStyle(.plain)
                             .padding(.horizontal)
-                            .accessibilityLabel("\(photosOfMe) total photos found of you on other members' phones")
+                            .accessibilityLabel("\(photosOfMe) total photos found of you across all events")
                             .accessibilityHint("Opens photos found across all of your events")
+
+                            if let errorMessage = model.errorMessage {
+                                Label("Some photo data could not be refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                    .padding(.horizontal)
+                            }
                         }
 
                         if let notification = model.notifications.first {
@@ -157,7 +186,7 @@ struct HomeView: View {
                 Text("total photos found of you")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.ink.opacity(0.72))
-                Text("Across all events · from others’ phones")
+                Text("Across all events")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
