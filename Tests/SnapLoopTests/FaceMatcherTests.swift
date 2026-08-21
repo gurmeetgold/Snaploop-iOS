@@ -21,8 +21,18 @@ final class FaceMatcherTests: XCTestCase {
     private func emb(_ raw: [Float]) -> FaceEmbedding { FaceEmbedding(raw)! }
 
     private func participant(_ id: String, _ raw: [Float]) -> EventParticipant {
-        EventParticipant(userId: id, displayName: id, faceEmbedding: emb(raw),
-                         faceProfileVersion: 1, joinedAt: Date())
+        let embedding = emb(raw)
+        return EventParticipant(
+            userId: id,
+            displayName: id,
+            faceEmbedding: embedding,
+            faceTemplates: [
+                FaceTemplate(embedding: embedding, pose: .center, quality: 1, createdAt: Date()),
+                FaceTemplate(embedding: embedding, pose: .alternate, quality: 1, createdAt: Date())
+            ],
+            faceProfileVersion: FaceModelPolicy.currentVersion,
+            joinedAt: Date()
+        )
     }
 
     private func face(_ raw: [Float], size: Double = 0.5) -> DetectedFace {
@@ -52,7 +62,6 @@ final class FaceMatcherTests: XCTestCase {
         // cos = 0.62 target: pick a vector with dot ≈ 0.62 to [1,0].
         let matcher = FaceMatcher(config: config)
         let p = participant("p", [1, 0])
-        // angle so that cos = 0.62
         let x: Float = 0.62, y = (1 - x * x).squareRoot()
         let result = matcher.appearances(in: [face([x, y])], participants: [p])
         XCTAssertEqual(result.first?.participantUserId, "p")
@@ -62,11 +71,8 @@ final class FaceMatcherTests: XCTestCase {
 
     func testAmbiguousFaceBetweenTwoPeopleMatchesNobody() {
         let matcher = FaceMatcher(config: config)
-        // A face nearly equidistant to two participants — should match neither
-        // even though both are above threshold.
         let a = participant("a", [1, 0])
-        let b = participant("b", [0.9, 0.2])   // close to a
-        // Face sits between them, high sim to both, within the margin.
+        let b = participant("b", [0.9, 0.2])
         let f = face([0.97, 0.12])
         let result = matcher.appearances(in: [f], participants: [a, b])
         XCTAssertTrue(result.isEmpty, "Ambiguous face must be dropped for precision")
@@ -75,7 +81,7 @@ final class FaceMatcherTests: XCTestCase {
     func testClearWinnerBeatsRunnerUpByMargin() {
         let matcher = FaceMatcher(config: config)
         let a = participant("a", [1, 0])
-        let b = participant("b", [0, 1])       // orthogonal — far from the face
+        let b = participant("b", [0, 1])
         let result = matcher.appearances(in: [face([1, 0])], participants: [a, b])
         XCTAssertEqual(result.count, 1)
         XCTAssertEqual(result.first?.participantUserId, "a")
@@ -94,7 +100,7 @@ final class FaceMatcherTests: XCTestCase {
         let matcher = FaceMatcher(config: config)
         let a = participant("a", [1, 0])
         let weak: Float = 0.7, weakY = (1 - weak * weak).squareRoot()
-        let faces = [face([weak, weakY]), face([1, 0])]  // one weak, one perfect
+        let faces = [face([weak, weakY]), face([1, 0])]
         let result = matcher.appearances(in: faces, participants: [a])
         XCTAssertEqual(result.count, 1)
         XCTAssertEqual(result.first!.confidence, 1.0, accuracy: 1e-6)
@@ -113,8 +119,8 @@ final class FaceMatcherTests: XCTestCase {
 
     func testDimensionMismatchIsTreatedAsNoMatch() {
         let matcher = FaceMatcher(config: config)
-        let a = participant("a", [1, 0, 0, 0])          // 4-d
-        let result = matcher.appearances(in: [face([1, 0, 0])], participants: [a]) // 3-d
+        let a = participant("a", [1, 0, 0, 0])
+        let result = matcher.appearances(in: [face([1, 0, 0])], participants: [a])
         XCTAssertTrue(result.isEmpty)
     }
 
@@ -129,7 +135,6 @@ final class FaceMatcherTests: XCTestCase {
         let matcher = FaceMatcher(config: config)
         let a = participant("a", [1, 0])
         let b = participant("b", [0, 1])
-        // a: perfect (1.0); b: 0.8-ish
         let bx: Float = 0.2, by = (1 - bx * bx).squareRoot()
         let result = matcher.appearances(in: [face([1, 0]), face([bx, by])],
                                          participants: [a, b])
