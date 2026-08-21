@@ -17,6 +17,9 @@ enum EventManagementClient {
             "locationName": NSNull(),
             "startsAtMillis": event.startsAt.timeIntervalSince1970 * 1000,
             "endsAtMillis": event.endsAt.timeIntervalSince1970 * 1000,
+            "startsAtOffsetMinutes": offsetMinutes(for: event.startsAt),
+            "endsAtOffsetMinutes": offsetMinutes(for: event.endsAt),
+            "nowOffsetMinutes": offsetMinutes(for: Date()),
             "status": event.status.rawValue,
             "createdAtMillis": event.createdAt.timeIntervalSince1970 * 1000,
             "updatedAtMillis": event.updatedAt.timeIntervalSince1970 * 1000,
@@ -41,6 +44,9 @@ enum EventManagementClient {
             "locationName": NSNull(),
             "startsAtMillis": event.startsAt.timeIntervalSince1970 * 1000,
             "endsAtMillis": event.endsAt.timeIntervalSince1970 * 1000,
+            "startsAtOffsetMinutes": offsetMinutes(for: event.startsAt),
+            "endsAtOffsetMinutes": offsetMinutes(for: event.endsAt),
+            "nowOffsetMinutes": offsetMinutes(for: Date()),
         ]
         if let expectedUpdatedAt {
             data["expectedUpdatedAtMillis"] = expectedUpdatedAt.timeIntervalSince1970 * 1000
@@ -81,6 +87,10 @@ enum EventManagementClient {
         }
         if let appError = error as? AppError { return appError.userMessage }
         return text
+    }
+
+    private static func offsetMinutes(for date: Date) -> Int {
+        TimeZone.current.secondsFromGMT(for: date) / 60
     }
 
     @MainActor
