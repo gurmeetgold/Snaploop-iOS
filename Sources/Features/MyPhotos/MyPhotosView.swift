@@ -13,6 +13,7 @@ final class MyPhotosModel: ObservableObject {
 
     private var env: AppEnvironment?
     private var session: AppSession?
+    private var reloadGeneration = 0
     let event: Event
 
     init(event: Event) { self.event = event }
@@ -24,27 +25,38 @@ final class MyPhotosModel: ObservableObject {
 
     func reload() async {
         guard let env, let userId = session?.user?.id else { return }
+        reloadGeneration += 1
+        let generation = reloadGeneration
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
 
         async let photosResult = env.matches.myPhotos(eventId: event.id, userId: userId)
         async let participantsResult = env.events.participants(eventId: event.id)
 
-        do { photos = try await photosResult }
-        catch { photos = []; errorMessage = (error as NSError).localizedDescription }
-        participants = (try? await participantsResult) ?? []
+        var loadedPhotos: [PhotoMatch] = []
+        var loadedParticipants: [EventParticipant] = []
+        var firstError: Error?
+
+        do { loadedPhotos = try await photosResult }
+        catch { firstError = error }
+
+        do { loadedParticipants = try await participantsResult }
+        catch { if firstError == nil { firstError = error } }
+
+        guard generation == reloadGeneration, session?.user?.id == userId else { return }
+        photos = loadedPhotos
+        participants = loadedParticipants
         favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+        errorMessage = firstError.map { ($0 as NSError).localizedDescription }
+        isLoading = false
     }
 
     func ownerLabel(for userId: String) -> String {
         if userId == session?.user?.id {
             if let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-            if let phone = session?.user?.phoneNumber, !phone.isEmpty { return phone }
         }
         if let participant = participants.first(where: { $0.userId == userId }) {
             if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-            if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
         }
         return "Event member"
     }
@@ -133,11 +145,17 @@ struct MyPhotosView: View {
 
                     if filtered.isEmpty && !model.isLoading {
                         ContentUnavailableViewCompat(
-                            title: filter == .favorites ? "No favorites yet" : "No photos of you yet",
-                            message: filter == .favorites
-                                ? "Open a photo and tap Favorite to keep it here."
-                                : "Sync your camera — and as others sync theirs, your matched photos will show up here.",
-                            systemImage: filter == .favorites ? "heart" : "person.crop.square"
+                            title: model.errorMessage == nil
+                                ? (filter == .favorites ? "No favorites yet" : "No photos of you yet")
+                                : "Photos unavailable",
+                            message: model.errorMessage == nil
+                                ? (filter == .favorites
+                                    ? "Open a photo and tap Favorite to keep it here."
+                                    : "Sync your camera — and as others sync theirs, your matched photos will show up here.")
+                                : "Pull to refresh. If the problem continues, check your connection and event membership.",
+                            systemImage: model.errorMessage == nil
+                                ? (filter == .favorites ? "heart" : "person.crop.square")
+                                : "exclamationmark.triangle"
                         )
                         .frame(minHeight: 280)
                     } else {
@@ -209,7 +227,13 @@ struct PhotoCard: View {
 final class StorageThumbnailLoader: ObservableObject {
     @Published var image: UIImage?
     @Published var failed = false
-    private static let cache = NSCache<NSString, UIImage>()
+
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 120
+        cache.totalCostLimit = 64 * 1024 * 1024
+        return cache
+    }()
 
     func load(path: String?) async {
         image = nil; failed = false
@@ -223,9 +247,21 @@ final class StorageThumbnailLoader: ObservableObject {
                     continuation.resume(returning: data)
                 }
             }
+            try Task.checkCancellation()
             guard let decoded = UIImage(data: data) else { failed = true; return }
-            Self.cache.setObject(decoded, forKey: path as NSString); image = decoded
-        } catch { failed = true }
+            let decodedCost: Int
+            if let cgImage = decoded.cgImage {
+                decodedCost = cgImage.bytesPerRow * cgImage.height
+            } else {
+                decodedCost = data.count
+            }
+            Self.cache.setObject(decoded, forKey: path as NSString, cost: decodedCost)
+            image = decoded
+        } catch is CancellationError {
+            return
+        } catch {
+            failed = true
+        }
     }
 }
 
