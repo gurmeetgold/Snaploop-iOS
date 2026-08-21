@@ -22,6 +22,7 @@ final class AllMyPhotosModel: ObservableObject {
     private var env: AppEnvironment?
     private var session: AppSession?
     private var participantLabels: [String: String] = [:]
+    private var reloadGeneration = 0
 
     func configure(env: AppEnvironment, session: AppSession) {
         self.env = env
@@ -30,40 +31,59 @@ final class AllMyPhotosModel: ObservableObject {
 
     func reload() async {
         guard let env, let userId = session?.user?.id else { return }
+        reloadGeneration += 1
+        let generation = reloadGeneration
         isLoading = true
         errorMessage = nil
-        defer { isLoading = false }
 
-        let events = (try? await env.events.events(forUserId: userId)) ?? []
+        let events: [Event]
+        do {
+            events = try await env.events.events(forUserId: userId)
+        } catch {
+            guard generation == reloadGeneration else { return }
+            photos = []
+            participantLabels = [:]
+            favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+            errorMessage = (error as NSError).localizedDescription
+            isLoading = false
+            return
+        }
+
         var allMatches: [PhotoMatch] = []
         var labels: [String: String] = [:]
+        var firstError: Error?
 
         for event in events where event.status != .deletedByOrganizer {
+            guard !Task.isCancelled, generation == reloadGeneration else { return }
+
             do {
                 let eventMatches = try await env.matches.myPhotos(eventId: event.id, userId: userId)
-                // This all-events surface fulfills the product promise "my photos
-                // found on others' phones". Matches originating from this user's
-                // own camera remain available in the per-event views but are not
-                // counted or shown here.
-                allMatches.append(contentsOf: eventMatches.filter { $0.ownerUserId != userId })
+                allMatches.append(contentsOf: eventMatches)
             } catch {
-                if errorMessage == nil { errorMessage = (error as NSError).localizedDescription }
+                if firstError == nil { firstError = error }
             }
 
-            let participants = (try? await env.events.participants(eventId: event.id)) ?? []
-            for participant in participants {
-                let key = labelKey(eventId: event.id, userId: participant.userId)
-                if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-                    labels[key] = name
-                } else if let phone = participant.phoneNumber, !phone.isEmpty {
-                    labels[key] = phone
+            do {
+                let participants = try await env.events.participants(eventId: event.id)
+                for participant in participants {
+                    let key = labelKey(eventId: event.id, userId: participant.userId)
+                    if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                        labels[key] = name
+                    } else if let phone = participant.phoneNumber, !phone.isEmpty {
+                        labels[key] = phone
+                    }
                 }
+            } catch {
+                if firstError == nil { firstError = error }
             }
         }
 
+        guard generation == reloadGeneration else { return }
         participantLabels = labels
         photos = PhotoMatchDeduplication.unique(allMatches).sorted { $0.capturedAt > $1.capturedAt }
         favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+        errorMessage = firstError.map { ($0 as NSError).localizedDescription }
+        isLoading = false
     }
 
     func ownerLabel(for match: PhotoMatch) -> String {
@@ -115,14 +135,14 @@ struct AllMyPhotosView: View {
                     InsightBanner(value: "\(model.photos.count)", label: "total photos found of you", systemImage: "sparkles")
                         .padding(.horizontal)
 
-                    Text("Across all your events · found on other members’ phones")
+                    Text("Across all your events")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.horizontal)
 
                     if let errorMessage = model.errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        Label("Some event data could not be refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .padding(.horizontal)
@@ -131,7 +151,7 @@ struct AllMyPhotosView: View {
                     if model.photos.isEmpty && !model.isLoading {
                         ContentUnavailableViewCompat(
                             title: "No photos of you yet",
-                            message: "As other event members sync their cameras, photos of you found on their phones will appear here.",
+                            message: "Sync your camera — and as event members sync theirs, matched photos of you will appear here.",
                             systemImage: "person.crop.square"
                         )
                         .frame(minHeight: 300)
