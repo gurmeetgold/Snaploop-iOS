@@ -23,18 +23,16 @@ enum EventManagementClient {
         ]
         if let cover = event.coverImagePath { data["coverImagePath"] = cover }
         if let location = event.locationName { data["locationName"] = location }
-        // Stable alias exists on both the older backend and the managed rollout.
         _ = try await call("createEvent", data: data)
     }
 
     @MainActor
     static func join(eventId: String) async throws {
-        // Stable alias exists on both the older backend and the managed rollout.
         _ = try await call("joinEvent", data: ["eventId": eventId])
     }
 
     @MainActor
-    static func update(_ event: Event) async throws -> Bool {
+    static func update(_ event: Event, expectedUpdatedAt: Date? = nil) async throws -> Bool {
         var data: [String: Any] = [
             "eventId": event.id,
             "name": event.name,
@@ -44,6 +42,9 @@ enum EventManagementClient {
             "startsAtMillis": event.startsAt.timeIntervalSince1970 * 1000,
             "endsAtMillis": event.endsAt.timeIntervalSince1970 * 1000,
         ]
+        if let expectedUpdatedAt {
+            data["expectedUpdatedAtMillis"] = expectedUpdatedAt.timeIntervalSince1970 * 1000
+        }
         if let cover = event.coverImagePath { data["coverImagePath"] = cover }
         if let location = event.locationName { data["locationName"] = location }
         let raw = try await call("updateEventManaged", data: data)
@@ -63,9 +64,6 @@ enum EventManagementClient {
 
     @MainActor
     static func remove(eventId: String, userId: String) async throws {
-        // `leaveEvent` is deliberately kept as the stable public callable. The
-        // latest backend overrides it with the managed implementation, while an
-        // older deployed backend can still remove/leave without NOT_FOUND.
         _ = try await call("leaveEvent", data: [
             "eventId": eventId,
             "userId": userId,
@@ -74,8 +72,12 @@ enum EventManagementClient {
 
     static func userMessage(for error: Error) -> String {
         let text = (error as NSError).localizedDescription
+        let lower = text.lowercased()
         if text.uppercased().contains("NOT FOUND") {
             return "MyPicsRoom's event service needs to be updated. Deploy the latest Firebase Functions, then try again."
+        }
+        if lower.contains("changed on another device") || lower.contains("refresh before saving") {
+            return "This event changed on another device. Go back, reopen the event, and apply your edit again."
         }
         if let appError = error as? AppError { return appError.userMessage }
         return text
