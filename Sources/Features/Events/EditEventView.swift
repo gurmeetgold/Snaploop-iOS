@@ -31,16 +31,19 @@ final class EditEventModel: ObservableObject {
             startsAt = allowed.lowerBound
             adjusted = true
         } else if startsAt > allowed.upperBound {
-            startsAt = allowed.upperBound.addingTimeInterval(-86_400)
+            startsAt = Calendar.current.date(byAdding: .day, value: -1, to: allowed.upperBound)
+                ?? allowed.upperBound.addingTimeInterval(-86_400)
             adjusted = true
         }
 
         let maximumEnd = min(
             allowed.upperBound,
-            startsAt.addingTimeInterval(TimeInterval(EventLifecycle.mvpMaximumDurationDays) * 86_400)
+            EventLifecycle.maximumEndDate(from: startsAt, config: env.config.current)
         )
         if endsAt <= startsAt || endsAt > maximumEnd || !allowed.contains(endsAt) {
-            endsAt = min(maximumEnd, startsAt.addingTimeInterval(3 * 86_400))
+            let suggested = Calendar.current.date(byAdding: .day, value: 3, to: startsAt)
+                ?? startsAt.addingTimeInterval(3 * 86_400)
+            endsAt = min(maximumEnd, suggested)
             adjusted = true
         }
 
@@ -76,7 +79,7 @@ final class EditEventModel: ObservableObject {
             }
 
             if AppEnvironment.useLiveServices {
-                _ = try await EventManagementClient.update(updated)
+                _ = try await EventManagementClient.update(updated, expectedUpdatedAt: original.updatedAt)
             } else {
                 try await env.events.updateEventDetails(
                     id: updated.id,
@@ -114,9 +117,17 @@ struct EditEventView: View {
     }
 
     private var allowedEndDates: ClosedRange<Date> {
-        let durationEnd = model.startsAt.addingTimeInterval(TimeInterval(EventLifecycle.mvpMaximumDurationDays) * 86_400)
+        let durationEnd = EventLifecycle.maximumEndDate(
+            from: model.startsAt,
+            config: env.config.current
+        )
         let upper = min(allowedDates.upperBound, durationEnd)
         return model.startsAt...max(model.startsAt, upper)
+    }
+
+    private func suggestedEndDate(from start: Date) -> Date {
+        Calendar.current.date(byAdding: .day, value: 3, to: start)
+            ?? start.addingTimeInterval(3 * 86_400)
     }
 
     var body: some View {
@@ -162,12 +173,12 @@ struct EditEventView: View {
                             DatePicker("Starts", selection: $model.startsAt, in: allowedDates, displayedComponents: [.date])
                                 .onChange(of: model.startsAt) { _, newStart in
                                     if model.endsAt < newStart || !allowedEndDates.contains(model.endsAt) {
-                                        model.endsAt = min(allowedEndDates.upperBound, newStart.addingTimeInterval(3 * 86_400))
+                                        model.endsAt = min(allowedEndDates.upperBound, suggestedEndDate(from: newStart))
                                     }
                                 }
                             Divider()
                             DatePicker("Ends", selection: $model.endsAt, in: allowedEndDates, displayedComponents: [.date])
-                            Text("Dates must stay within 15 days before or after today, and the event can span at most 15 days.")
+                            Text("Dates must stay within 15 days before or after today, and the event can span at most 15 calendar days.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
