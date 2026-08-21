@@ -2,16 +2,14 @@ import XCTest
 @testable import SnapLoop
 
 /// End-to-end test of one sync pass over scripted device services. Proves the
-/// coordinator uploads only matched photos, marks every processed asset so it
-/// is never rescanned, and honors the lifecycle gate.
+/// coordinator uploads only matched photos, marks every successfully processed
+/// asset so it is never rescanned, and honors the lifecycle gate.
 final class CameraSyncCoordinatorTests: XCTestCase {
 
     private let day: TimeInterval = 86_400
 
     // MARK: Scripted services
 
-    /// Returns image "data" that simply encodes the asset id, so the scripted
-    /// detector can map an image back to the faces we want it to "see".
     private struct ScriptedLibrary: PhotoLibraryService {
         let assetsList: [PhotoAsset]
         func authorizationStatus() -> PhotoAuthorization { .authorized }
@@ -49,7 +47,26 @@ final class CameraSyncCoordinatorTests: XCTestCase {
     private func aliceRoster() -> [EventParticipant] {
         [EventParticipant(userId: "alice", displayName: "Alice",
                           faceEmbedding: FaceEmbedding([1, 0, 0])!,
-                          faceProfileVersion: 1, joinedAt: Date())]
+                          faceTemplates: [
+                            FaceTemplate(
+                                embedding: FaceEmbedding([1, 0, 0])!,
+                                pose: .frontal,
+                                quality: 1,
+                                createdAt: Date()
+                            ),
+                            FaceTemplate(
+                                embedding: FaceEmbedding([1, 0, 0])!,
+                                pose: .slightLeft,
+                                quality: 1,
+                                createdAt: Date()
+                            )
+                          ],
+                          faceProfileVersion: FaceModelPolicy.currentVersion,
+                          joinedAt: Date())]
+    }
+
+    private func scanKey(eventId: String = "e1", userId: String = "alice") -> String {
+        [eventId, userId, FaceModelPolicy.scanGeneration].joined(separator: "::")
     }
 
     // MARK: Tests
@@ -59,13 +76,13 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         let event = makeEvent(now: now)
 
         let assets = [
-            PhotoAsset(id: "a1", creationDate: now),   // alice
-            PhotoAsset(id: "a2", creationDate: now),   // stranger
-            PhotoAsset(id: "a3", creationDate: now),   // alice
+            PhotoAsset(id: "a1", creationDate: now),
+            PhotoAsset(id: "a2", creationDate: now),
+            PhotoAsset(id: "a3", creationDate: now),
         ]
         let detector = ScriptedDetector(facesByAsset: [
             "a1": [face([1, 0, 0])],
-            "a2": [face([0, 1, 0])],   // orthogonal to alice → no match
+            "a2": [face([0, 1, 0])],
             "a3": [face([1, 0, 0])],
         ])
 
@@ -91,8 +108,7 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         let mine = try await matchRepo.myPhotos(eventId: "e1", userId: "alice")
         XCTAssertEqual(Set(mine.map(\.assetLocalId)), ["a1", "a3"])
 
-        // All three marked scanned — including the non-matching one.
-        XCTAssertEqual(scanStore.load(eventId: "e1").scannedCount, 3)
+        XCTAssertEqual(scanStore.load(eventId: scanKey()).scannedCount, 3)
     }
 
     func testSecondPassIsCaughtUpAndRescansNothing() async throws {
@@ -121,7 +137,6 @@ final class CameraSyncCoordinatorTests: XCTestCase {
 
     func testRefusesToSyncExpiredEvent() async {
         let now = Date(timeIntervalSince1970: 2_000_000)
-        // Event ended long ago, past grace.
         let event = Event(id: "e1", joinCode: "ABC234", creatorUserId: "alice", name: "Old",
                           startsAt: now.addingTimeInterval(-30 * day),
                           endsAt: now.addingTimeInterval(-20 * day),
