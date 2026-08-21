@@ -4,9 +4,9 @@ import FirebaseFunctions
 
 /// Live Firebase implementation of EventRepository.
 ///
-/// Trusted membership transitions, event edits, sharing changes and invite
-/// resolution are performed through callable Cloud Functions. Member-authorized
-/// reads and organizer lifecycle status changes use Firestore directly.
+/// Trusted membership transitions, event edits, lifecycle changes, sharing
+/// changes and invite resolution are performed through callable Cloud Functions.
+/// Member-authorized reads use Firestore directly.
 ///
 /// Server functions are responsible for:
 /// - creating the organizer membership + participant roster entry atomically
@@ -30,21 +30,24 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
     // MARK: - Event CRUD
 
     public func createEvent(_ event: Event) async throws {
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "id": event.id,
             "joinCode": event.joinCode,
             "inviteToken": event.inviteToken,
             "creatorUserId": event.creatorUserId,
             "name": event.name,
             "category": event.category.rawValue,
-            "coverImagePath": event.coverImagePath as Any,
-            "locationName": event.locationName as Any,
             "startsAtMillis": Self.millis(event.startsAt),
             "endsAtMillis": Self.millis(event.endsAt),
+            "startsAtOffsetMinutes": Self.offsetMinutes(for: event.startsAt),
+            "endsAtOffsetMinutes": Self.offsetMinutes(for: event.endsAt),
+            "nowOffsetMinutes": Self.offsetMinutes(for: Date()),
             "status": event.status.rawValue,
             "createdAtMillis": Self.millis(event.createdAt),
             "updatedAtMillis": Self.millis(event.updatedAt)
         ]
+        payload["coverImagePath"] = event.coverImagePath ?? NSNull()
+        payload["locationName"] = event.locationName ?? NSNull()
 
         _ = try await call("createEvent", data: payload)
     }
@@ -110,20 +113,22 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
             data: [
                 "eventId": id,
                 "startsAtMillis": Self.millis(startsAt),
-                "endsAtMillis": Self.millis(endsAt)
+                "endsAtMillis": Self.millis(endsAt),
+                "startsAtOffsetMinutes": Self.offsetMinutes(for: startsAt),
+                "endsAtOffsetMinutes": Self.offsetMinutes(for: endsAt),
+                "nowOffsetMinutes": Self.offsetMinutes(for: Date())
             ]
         )
     }
 
     public func endEvent(id: String) async throws {
-        do {
-            try await eventRef(id).updateData([
-                "status": EventStatus.endedByOrganizer.rawValue,
-                "updatedAt": FieldValue.serverTimestamp()
-            ])
-        } catch {
-            throw Self.mapFirestoreError(error)
-        }
+        _ = try await call(
+            "setEventStatus",
+            data: [
+                "eventId": id,
+                "status": EventStatus.endedByOrganizer.rawValue
+            ]
+        )
     }
 
     // MARK: - Membership
@@ -170,9 +175,6 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
                 .map { try Self.decodeMember(id: $0.documentID, data: $0.data()) }
                 .sorted { $0.joinedAt < $1.joinedAt }
         } catch {
-            // Before joining, Firestore correctly denies roster access. The
-            // membership service treats this as "not yet a member" and lets the
-            // trusted joinEvent function perform capacity/lifecycle checks.
             let nsError = error as NSError
             if nsError.code == 7 {
                 throw AppError.notAMember
@@ -185,7 +187,6 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
     /// atomically writes both the member document and the server-curated
     /// participant embedding from users/{uid}/faceProfile/current.
     public func join(eventId: String, participant: EventParticipant) async throws {
-        // Idempotently ensure membership/participant exists.
         _ = try await call("joinEvent", data: ["eventId": eventId])
     }
 
@@ -213,16 +214,16 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
             var result: [Event] = []
             result.reserveCapacity(refs.documents.count)
 
-            // Keep reads simple/reliable for MVP. Event counts are small enough
-            // that individual authorized gets are preferable to a broad query
-            // that would conflict with the "no event enumeration" security rule.
             for refDoc in refs.documents {
                 let eventId = (refDoc.data()["eventId"] as? String) ?? refDoc.documentID
                 do {
                     let event = try await fetchEvent(id: eventId)
                     result.append(event)
                 } catch AppError.eventNotFound {
-                    // A stale ref should not make Home unusable.
+                    continue
+                } catch AppError.notAMember {
+                    // A stale per-user eventRef must not make the entire Home
+                    // screen fail after a server-side membership removal.
                     continue
                 }
             }
@@ -432,7 +433,7 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
         return EventParticipant(
             userId: userId,
             displayName: data["displayName"] as? String,
-            phoneNumber: data["phoneNumber"] as? String,
+            phoneNumber: nil,
             faceEmbedding: FaceEmbedding(normalized: vector),
             faceTemplates: templates,
             faceProfileVersion:
@@ -476,6 +477,10 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
 
     private static func millis(_ date: Date) -> Double {
         date.timeIntervalSince1970 * 1000.0
+    }
+
+    private static func offsetMinutes(for date: Date) -> Int {
+        TimeZone.current.secondsFromGMT(for: date) / 60
     }
 
     // MARK: - Error mapping
