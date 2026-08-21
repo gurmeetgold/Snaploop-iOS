@@ -5,7 +5,7 @@ final class CreateEventModel: ObservableObject {
     @Published var name = ""
     @Published var category: EventCategory = .other
     @Published var startsAt = Date()
-    @Published var endsAt = Date().addingTimeInterval(3 * 86_400)
+    @Published var endsAt = Calendar.current.date(byAdding: .day, value: 3, to: Date()) ?? Date().addingTimeInterval(3 * 86_400)
     @Published var locationName = ""
     @Published var isSaving = false
     @Published var errorMessage: String?
@@ -65,9 +65,17 @@ struct CreateEventView: View {
     }
 
     private var allowedEndDates: ClosedRange<Date> {
-        let durationEnd = model.startsAt.addingTimeInterval(TimeInterval(EventLifecycle.mvpMaximumDurationDays) * 86_400)
+        let durationEnd = EventLifecycle.maximumEndDate(
+            from: model.startsAt,
+            config: env.config.current
+        )
         let upper = min(allowedDates.upperBound, durationEnd)
         return model.startsAt...max(model.startsAt, upper)
+    }
+
+    private func suggestedEndDate(from start: Date) -> Date {
+        Calendar.current.date(byAdding: .day, value: 3, to: start)
+            ?? start.addingTimeInterval(3 * 86_400)
     }
 
     var body: some View {
@@ -117,12 +125,12 @@ struct CreateEventView: View {
                                 DatePicker("Starts", selection: $model.startsAt, in: allowedDates, displayedComponents: [.date])
                                     .onChange(of: model.startsAt) { _, newStart in
                                         if model.endsAt < newStart || !allowedEndDates.contains(model.endsAt) {
-                                            model.endsAt = min(allowedEndDates.upperBound, newStart.addingTimeInterval(3 * 86_400))
+                                            model.endsAt = min(allowedEndDates.upperBound, suggestedEndDate(from: newStart))
                                         }
                                     }
                                 Divider()
                                 DatePicker("Ends", selection: $model.endsAt, in: allowedEndDates, displayedComponents: [.date])
-                                Text("For this MVP, dates must stay within 15 days before or after today, and an event can span at most 15 days.")
+                                Text("For this MVP, dates must stay within 15 days before or after today, and an event can span at most 15 calendar days.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
