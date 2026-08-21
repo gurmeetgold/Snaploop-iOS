@@ -69,6 +69,12 @@ public struct CameraSyncCoordinator {
         let scanStateKey = [event.id, currentUserId, FaceModelPolicy.scanGeneration]
             .joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
+
+        // PhotoKit local identifiers can disappear when a photo is deleted or
+        // Limited Photos access changes. Retain only identifiers still visible
+        // in this event window so local scan-state storage stays bounded.
+        state.retainScannedAssetIds(Set(assets.map(\.id)))
+
         let planned = ScanPlanner(config: values).plan(assets: assets, event: event, state: state)
 
         let safetyCap = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -88,6 +94,7 @@ public struct CameraSyncCoordinator {
         let totalThisPass = toScan.count
         var matchedCount = 0
         var processedIds: [String] = []
+        var failedCount = 0
 
         for asset in toScan {
             try Task.checkCancellation()
@@ -104,12 +111,6 @@ public struct CameraSyncCoordinator {
                 )
                 if matched { matchedCount += 1 }
                 processedIds.append(asset.id)
-                onProgress?(SyncProgress(
-                    phase: .scanning,
-                    checked: processedIds.count,
-                    matched: matchedCount,
-                    remaining: (totalThisPass - processedIds.count) + remainingAfterPass
-                ))
             } catch is CancellationError {
                 // Persist completed work before surfacing cancellation so a user
                 // can safely continue later without rescanning completed assets.
@@ -123,22 +124,35 @@ public struct CameraSyncCoordinator {
                 scanStateStore.save(state)
                 throw error
             } catch {
+                // Failed assets are deliberately NOT marked scanned. They remain
+                // eligible for the next user-initiated sync instead of being
+                // silently lost after a transient Storage/network/model error.
+                failedCount += 1
                 Log.scanner.error("Skipping asset during sync: \(String(describing: error), privacy: .public)")
             }
+
+            let completedThisPass = processedIds.count + failedCount
+            onProgress?(SyncProgress(
+                phase: .scanning,
+                checked: processedIds.count,
+                matched: matchedCount,
+                remaining: (totalThisPass - completedThisPass) + remainingAfterPass + failedCount
+            ))
 
             // Cooperative yield prevents long runs from monopolizing an
             // executor and gives cancellation/UI work a chance between photos.
             await Task.yield()
         }
 
+        let totalRemaining = remainingAfterPass + failedCount
         onProgress?(SyncProgress(phase: .finishing, checked: processedIds.count,
-                                 matched: matchedCount, remaining: remainingAfterPass))
+                                 matched: matchedCount, remaining: totalRemaining))
         state.markScanned(processedIds)
         state.lastSyncedAt = clock.now()
         scanStateStore.save(state)
 
         return Summary(scanned: processedIds.count, matchedPhotos: matchedCount,
-                       remaining: remainingAfterPass, alreadyCaughtUp: false)
+                       remaining: totalRemaining, alreadyCaughtUp: totalRemaining == 0)
     }
 
     private func process(
