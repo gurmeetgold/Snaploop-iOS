@@ -34,7 +34,7 @@ targets:
         CFBundleName: MyPicsRoom
         CFBundleURLTypes:
           - CFBundleURLSchemes:
-              - app-1-254317517474-ios-fe19926e3a17d2661f95fb
+              - app-1-254317517474-ios-c62155e2316187ee1f95fb
           - CFBundleURLName: MyPicsRoom Invite
             CFBundleURLSchemes:
               - snaploop
