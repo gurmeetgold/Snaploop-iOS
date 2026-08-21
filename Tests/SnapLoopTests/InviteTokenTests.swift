@@ -26,7 +26,7 @@ final class InviteTokenTests: XCTestCase {
         var rng = SeededGenerator(seed: 1)
         let token = InviteToken.generate(using: &rng)
         let url = InviteLink.url(forToken: token)
-        XCTAssertEqual(url.absoluteString, "https://snaploop.app/e/\(token.value)")
+        XCTAssertEqual(url.absoluteString, "https://\(InviteLink.host)/e/\(token.value)")
         XCTAssertEqual(DeepLinkRouter.route(for: url), .joinEventByToken(token))
     }
 
@@ -41,7 +41,6 @@ final class InviteTokenTests: XCTestCase {
 
         let linkBefore = InviteLink.url(forToken: InviteToken(event.inviteToken)!)
 
-        // Edit name, category, cover, location, and dates.
         var edited = EventDraft(name: "Weekend in Montreal", category: .party,
                                 startsAt: start + 86_400, endsAt: start + 5 * 86_400,
                                 locationName: "Old Port", coverImagePath: "covers/x.jpg")
