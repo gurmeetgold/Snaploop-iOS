@@ -8,6 +8,11 @@ const MAX_EVENT_DAYS = 15;
 const DATE_WINDOW_DAYS = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const GRACE_PERIOD_DAYS = 3;
+const MAX_EVENT_NAME_LENGTH = 80;
+const MAX_LOCATION_LENGTH = 120;
+const EVENT_CATEGORIES = new Set([
+  "trip", "wedding", "party", "birthday", "conference", "family", "sports", "other",
+]);
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -27,24 +32,78 @@ function requireMillis(value, name) {
   return n;
 }
 
-function validateEventDates(startsAtMillis, endsAtMillis) {
+function optionalOffsetMinutes(value) {
+  if (value === undefined || value === null) return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < -14 * 60 || n > 14 * 60) {
+    throw new HttpsError("invalid-argument", "Timezone offset is invalid.");
+  }
+  return Math.trunc(n);
+}
+
+function localDayNumber(millis, offsetMinutes) {
+  return Math.floor((millis + offsetMinutes * 60 * 1000) / DAY_MS);
+}
+
+function validateEventDates(startsAtMillis, endsAtMillis, offsets = {}) {
   if (endsAtMillis <= startsAtMillis) {
     throw new HttpsError("invalid-argument", "Event end date must be after the start date.");
   }
-  if (endsAtMillis - startsAtMillis > MAX_EVENT_DAYS * DAY_MS) {
+
+  const startOffset = optionalOffsetMinutes(offsets.startsAtOffsetMinutes);
+  const endOffset = optionalOffsetMinutes(offsets.endsAtOffsetMinutes);
+  const nowOffset = optionalOffsetMinutes(offsets.nowOffsetMinutes);
+
+  // Compare wall-clock local times rather than raw elapsed seconds. A 15-day
+  // event that crosses a daylight-saving boundary is still exactly 15 calendar
+  // days even though its UTC elapsed duration can be 359 or 361 hours.
+  const localDuration = (endsAtMillis + endOffset * 60 * 1000)
+    - (startsAtMillis + startOffset * 60 * 1000);
+  if (localDuration > MAX_EVENT_DAYS * DAY_MS) {
     throw new HttpsError("invalid-argument", `Events can run for up to ${MAX_EVENT_DAYS} days.`);
   }
 
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const lower = todayStart - DATE_WINDOW_DAYS * DAY_MS;
-  const upper = todayStart + (DATE_WINDOW_DAYS + 1) * DAY_MS - 1;
-  if (startsAtMillis < lower || startsAtMillis > upper || endsAtMillis < lower || endsAtMillis > upper) {
+  const today = localDayNumber(Date.now(), nowOffset);
+  const startDay = localDayNumber(startsAtMillis, startOffset);
+  const endDay = localDayNumber(endsAtMillis, endOffset);
+  if (
+    startDay < today - DATE_WINDOW_DAYS ||
+    startDay > today + DATE_WINDOW_DAYS ||
+    endDay < today - DATE_WINDOW_DAYS ||
+    endDay > today + DATE_WINDOW_DAYS
+  ) {
     throw new HttpsError(
       "invalid-argument",
       `Event dates must be within ${DATE_WINDOW_DAYS} days before today and ${DATE_WINDOW_DAYS} days after today.`
     );
   }
+}
+
+function validateEventName(value) {
+  const name = requireString(value, "name");
+  if (name.length > MAX_EVENT_NAME_LENGTH) {
+    throw new HttpsError("invalid-argument", `Event name must be ${MAX_EVENT_NAME_LENGTH} characters or fewer.`);
+  }
+  return name;
+}
+
+function validateCategory(value) {
+  const category = requireString(value, "category");
+  if (!EVENT_CATEGORIES.has(category)) {
+    throw new HttpsError("invalid-argument", "Event category is invalid.");
+  }
+  return category;
+}
+
+function normalizeLocation(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") throw new HttpsError("invalid-argument", "Location is invalid.");
+  const location = value.trim();
+  if (!location) return null;
+  if (location.length > MAX_LOCATION_LENGTH) {
+    throw new HttpsError("invalid-argument", `Location must be ${MAX_LOCATION_LENGTH} characters or fewer.`);
+  }
+  return location;
 }
 
 async function loadIdentity(uid, tx = null) {
@@ -78,7 +137,6 @@ function participantData(uid, user, profile, joinedAt) {
   return {
     userId: uid,
     displayName: user.displayName || null,
-    phoneNumber: user.phoneNumber || null,
     faceEmbedding: profile.embedding,
     faceTemplates: Array.isArray(profile.templates) ? profile.templates : [],
     faceProfileVersion: Number(profile.version || 1),
@@ -134,14 +192,14 @@ exports.createEventMVP = onCall(async (request) => {
   const joinCode = requireString(data.joinCode, "joinCode").toUpperCase();
   const inviteToken = requireString(data.inviteToken, "inviteToken");
   const creatorUserId = requireString(data.creatorUserId, "creatorUserId");
-  const name = requireString(data.name, "name");
-  const category = requireString(data.category, "category");
+  const name = validateEventName(data.name);
+  const category = validateCategory(data.category);
   if (creatorUserId !== uid) throw new HttpsError("permission-denied", "Creator identity does not match the signed-in user.");
   if (data.status !== "active") throw new HttpsError("invalid-argument", "New events must start active.");
 
   const startsAtMillis = requireMillis(data.startsAtMillis, "startsAt");
   const endsAtMillis = requireMillis(data.endsAtMillis, "endsAt");
-  validateEventDates(startsAtMillis, endsAtMillis);
+  validateEventDates(startsAtMillis, endsAtMillis, data);
   const createdAtMillis = requireMillis(data.createdAtMillis, "createdAt");
   const updatedAtMillis = requireMillis(data.updatedAtMillis, "updatedAt");
   const { user, profile } = await loadIdentity(uid);
@@ -162,7 +220,7 @@ exports.createEventMVP = onCall(async (request) => {
     tx.create(eventRef, {
       id, joinCode, inviteToken, creatorUserId: uid, name, category,
       coverImagePath: typeof data.coverImagePath === "string" ? data.coverImagePath : null,
-      locationName: typeof data.locationName === "string" ? data.locationName : null,
+      locationName: normalizeLocation(data.locationName),
       startsAt: Timestamp.fromMillis(startsAtMillis),
       endsAt: Timestamp.fromMillis(endsAtMillis),
       status: "active",
@@ -217,43 +275,71 @@ exports.updateEventManaged = onCall(async (request) => {
   const data = request.data || {};
   const eventId = requireString(data.eventId, "eventId");
   const eventRef = db.doc(`events/${eventId}`);
-  const [eventSnap, role] = await Promise.all([eventRef.get(), memberRole(eventId, uid)]);
-  if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
-  if (role !== "organizer") throw new HttpsError("permission-denied", "Only the organizer can edit this event.");
+  const actorRef = db.doc(`events/${eventId}/members/${uid}`);
+  const expectedUpdatedAtMillis = data.expectedUpdatedAtMillis === undefined
+    ? null
+    : requireMillis(data.expectedUpdatedAtMillis, "expectedUpdatedAt");
 
-  const current = eventSnap.data();
-  const update = { updatedAt: Timestamp.now() };
-  const changes = [];
+  let changes = [];
+  let changed = false;
 
-  if (typeof data.name === "string") {
-    const name = requireString(data.name, "name");
-    if (name !== current.name) { update.name = name; changes.push("name"); }
-  }
-  if (typeof data.category === "string" && data.category !== current.category) {
-    update.category = data.category; changes.push("details");
-  }
-  if (Object.prototype.hasOwnProperty.call(data, "locationName")) {
-    const locationName = typeof data.locationName === "string" && data.locationName.trim() ? data.locationName.trim() : null;
-    if (locationName !== (current.locationName || null)) { update.locationName = locationName; changes.push("details"); }
-  }
-  if (Object.prototype.hasOwnProperty.call(data, "coverImagePath")) {
-    const cover = typeof data.coverImagePath === "string" ? data.coverImagePath : null;
-    if (cover !== (current.coverImagePath || null)) { update.coverImagePath = cover; changes.push("details"); }
-  }
-
-  if (data.startsAtMillis !== undefined || data.endsAtMillis !== undefined) {
-    const starts = data.startsAtMillis !== undefined ? requireMillis(data.startsAtMillis, "startsAt") : current.startsAt.toMillis();
-    const ends = data.endsAtMillis !== undefined ? requireMillis(data.endsAtMillis, "endsAt") : current.endsAt.toMillis();
-    validateEventDates(starts, ends);
-    if (starts !== current.startsAt.toMillis() || ends !== current.endsAt.toMillis()) {
-      update.startsAt = Timestamp.fromMillis(starts);
-      update.endsAt = Timestamp.fromMillis(ends);
-      changes.push("dates");
+  await db.runTransaction(async (tx) => {
+    const [eventSnap, actorSnap] = await Promise.all([tx.get(eventRef), tx.get(actorRef)]);
+    if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
+    if (!actorSnap.exists || actorSnap.data().role !== "organizer") {
+      throw new HttpsError("permission-denied", "Only the organizer can edit this event.");
     }
-  }
 
-  if (changes.length === 0) return { eventId, changed: false };
-  await eventRef.update(update);
+    const current = eventSnap.data();
+    if (
+      expectedUpdatedAtMillis !== null &&
+      current.updatedAt instanceof Timestamp &&
+      Math.abs(current.updatedAt.toMillis() - expectedUpdatedAtMillis) > 1
+    ) {
+      throw new HttpsError(
+        "aborted",
+        "This event changed on another device. Refresh before saving."
+      );
+    }
+
+    const update = { updatedAt: Timestamp.now() };
+    const nextChanges = [];
+
+    if (typeof data.name === "string") {
+      const name = validateEventName(data.name);
+      if (name !== current.name) { update.name = name; nextChanges.push("name"); }
+    }
+    if (typeof data.category === "string") {
+      const category = validateCategory(data.category);
+      if (category !== current.category) { update.category = category; nextChanges.push("details"); }
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "locationName")) {
+      const locationName = normalizeLocation(data.locationName);
+      if (locationName !== (current.locationName || null)) { update.locationName = locationName; nextChanges.push("details"); }
+    }
+    if (Object.prototype.hasOwnProperty.call(data, "coverImagePath")) {
+      const cover = typeof data.coverImagePath === "string" ? data.coverImagePath : null;
+      if (cover !== (current.coverImagePath || null)) { update.coverImagePath = cover; nextChanges.push("details"); }
+    }
+
+    if (data.startsAtMillis !== undefined || data.endsAtMillis !== undefined) {
+      const starts = data.startsAtMillis !== undefined ? requireMillis(data.startsAtMillis, "startsAt") : current.startsAt.toMillis();
+      const ends = data.endsAtMillis !== undefined ? requireMillis(data.endsAtMillis, "endsAt") : current.endsAt.toMillis();
+      validateEventDates(starts, ends, data);
+      if (starts !== current.startsAt.toMillis() || ends !== current.endsAt.toMillis()) {
+        update.startsAt = Timestamp.fromMillis(starts);
+        update.endsAt = Timestamp.fromMillis(ends);
+        nextChanges.push("dates");
+      }
+    }
+
+    if (nextChanges.length === 0) return;
+    tx.update(eventRef, update);
+    changes = nextChanges;
+    changed = true;
+  });
+
+  if (!changed) return { eventId, changed: false };
   const unique = [...new Set(changes)];
   const body = unique.includes("dates")
     ? "The organizer updated the event dates."
