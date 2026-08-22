@@ -11,6 +11,7 @@ const profile = require("./profileManaged");
 const leave = require("./leaveManaged");
 const security = require("./security");
 const memberCleanup = require("./memberCleanup");
+const notifications = require("./notifications");
 
 // Event lifecycle + invite resolution.
 exports.createEvent = managed.createEventMVP;
@@ -26,6 +27,12 @@ exports.inviteByPhone = managed.inviteByPhoneManaged;
 exports.listEventInvites = managed.listEventInvitesManaged;
 exports.nextPendingInvite = invites.nextPendingInvite;
 exports.declineEventInvite = invites.declineEventInvite;
+
+// Push notification token lifecycle + Firestore-triggered delivery.
+exports.registerPushToken = notifications.registerPushToken;
+exports.unregisterPushToken = notifications.unregisterPushToken;
+exports.deliverNotificationRecord = notifications.deliverNotificationRecord;
+exports.notifyPendingInvite = notifications.notifyPendingInvite;
 
 // Server-owned identity/profile operations.
 exports.syncMyUserProfile = security.syncMyUserProfile;
