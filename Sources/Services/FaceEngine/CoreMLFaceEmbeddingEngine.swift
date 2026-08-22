@@ -31,7 +31,11 @@ public final class CoreMLFaceEmbeddingEngine: FaceEmbeddingEngine, @unchecked Se
 
         do {
             let configuration = MLModelConfiguration()
-            configuration.computeUnits = .all
+            // The current AuraFace Core ML graph can trigger an Apple Neural
+            // Engine compiler failure (Espresso/ANE, signal 9) on some devices.
+            // CPU + GPU keeps inference fully on-device while excluding the ANE
+            // compilation path that was crashing every camera sync.
+            configuration.computeUnits = .cpuAndGPU
             let model = try MLModel(contentsOf: url, configuration: configuration)
             self.visionModel = try VNCoreMLModel(for: model)
         } catch {
