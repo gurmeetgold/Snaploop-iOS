@@ -25,9 +25,20 @@ final class PrivacyModel: ObservableObject {
         do {
             try await env.makeErasureService().deleteAccount(userId: userId)
             LocalFaceReferenceStore.delete(userId: userId)
-            session?.user = nil
-            session?.faceProfile = nil
-            message = "Your SnapLoop account, face data, memberships, and photo previews were deleted."
+
+            // The backend deletes the Firebase Auth identity, but Firebase Auth can
+            // temporarily retain the now-invalid user in the local Keychain/session.
+            // Clear that local auth state before dropping the in-memory app session,
+            // otherwise RootView sees a non-nil Firebase user and waits forever on
+            // the "Signing you in" screen. clearAuthenticatedSession also removes
+            // the persisted SessionUserCache so a deleted account cannot be restored
+            // from stale local data on the next launch.
+            do {
+                try env.auth.signOut()
+            } catch {
+                Log.auth.error("Local sign-out after account deletion failed: \(String(describing: error), privacy: .public)")
+            }
+            session?.clearAuthenticatedSession()
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
 }
