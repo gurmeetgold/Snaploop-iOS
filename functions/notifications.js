@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
 
 const db = admin.firestore();
@@ -21,8 +22,19 @@ function requireToken(value) {
   return value.trim();
 }
 
+function requireString(value, name) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new HttpsError("invalid-argument", `${name} is required.`);
+  }
+  return value.trim();
+}
+
 function tokenKey(token) {
   return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function phoneKey(phone) {
+  return String(phone || "").replace(/\D/g, "");
 }
 
 function normalizedData(data) {
@@ -74,14 +86,16 @@ async function sendPushToUser(userId, { title, body, data = {} }) {
 
 exports.registerPushToken = onCall(async (request) => {
   const uid = requireAuth(request);
-  const token = requireToken((request.data || {}).token);
-  const platform = (request.data || {}).platform === "ios" ? "ios" : "unknown";
+  const input = request.data || {};
+  const token = requireToken(input.token);
+  const platform = input.platform === "ios" ? "ios" : "unknown";
   const ref = db.doc(`users/${uid}/pushTokens/${tokenKey(token)}`);
+  const existing = await ref.get();
   await ref.set({
     token,
     platform,
-    appBundleId: typeof request.data.appBundleId === "string" ? request.data.appBundleId : null,
-    createdAt: Timestamp.now(),
+    appBundleId: typeof input.appBundleId === "string" ? input.appBundleId : null,
+    createdAt: existing.exists ? existing.data().createdAt || Timestamp.now() : Timestamp.now(),
     updatedAt: Timestamp.now(),
   }, { merge: true });
   return { registered: true };
@@ -94,9 +108,44 @@ exports.unregisterPushToken = onCall(async (request) => {
   return { unregistered: true };
 });
 
-// Durable activity records are the source of truth. Every new activity record
-// fans out to the user's currently registered devices. Invalid FCM tokens are
-// removed after send failures so the token collection self-heals.
+exports.revokeEventInvite = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const input = request.data || {};
+  const eventId = requireString(input.eventId, "eventId");
+  const phoneNumber = requireString(input.phoneNumber, "phoneNumber");
+
+  const [eventSnap, actorSnap] = await Promise.all([
+    db.doc(`events/${eventId}`).get(),
+    db.doc(`events/${eventId}/members/${uid}`).get(),
+  ]);
+  if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
+  const role = actorSnap.exists ? actorSnap.data().role : null;
+  if (role !== "organizer" && role !== "admin") {
+    throw new HttpsError("permission-denied", "Only the organizer or an Admin can revoke invitations.");
+  }
+
+  const inviteRef = db.doc(`events/${eventId}/invites/${phoneKey(phoneNumber)}`);
+  const inviteSnap = await inviteRef.get();
+  if (!inviteSnap.exists) return { eventId, revoked: false };
+  const invite = inviteSnap.data() || {};
+  if (invite.status === "joined") {
+    throw new HttpsError("failed-precondition", "This person has already joined the event.");
+  }
+
+  const now = Timestamp.now();
+  const batch = db.batch();
+  batch.set(inviteRef, { status: "revoked", updatedAt: now }, { merge: true });
+  if (invite.targetUserId) {
+    batch.set(
+      db.doc(`users/${invite.targetUserId}/pendingInvites/${eventId}`),
+      { status: "revoked", updatedAt: now },
+      { merge: true }
+    );
+  }
+  await batch.commit();
+  return { eventId, revoked: true };
+});
+
 exports.deliverNotificationRecord = onDocumentCreated(
   "users/{userId}/notifications/{notificationId}",
   async (event) => {
@@ -118,9 +167,6 @@ exports.deliverNotificationRecord = onDocumentCreated(
   }
 );
 
-// Existing users get an invite immediately without requiring an app relaunch.
-// The pending-invite document remains authoritative; this trigger only creates
-// a durable notification record when an invite newly enters the invited state.
 exports.notifyPendingInvite = onDocumentWritten(
   "users/{userId}/pendingInvites/{eventId}",
   async (event) => {
@@ -131,7 +177,7 @@ exports.notifyPendingInvite = onDocumentWritten(
     if (next.status !== "invited" || previous.status === "invited") return;
 
     const eventName = next.eventName || "MyPicsRoom event";
-    const notificationId = `invite_${event.params.eventId}`;
+    const notificationId = `invite_${event.params.eventId}_${Date.now()}`;
     await db.doc(`users/${event.params.userId}/notifications/${notificationId}`).set({
       type: "event_invite",
       eventId: event.params.eventId,
@@ -141,8 +187,60 @@ exports.notifyPendingInvite = onDocumentWritten(
       body: `You were invited to ${eventName}.`,
       createdAt: Timestamp.now(),
       read: false,
-    }, { merge: true });
+    });
   }
 );
+
+// Joining is authoritative: immediately close any pending invite on both the
+// user's inbox and the organizer-visible event invite row.
+exports.markInviteJoined = onDocumentCreated(
+  "events/{eventId}/members/{userId}",
+  async (event) => {
+    const { eventId, userId } = event.params;
+    const pendingRef = db.doc(`users/${userId}/pendingInvites/${eventId}`);
+    const pendingSnap = await pendingRef.get();
+    if (!pendingSnap.exists) return;
+    const pending = pendingSnap.data() || {};
+    if (pending.status !== "invited") return;
+
+    const batch = db.batch();
+    const now = Timestamp.now();
+    batch.set(pendingRef, { status: "joined", updatedAt: now }, { merge: true });
+    if (pending.phoneNumber) {
+      batch.set(
+        db.doc(`events/${eventId}/invites/${phoneKey(pending.phoneNumber)}`),
+        { status: "joined", updatedAt: now },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+  }
+);
+
+// Time-based expiry must not depend on the recipient reopening the app. Hourly
+// cleanup keeps invite state accurate for organizer status views and users.
+exports.expirePendingInvites = onSchedule("every 60 minutes", async () => {
+  const now = Timestamp.now();
+  const snap = await db.collectionGroup("pendingInvites")
+    .where("status", "==", "invited")
+    .where("endsAt", "<", now)
+    .limit(200)
+    .get();
+
+  for (const doc of snap.docs) {
+    const data = doc.data() || {};
+    const eventId = data.eventId || doc.id;
+    const batch = db.batch();
+    batch.set(doc.ref, { status: "expired", updatedAt: now }, { merge: true });
+    if (data.phoneNumber) {
+      batch.set(
+        db.doc(`events/${eventId}/invites/${phoneKey(data.phoneNumber)}`),
+        { status: "expired", updatedAt: now },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+  }
+});
 
 exports.sendPushToUser = sendPushToUser;
