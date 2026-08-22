@@ -48,13 +48,15 @@ public struct RemoteConfigValues: Equatable, Sendable {
         self.aiHighlightsEnabled = aiHighlightsEnabled
     }
 
+    /// MVP previews are intentionally high quality because they are also the
+    /// downloadable image until original-photo transfer ships.
     public static let `default` = RemoteConfigValues(
         matchConfidenceThreshold: FaceModelPolicy.evaluationMatchThreshold,
         matchAmbiguityMargin: FaceModelPolicy.evaluationAmbiguityMargin,
         minFaceSizeFraction: 0.045,
         maxAssetsPerSyncBatch: 25,
-        thumbnailMaxPixelSize: 1024,
-        thumbnailJPEGQuality: 0.72,
+        thumbnailMaxPixelSize: 2560,
+        thumbnailJPEGQuality: 0.92,
         signedURLTTLHours: 48,
         defaultEventDurationDays: 15,
         maxEventDurationDays: 15,
