@@ -6,7 +6,7 @@ import UIKit
 @MainActor
 final class MyPhotosModel: ObservableObject {
     @Published var photos: [PhotoMatch] = []
-    @Published var participants: [EventParticipant] = []
+    @Published var members: [EventMember] = []
     @Published var favoriteIds: Set<String> = []
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -31,29 +31,33 @@ final class MyPhotosModel: ObservableObject {
         errorMessage = nil
 
         async let photosResult = env.matches.myPhotos(eventId: event.id, userId: userId)
-        async let participantsResult = env.events.participants(eventId: event.id)
+        async let membersResult = env.events.members(eventId: event.id)
 
         var loadedPhotos: [PhotoMatch] = []
-        var loadedParticipants: [EventParticipant] = []
+        var loadedMembers: [EventMember] = []
         var firstError: Error?
 
-        do { loadedPhotos = (try await photosResult).filter { $0.ownerUserId != userId } }
+        do { loadedPhotos = try await photosResult }
         catch { firstError = error }
 
-        do { loadedParticipants = try await participantsResult }
+        do { loadedMembers = try await membersResult }
         catch { if firstError == nil { firstError = error } }
 
         guard generation == reloadGeneration, session?.user?.id == userId else { return }
-        photos = loadedPhotos
-        participants = loadedParticipants
+        let sharingEnabled = loadedMembers.first(where: { $0.userId == userId })?.sharingEnabled ?? false
+        photos = loadedPhotos.filter { sharingEnabled || $0.ownerUserId != userId }
+        members = loadedMembers
         favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
         errorMessage = firstError.map { ($0 as NSError).localizedDescription }
         isLoading = false
     }
 
     func ownerLabel(for userId: String) -> String {
-        if let participant = participants.first(where: { $0.userId == userId }) {
-            if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
+        if userId == session?.user?.id { return "You" }
+        if let member = members.first(where: { $0.userId == userId }),
+           let name = member.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            return name
         }
         return "Event member"
     }
@@ -148,8 +152,8 @@ struct MyPhotosView: View {
                             message: model.errorMessage == nil
                                 ? (filter == .favorites
                                     ? "Open a photo and tap Favorite to keep it here."
-                                    : "When other Event members sync photos containing you, they will show up here.")
-                                : "Pull to refresh. If the problem continues, check your connection and Event membership.",
+                                    : "When Event members sync photos containing you, they will appear here.")
+                                : "Pull to refresh and try again.",
                             systemImage: model.errorMessage == nil
                                 ? (filter == .favorites ? "heart" : "person.crop.square")
                                 : "exclamationmark.triangle"
@@ -245,11 +249,8 @@ final class StorageThumbnailLoader: ObservableObject {
             try Task.checkCancellation()
             guard let decoded = UIImage(data: data) else { failed = true; return }
             let decodedCost: Int
-            if let cgImage = decoded.cgImage {
-                decodedCost = cgImage.bytesPerRow * cgImage.height
-            } else {
-                decodedCost = data.count
-            }
+            if let cgImage = decoded.cgImage { decodedCost = cgImage.bytesPerRow * cgImage.height }
+            else { decodedCost = data.count }
             Self.cache.setObject(decoded, forKey: path as NSString, cost: decodedCost)
             image = decoded
         } catch is CancellationError {
@@ -294,7 +295,10 @@ struct PhotoDetailView: View {
     @State private var confirmNotMe = false
 
     init(match: PhotoMatch, ownerLabel: String, isFavorite: Bool, onFavoriteChanged: @escaping (Bool) -> Void, onNotMe: @escaping () -> Void) {
-        self.match = match; self.ownerLabel = ownerLabel; self.onFavoriteChanged = onFavoriteChanged; self.onNotMe = onNotMe
+        self.match = match
+        self.ownerLabel = ownerLabel
+        self.onFavoriteChanged = onFavoriteChanged
+        self.onNotMe = onNotMe
         _favorite = State(initialValue: isFavorite)
     }
 
@@ -356,14 +360,16 @@ struct PhotoDetailView: View {
 
     private func sharePreview() {
         guard let image = loader.image else { statusMessage = "The preview is still loading."; return }
-        shareImage = image; showShareSheet = true
+        shareImage = image
+        showShareSheet = true
     }
 
     @MainActor private func savePreview() async {
         guard let image = loader.image else { statusMessage = "The preview is still loading."; return }
         let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard authorization == .authorized || authorization == .limited else {
-            statusMessage = "Allow SnapLoop to add photos in iPhone Settings, then try Save again."; return
+            statusMessage = "Allow SnapLoop to add photos in iPhone Settings, then try Save again."
+            return
         }
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -374,7 +380,9 @@ struct PhotoDetailView: View {
                 }
             }
             statusMessage = "Saved to Photos."
-        } catch { statusMessage = "Couldn't save this preview." }
+        } catch {
+            statusMessage = "Couldn't save this preview."
+        }
     }
 
     private func actionButton(_ title: String, _ icon: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
