@@ -96,7 +96,7 @@ struct HomeView: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Hi, \(session.user?.displayName ?? "there") 👋").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(Theme.ink)
-                Text("Photos your friends took of you, brought to your phone automatically.").font(.subheadline).foregroundStyle(.secondary)
+                Text("Photos your friends took of you on their phones, brought to your phone automatically.").font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer(); BrandMark(size: 46)
         }.padding(.horizontal)
@@ -104,7 +104,7 @@ struct HomeView: View {
 
     private var createJoinRow: some View {
         HStack(spacing: 12) {
-            Button { showCreate = true } label: { actionCard(title: "Create Event", subtitle: "Travel, party, family & more", icon: "plus", gradient: Theme.sunsetGradient) }
+            Button { showCreate = true } label: { actionCard(title: "Create Event", subtitle: "Trip, party, family & more", icon: "plus", gradient: Theme.sunsetGradient) }
             Button { showJoin = true } label: { actionCard(title: "Join Event", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient) }
         }.buttonStyle(.plain).padding(.horizontal)
     }
@@ -155,8 +155,34 @@ struct EnterCodeView: View {
     @State private var text = ""; @State private var error: String?
     var body: some View {
         NavigationStack {
-            ZStack { BrandScreenBackground(); VStack(spacing: 20) { BrandMark(size: 62); Text("Join an Event").font(.title2.bold()); TextField("Event code or invite link", text: $text).textInputAutocapitalization(.characters).autocorrectionDisabled().padding().background(.white, in: RoundedRectangle(cornerRadius: 16)); if let error { Text(error).foregroundStyle(.red).font(.footnote) }; Button { if let route = DeepLinkRouter.route(forManualEntry: text) { onResolved(route) } else { error = AppError.invalidJoinCode.userMessage } } label: { Label("Continue", systemImage: "arrow.right.circle.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 52) }.buttonStyle(.plain).foregroundStyle(.white).background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18)).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }.padding(24) }
-            .navigationTitle("Join Event").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            ZStack {
+                BrandScreenBackground()
+                VStack(spacing: 20) {
+                    Spacer().frame(height: 90)
+                    BrandMark(size: 62)
+                    Text("Join an Event").font(.title2.bold())
+                    TextField("Event code or invite link", text: $text)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                        .padding()
+                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                    if let error { Text(error).foregroundStyle(.red).font(.footnote) }
+                    Button {
+                        if let route = DeepLinkRouter.route(forManualEntry: text) { onResolved(route) }
+                        else { error = AppError.invalidJoinCode.userMessage }
+                    } label: {
+                        Label("Continue", systemImage: "arrow.right.circle.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 52)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18))
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Spacer()
+                }
+                .padding(24)
+            }
+            .navigationTitle("Join Event")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }
 }
