@@ -15,20 +15,14 @@ final class SyncModel: ObservableObject {
         self.session = session
     }
 
-    deinit {
-        syncTask?.cancel()
-    }
+    deinit { syncTask?.cancel() }
 
     func start(event: Event) {
         guard syncTask == nil else { return }
-        syncTask = Task { [weak self] in
-            await self?.run(event: event)
-        }
+        syncTask = Task { [weak self] in await self?.run(event: event) }
     }
 
-    func cancel() {
-        syncTask?.cancel()
-    }
+    func cancel() { syncTask?.cancel() }
 
     func cancelForSafety(message: String) {
         guard syncTask != nil else { return }
@@ -48,16 +42,13 @@ final class SyncModel: ObservableObject {
         do {
             let participants = try await EventFaceProfileClient.list(eventId: event.id)
             try Task.checkCancellation()
-
             let coordinator = env.makeSyncCoordinator()
             let summary = try await coordinator.sync(
                 event: event,
                 participants: participants,
                 currentUserId: userId
             ) { [weak self] progress in
-                Task { @MainActor in
-                    self?.state = .running(progress)
-                }
+                Task { @MainActor in self?.state = .running(progress) }
             }
             state = .done(summary)
         } catch is CancellationError {
@@ -68,7 +59,12 @@ final class SyncModel: ObservableObject {
             state = .failed(error.userMessage)
         } catch {
             if case .failed = state { return }
-            state = .failed(AppError.unknown("\(error)").userMessage)
+            let description = (error as NSError).localizedDescription
+            if description.localizedCaseInsensitiveContains("not found") {
+                state = .failed("Sync service is not deployed yet. Update Firebase Functions and try again.")
+            } else {
+                state = .failed(description)
+            }
         }
     }
 }
@@ -119,15 +115,14 @@ struct SyncView: View {
                 }
                 .frame(width: 92, height: 92)
 
-                Text("Find your Trip photos")
+                Text("Find photos from this Event")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
-                Text("SnapLoop checks photos from this Trip's date window on this iPhone and looks for confident matches on-device.")
+                Text("SnapLoop checks this Event's selected date window on your iPhone and matches other Event members on-device.")
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Text("For beta safety, each pass processes a small batch. You can stop at any time and continue later.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Your own-camera photos are not added to your Gallery. Each pass processes a small batch for device safety.")
+                    .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button { model.start(event: event) } label: {
@@ -155,9 +150,7 @@ struct SyncView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Button(role: .cancel) {
-                    model.cancel()
-                } label: {
+                Button(role: .cancel) { model.cancel() } label: {
                     Label("Stop Sync", systemImage: "stop.circle")
                 }
                 .buttonStyle(.bordered)
@@ -178,32 +171,30 @@ struct SyncView: View {
                 }
                 .buttonStyle(MyPicsTubePrimaryButtonStyle())
 
-                Button("Done") { dismiss() }
-                    .foregroundStyle(Theme.sunset)
+                Button("Done") { dismiss() }.foregroundStyle(Theme.sunset)
             }
         }
     }
 
-    @ViewBuilder
-    private func done(_ summary: CameraSyncCoordinator.Summary) -> some View {
+    @ViewBuilder private func done(_ summary: CameraSyncCoordinator.Summary) -> some View {
         PremiumCard {
             VStack(spacing: 18) {
                 ZStack {
                     Circle().fill(Color.green.opacity(0.12))
                     Image(systemName: summary.alreadyCaughtUp ? "checkmark.circle.fill" : "sparkles")
-                        .font(.system(size: 46)).foregroundStyle(summary.alreadyCaughtUp ? .green : Theme.sunset)
+                        .font(.system(size: 46)).foregroundStyle(summary.alreadyCaughtUp ? Color.green : Theme.sunset)
                 }
                 .frame(width: 94, height: 94)
 
                 Text(summary.alreadyCaughtUp
                      ? "You're all caught up"
-                     : "Found \(summary.matchedPhotos) \(summary.matchedPhotos == 1 ? "photo" : "photos") of you")
+                     : "Found \(summary.matchedPhotos) \(summary.matchedPhotos == 1 ? "photo" : "photos") for other Event members")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
                 Text(summary.alreadyCaughtUp
-                     ? "No new photos needed processing for this Trip."
-                     : "Your confident matches are ready in My Photos.")
+                     ? "No new photos needed processing for this Event."
+                     : "Matched photos are now available to the people found in them.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
                 if summary.hasMore {
@@ -211,9 +202,7 @@ struct SyncView: View {
                         Label("Scan Next Batch", systemImage: "arrow.triangle.2.circlepath")
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
-
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(Theme.sunset)
+                    Button("Done") { dismiss() }.foregroundStyle(Theme.sunset)
                 } else {
                     Button { dismiss() } label: {
                         Label("Done", systemImage: "checkmark.circle.fill")
