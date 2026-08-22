@@ -10,11 +10,12 @@ final class EditEventModel: ObservableObject {
     @Published var isSaving = false
     @Published var errorMessage: String?
 
-    private let original: Event
+    private var baseline: Event
     private var env: AppEnvironment?
+    private var didConfigure = false
 
     init(event: Event) {
-        original = event
+        baseline = event
         name = event.name
         category = event.category
         startsAt = event.startsAt
@@ -22,8 +23,26 @@ final class EditEventModel: ObservableObject {
         locationName = event.locationName ?? ""
     }
 
-    func configure(env: AppEnvironment) {
+    func configure(env: AppEnvironment) async {
+        guard !didConfigure else { return }
+        didConfigure = true
         self.env = env
+
+        if AppEnvironment.useLiveServices {
+            do {
+                let fresh = try await env.events.fetchEvent(id: baseline.id)
+                baseline = fresh
+                name = fresh.name
+                category = fresh.category
+                startsAt = fresh.startsAt
+                endsAt = fresh.endsAt
+                locationName = fresh.locationName ?? ""
+            } catch {
+                errorMessage = EventManagementClient.userMessage(for: error)
+                return
+            }
+        }
+
         let allowed = EventLifecycle.allowedDateRange(now: env.clock.now())
         var adjusted = false
 
@@ -48,7 +67,9 @@ final class EditEventModel: ObservableObject {
         }
 
         if adjusted {
-            errorMessage = "This older event used dates outside the current MVP limits. Review the adjusted dates before saving."
+            errorMessage = "This older event uses dates outside the current limits. Review the adjusted dates before saving."
+        } else {
+            errorMessage = nil
         }
     }
 
@@ -65,21 +86,21 @@ final class EditEventModel: ObservableObject {
                 startsAt: startsAt,
                 endsAt: endsAt,
                 locationName: locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : locationName.trimmingCharacters(in: .whitespacesAndNewlines),
-                coverImagePath: original.coverImagePath
+                coverImagePath: baseline.coverImagePath
             )
-            let updated = try EventFactory(config: env.config.current, clock: env.clock).applyEdit(draft, to: original)
+            let updated = try EventFactory(config: env.config.current, clock: env.clock).applyEdit(draft, to: baseline)
 
-            if updated.name == original.name,
-               updated.category == original.category,
-               updated.locationName == original.locationName,
-               updated.startsAt == original.startsAt,
-               updated.endsAt == original.endsAt {
+            if updated.name == baseline.name,
+               updated.category == baseline.category,
+               updated.locationName == baseline.locationName,
+               updated.startsAt == baseline.startsAt,
+               updated.endsAt == baseline.endsAt {
                 errorMessage = "No changes to save."
                 return nil
             }
 
             if AppEnvironment.useLiveServices {
-                _ = try await EventManagementClient.update(updated, expectedUpdatedAt: original.updatedAt)
+                _ = try await EventManagementClient.update(updated, expectedUpdatedAt: baseline.updatedAt)
             } else {
                 try await env.events.updateEventDetails(
                     id: updated.id,
@@ -212,6 +233,6 @@ struct EditEventView: View {
         }
         .navigationTitle("Edit Event")
         .navigationBarTitleDisplayMode(.inline)
-        .task { model.configure(env: env) }
+        .task { await model.configure(env: env) }
     }
 }
