@@ -50,27 +50,22 @@ public final class FirebaseBiometricConsentStore:
     public func save(
         _ record: BiometricConsentRecord
     ) async throws {
-        var data: [String: Any] = [
-            "userId": record.userId,
-            "policyVersion": record.policyVersion,
-            "acceptedAt": Timestamp(date: record.acceptedAt)
-        ]
-
-        if let withdrawnAt = record.withdrawnAt {
-            data["withdrawnAt"] = Timestamp(date: withdrawnAt)
-        } else {
-            data["withdrawnAt"] = NSNull()
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+            functions.httpsCallable("acceptBiometricConsent").call([
+                "userId": record.userId,
+                "policyVersion": record.policyVersion
+            ]) { result, error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume(returning: result?.data as Any)
+            }
         }
-
-        try await ref(record.userId)
-            .setData(data, merge: false)
     }
 
     public func withdraw(
         userId: String,
         at date: Date
     ) async throws {
-        _ = date // Server timestamp is authoritative for withdrawal/audit ordering.
+        _ = date
         _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
             functions.httpsCallable("withdrawBiometricConsent").call(["userId": userId]) { result, error in
                 if let error { continuation.resume(throwing: error); return }
