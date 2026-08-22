@@ -21,7 +21,9 @@ struct SettingsView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @StateObject private var model = SettingsModel()
+    @AppStorage("snaploop.onboarding.completed") private var hasCompletedOnboarding = false
     @State private var confirmSignOut = false
+    @State private var confirmReplayOnboarding = false
     @State private var facePreviewData: Data?
 
     var body: some View {
@@ -35,8 +37,9 @@ struct SettingsView: View {
                     profileCard
                     accountActions
                     privacyCard
+                    onboardingCard
                     signOutCard
-                    Text("MyPicsRoom finds confident photo matches from your events on-device. Only matched optimized previews are shared with event members in the current MVP.")
+                    Text("SnapLoop finds confident photo matches from your Trips on-device. Only matched optimized previews are shared with Trip members in the current MVP.")
                         .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity).padding(.horizontal, 14).padding(.top, 4)
                 }
@@ -47,9 +50,15 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { refreshFaceReference() }
         .onChange(of: session.hasFaceProfile) { _, _ in refreshFaceReference() }
-        .confirmationDialog("Sign out of MyPicsRoom?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+        .confirmationDialog("Sign out of SnapLoop?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { model.signOut(env: env, session: session) }
             Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Replay onboarding?", isPresented: $confirmReplayOnboarding, titleVisibility: .visible) {
+            Button("Replay Onboarding") { hasCompletedOnboarding = false }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You'll see the SnapLoop introduction again. Your account, Trips, photos, and Face Setup will not be changed.")
         }
     }
 
@@ -118,6 +127,22 @@ struct SettingsView: View {
                     Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 }
             }.buttonStyle(.plain)
+        }
+    }
+
+    private var onboardingCard: some View {
+        PremiumCard {
+            Button { confirmReplayOnboarding = true } label: {
+                HStack(spacing: 12) {
+                    iconBadge("sparkles.rectangle.stack.fill", tint: Theme.violet)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Replay Onboarding").font(.headline).foregroundStyle(Theme.ink)
+                        Text("Review how Trips, matching and permissions work").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
