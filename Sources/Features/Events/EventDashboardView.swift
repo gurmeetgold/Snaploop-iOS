@@ -17,7 +17,7 @@ struct EventDashboardView: View {
 
     private enum SyncDisplayState {
         case checking
-        case ready
+        case automatic
         case sharingOff
         case needsPhotoAccess
         case paused
@@ -25,7 +25,7 @@ struct EventDashboardView: View {
         var title: String {
             switch self {
             case .checking: return "Checking"
-            case .ready: return "Ready"
+            case .automatic: return "Automatic"
             case .sharingOff: return "Sharing off"
             case .needsPhotoAccess: return "Needs access"
             case .paused: return "Paused"
@@ -35,17 +35,17 @@ struct EventDashboardView: View {
         var detail: String {
             switch self {
             case .checking: return "Checking this Event's sync status"
-            case .ready: return "SnapLoop can check this Event for new photos"
+            case .automatic: return "SnapLoop automatically checks this Event for new photos"
             case .sharingOff: return "Photo sharing is turned off for this Event"
             case .needsPhotoAccess: return "Allow Photos access to check this Event"
-            case .paused: return "Sync is unavailable for this Event right now"
+            case .paused: return "Automatic sync is paused for this Event"
             }
         }
 
         var systemImage: String {
             switch self {
             case .checking: return "clock"
-            case .ready: return "arrow.triangle.2.circlepath.circle.fill"
+            case .automatic: return "cloud.fill"
             case .sharingOff: return "pause.circle.fill"
             case .needsPhotoAccess: return "exclamationmark.triangle.fill"
             case .paused: return "pause.circle.fill"
@@ -55,7 +55,7 @@ struct EventDashboardView: View {
         var tint: Color {
             switch self {
             case .checking, .paused: return .secondary
-            case .ready: return Theme.aqua
+            case .automatic: return Theme.aqua
             case .sharingOff: return .orange
             case .needsPhotoAccess: return .red
             }
@@ -150,7 +150,7 @@ struct EventDashboardView: View {
             return
         }
         let sharingEnabled = members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
-        syncDisplayState = sharingEnabled ? .ready : .sharingOff
+        syncDisplayState = sharingEnabled ? .automatic : .sharingOff
     }
 
     private var hero: some View {
