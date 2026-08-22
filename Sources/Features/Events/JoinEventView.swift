@@ -39,11 +39,11 @@ final class JoinEventModel: ObservableObject {
             switch event.status {
             case .active: break
             case .endedByOrganizer:
-                phase = .error("The organizer ended this Trip."); return
+                phase = .error("The organizer ended this Event."); return
             case .deletedByOrganizer:
-                phase = .error("This Trip is no longer accepting joins."); return
+                phase = .error("This Event is no longer accepting joins."); return
             case .expired:
-                phase = .error("This Trip has expired."); return
+                phase = .error("This Event has expired."); return
             }
 
             if let roster = try? await env.events.members(eventId: event.id) {
@@ -134,14 +134,14 @@ struct JoinEventView: View {
                 case .joined:
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("Opening Trip…").foregroundStyle(.secondary)
+                        Text("Opening Event…").foregroundStyle(.secondary)
                     }
                 case .declined:
                     PremiumCard {
                         VStack(spacing: 12) {
                             Image(systemName: "hand.raised.fill").font(.system(size: 36)).foregroundStyle(.secondary)
                             Text("Invitation declined").font(.title3.bold())
-                            Text("You have not joined this Trip.").foregroundStyle(.secondary)
+                            Text("You have not joined this Event.").foregroundStyle(.secondary)
                             Button("Done") { dismiss() }.buttonStyle(MyPicsTubePrimaryButtonStyle())
                         }
                     }
@@ -149,7 +149,7 @@ struct JoinEventView: View {
                 }
             }
         }
-        .navigationTitle("Join Trip")
+        .navigationTitle("Join Event")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             model.configure(env: env, session: session)
@@ -200,7 +200,7 @@ struct JoinEventView: View {
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
 
-                    Text("Face Setup is required for photo matching. After saving it, you'll return here to join this Trip.")
+                    Text("Face Setup is required for photo matching. After saving it, you'll return here to join this Event.")
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 } else {
                     Button {
@@ -209,7 +209,7 @@ struct JoinEventView: View {
                         HStack {
                             if model.isJoining { ProgressView().tint(.white) }
                             else { Image(systemName: "checkmark.circle.fill") }
-                            Text("Accept & Join Trip")
+                            Text("Accept & Join Event")
                         }
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
@@ -232,7 +232,7 @@ struct JoinEventView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("How SnapLoop works here", systemImage: "sparkles")
                     .font(.subheadline.bold()).foregroundStyle(Theme.ink)
-                Text("Participating members scan their own photo libraries on-device only for this Trip's selected date range. You can leave the Trip or remove Face Setup later.")
+                Text("Participating members scan their own photo libraries on-device only for this Event's selected date range.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
