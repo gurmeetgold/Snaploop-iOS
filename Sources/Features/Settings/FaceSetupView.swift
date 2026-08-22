@@ -330,22 +330,8 @@ struct FaceSetupView: View {
         .fullScreenCover(isPresented: $showGuidedEnrollment) {
             GuidedFaceEnrollmentView { frames in Task { await model.useGuidedFrames(frames) } }
         }
-        .sheet(isPresented: $showConsent) {
-            BiometricConsentView {
-                let saved = await model.acceptConsent()
-                guard saved else { return false }
-                let action = pendingAction
-                pendingAction = nil
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 250_000_000)
-                    switch action {
-                    case .guided: showGuidedEnrollment = true
-                    case .gallery: showGalleryPicker = true
-                    case nil: break
-                    }
-                }
-                return true
-            }
+        .sheet(isPresented: $showConsent, onDismiss: resumePendingActionAfterConsent) {
+            BiometricConsentView { await model.acceptConsent() }
         }
         .sheet(isPresented: $showGalleryPicker) {
             ProfileImagePicker(source: .photoLibrary) { image in
@@ -353,6 +339,21 @@ struct FaceSetupView: View {
                 Task { await model.usePickedImage(image) }
             }
             .ignoresSafeArea()
+        }
+    }
+
+    @MainActor
+    private func resumePendingActionAfterConsent() {
+        guard model.consentActive else {
+            pendingAction = nil
+            return
+        }
+        let action = pendingAction
+        pendingAction = nil
+        switch action {
+        case .guided: showGuidedEnrollment = true
+        case .gallery: showGalleryPicker = true
+        case nil: break
         }
     }
 
