@@ -159,8 +159,13 @@ struct ParticipantsView: View {
                                 NavigationLink { ShareEventView(event: model.event) } label: {
                                     Label("Invite People", systemImage: "person.badge.plus")
                                         .font(.subheadline.bold())
-                                        .foregroundStyle(Theme.sunset)
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 48)
                                 }
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.white)
+                                .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                                .shadow(color: Theme.ink.opacity(0.08), radius: 8, y: 4)
                             }
 
                             if model.currentUserRole != .organizer {
