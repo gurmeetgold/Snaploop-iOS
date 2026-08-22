@@ -1,4 +1,5 @@
 import Foundation
+import FirebaseAuth
 import FirebaseFirestore
 import FirebaseFunctions
 import FirebaseStorage
@@ -60,8 +61,6 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
                 }
             }
         } catch {
-            // A failed trusted publish leaves no readable metadata document.
-            // Remove the unreferenced thumbnail when possible.
             try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 ref.delete { cleanupError in
                     if let cleanupError { continuation.resume(throwing: cleanupError) }
@@ -90,6 +89,23 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
     }
 
     public func myPhotos(eventId: String, userId: String) async throws -> [PhotoMatch] {
+        try await matchedPhotos(eventId: eventId, userId: userId)
+    }
+
+    public func sharedAlbum(eventId: String) async throws -> [PhotoMatch] {
+        guard let userId = Auth.auth().currentUser?.uid else {
+            throw AppError.notAuthenticated
+        }
+        // "Shared" is intentionally personalized: membership alone never grants
+        // access to cloud previews containing other people.
+        return try await matchedPhotos(eventId: eventId, userId: userId)
+    }
+
+    public func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL {
+        throw AppError.originalUnavailable
+    }
+
+    private func matchedPhotos(eventId: String, userId: String) async throws -> [PhotoMatch] {
         let snap = try await db.collection("events")
             .document(eventId)
             .collection("photos")
@@ -99,21 +115,6 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         return try snap.documents
             .map { try Self.decode(id: $0.documentID, data: $0.data()) }
             .sorted { $0.capturedAt > $1.capturedAt }
-    }
-
-    public func sharedAlbum(eventId: String) async throws -> [PhotoMatch] {
-        let snap = try await db.collection("events")
-            .document(eventId)
-            .collection("photos")
-            .getDocuments()
-
-        return try snap.documents
-            .map { try Self.decode(id: $0.documentID, data: $0.data()) }
-            .sorted { $0.capturedAt > $1.capturedAt }
-    }
-
-    public func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL {
-        throw AppError.originalUnavailable
     }
 
     private static func documentId(for value: String) -> String {
@@ -159,8 +160,6 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             thumbnailPath: data["thumbnailPath"] as? String
         )
 
-        // Preserve the canonical persisted ID contract. PhotoMatch currently
-        // derives the same value from event + local asset ID.
         if match.id != matchId {
             throw AppError.decoding("photo \(id) id mismatch")
         }
