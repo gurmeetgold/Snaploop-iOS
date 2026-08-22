@@ -39,20 +39,12 @@ func color(_ hex: UInt32) -> NSColor {
     )
 }
 
-let coral = color(0xFF5757)
-let pink = color(0xF52B7A)
-let violet = color(0xA63DFF)
-let blue = color(0x405CFF)
-
-func drawRoundedLine(from a: CGPoint, to b: CGPoint, width: CGFloat) {
-    let path = NSBezierPath()
-    path.move(to: a)
-    path.line(to: b)
-    path.lineWidth = width
-    path.lineCapStyle = .round
-    NSColor.white.setStroke()
-    path.stroke()
-}
+let orange = color(0xFF5A2B)
+let hotPink = color(0xFF147D)
+let magenta = color(0xE20BCE)
+let violet = color(0x8D19FF)
+let electricBlue = color(0x2450FF)
+let deepMagenta = color(0x7A0878)
 
 func makeIcon(pixels: Int) throws -> Data {
     let side = CGFloat(pixels)
@@ -63,51 +55,71 @@ func makeIcon(pixels: Int) throws -> Data {
     NSGraphicsContext.current?.imageInterpolation = .high
 
     let bounds = NSRect(x: 0, y: 0, width: side, height: side)
-    let gradient = NSGradient(colors: [coral, pink, violet, blue])!
-    gradient.draw(in: bounds, angle: -45)
+    let background = NSGradient(colors: [orange, hotPink, magenta, violet, electricBlue])!
+    background.draw(in: bounds, angle: -45)
 
-    let cameraRect = NSRect(x: side * 0.21, y: side * 0.25, width: side * 0.58, height: side * 0.43)
-    let camera = NSBezierPath(roundedRect: cameraRect, xRadius: side * 0.11, yRadius: side * 0.11)
-    NSColor.white.setFill()
-    camera.fill()
+    // Large S loop, inspired by the selected SnapLoop mark.
+    let sPath = NSBezierPath()
+    sPath.move(to: CGPoint(x: side * 0.73, y: side * 0.73))
+    sPath.line(to: CGPoint(x: side * 0.42, y: side * 0.73))
+    sPath.curve(
+        to: CGPoint(x: side * 0.39, y: side * 0.50),
+        controlPoint1: CGPoint(x: side * 0.22, y: side * 0.73),
+        controlPoint2: CGPoint(x: side * 0.22, y: side * 0.55)
+    )
+    sPath.curve(
+        to: CGPoint(x: side * 0.61, y: side * 0.50),
+        controlPoint1: CGPoint(x: side * 0.44, y: side * 0.51),
+        controlPoint2: CGPoint(x: side * 0.56, y: side * 0.49)
+    )
+    sPath.curve(
+        to: CGPoint(x: side * 0.27, y: side * 0.27),
+        controlPoint1: CGPoint(x: side * 0.78, y: side * 0.51),
+        controlPoint2: CGPoint(x: side * 0.78, y: side * 0.27)
+    )
+    sPath.line(to: CGPoint(x: side * 0.58, y: side * 0.27))
+    sPath.lineWidth = max(3, side * 0.135)
+    sPath.lineCapStyle = .round
+    sPath.lineJoinStyle = .round
+    NSColor.white.setStroke()
+    sPath.stroke()
 
-    let humpRect = NSRect(x: side * 0.30, y: side * 0.63, width: side * 0.22, height: side * 0.09)
-    let hump = NSBezierPath(roundedRect: humpRect, xRadius: side * 0.035, yRadius: side * 0.035)
-    hump.fill()
+    // Central shutter.
+    let shutterRect = NSRect(x: side * 0.345, y: side * 0.345, width: side * 0.31, height: side * 0.31)
+    let shutterCircle = NSBezierPath(ovalIn: shutterRect)
+    deepMagenta.setFill()
+    shutterCircle.fill()
 
-    let lensRect = NSRect(x: side * 0.35, y: side * 0.315, width: side * 0.30, height: side * 0.30)
-    let lens = NSBezierPath(ovalIn: lensRect)
-    let lensGradient = NSGradient(colors: [pink, violet, blue])!
-    lensGradient.draw(in: lens, angle: -45)
+    let center = CGPoint(x: side * 0.50, y: side * 0.50)
+    let outer = side * 0.145
+    let inner = side * 0.045
 
-    let eyeSize = side * 0.038
-    for x in [side * 0.445, side * 0.555] {
-        NSBezierPath(ovalIn: NSRect(x: x - eyeSize / 2, y: side * 0.485, width: eyeSize, height: eyeSize)).fill()
+    for i in 0..<6 {
+        let a0 = CGFloat(i) * (.pi / 3) - .pi / 2
+        let a1 = a0 + .pi / 3
+        let aMid = a0 + .pi / 6
+
+        let p1 = CGPoint(x: center.x + cos(a0) * outer, y: center.y + sin(a0) * outer)
+        let p2 = CGPoint(x: center.x + cos(a1) * outer, y: center.y + sin(a1) * outer)
+        let p3 = CGPoint(x: center.x + cos(aMid) * inner, y: center.y + sin(aMid) * inner)
+
+        let blade = NSBezierPath()
+        blade.move(to: p1)
+        blade.line(to: p2)
+        blade.line(to: p3)
+        blade.close()
+        NSColor(calibratedWhite: 1.0, alpha: 0.94).setFill()
+        blade.fill()
     }
 
-    let smile = NSBezierPath()
-    smile.move(to: CGPoint(x: side * 0.44, y: side * 0.43))
-    smile.curve(
-        to: CGPoint(x: side * 0.56, y: side * 0.43),
-        controlPoint1: CGPoint(x: side * 0.47, y: side * 0.38),
-        controlPoint2: CGPoint(x: side * 0.53, y: side * 0.38)
-    )
-    smile.lineWidth = side * 0.032
-    smile.lineCapStyle = .round
-    NSColor.white.setStroke()
-    smile.stroke()
-
-    let inset = side * 0.14
-    let arm = side * 0.10
-    let line = max(2, side * 0.025)
-    drawRoundedLine(from: CGPoint(x: inset, y: side - inset), to: CGPoint(x: inset + arm, y: side - inset), width: line)
-    drawRoundedLine(from: CGPoint(x: inset, y: side - inset), to: CGPoint(x: inset, y: side - inset - arm), width: line)
-    drawRoundedLine(from: CGPoint(x: side - inset, y: side - inset), to: CGPoint(x: side - inset - arm, y: side - inset), width: line)
-    drawRoundedLine(from: CGPoint(x: side - inset, y: side - inset), to: CGPoint(x: side - inset, y: side - inset - arm), width: line)
-    drawRoundedLine(from: CGPoint(x: inset, y: inset), to: CGPoint(x: inset + arm, y: inset), width: line)
-    drawRoundedLine(from: CGPoint(x: inset, y: inset), to: CGPoint(x: inset, y: inset + arm), width: line)
-    drawRoundedLine(from: CGPoint(x: side - inset, y: inset), to: CGPoint(x: side - inset - arm, y: inset), width: line)
-    drawRoundedLine(from: CGPoint(x: side - inset, y: inset), to: CGPoint(x: side - inset, y: inset + arm), width: line)
+    let centerCircle = NSBezierPath(ovalIn: NSRect(
+        x: center.x - side * 0.034,
+        y: center.y - side * 0.034,
+        width: side * 0.068,
+        height: side * 0.068
+    ))
+    violet.setFill()
+    centerCircle.fill()
 
     guard let tiff = image.tiffRepresentation,
           let bitmap = NSBitmapImageRep(data: tiff),
@@ -123,4 +135,4 @@ for spec in specs {
     print("Generated \(spec.filename)")
 }
 
-print("SnapLoop icons generated in \(output.path)")
+print("SnapLoop S-shutter icons generated in \(output.path)")
