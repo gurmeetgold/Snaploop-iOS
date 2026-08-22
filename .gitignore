@@ -25,9 +25,7 @@ GoogleService-Info.plist
 # Face Engine v5 model is installed locally by scripts/install_face_model_v5.sh
 Sources/Resources/Models/SnapLoopFaceEmbedding.mlmodel
 
-# MyPicsTube AppIcon PNGs are deterministic build outputs generated from the
-# checked-in Swift icon generator. Contents.json stays version-controlled.
-Sources/Resources/Assets.xcassets/AppIcon.appiconset/*.png
+# AppIcon artwork is production source and must remain version-controlled.
 
 # macOS
 .DS_Store
