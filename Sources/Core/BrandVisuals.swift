@@ -1,8 +1,6 @@
 import SwiftUI
 
 /// SnapLoop visual identity used throughout the app.
-/// Camera-first, light and compact, with one shared wordmark so branding stays
-/// consistent across onboarding, authentication, settings, and Trip screens.
 struct BrandMark: View {
     var size: CGFloat = 72
 
@@ -19,7 +17,7 @@ struct BrandMark: View {
                 .offset(x: -size * 0.18, y: -size * 0.31)
 
             Circle()
-                .fill(.white)
+                .fill(Theme.surface)
                 .overlay {
                     Circle().strokeBorder(Theme.blue, lineWidth: max(2, size * 0.075))
                 }
@@ -43,10 +41,8 @@ struct BrandWordmark: View {
         HStack(spacing: compact ? 6 : 9) {
             BrandMark(size: compact ? 30 : 48)
             HStack(spacing: 0) {
-                Text("Snap")
-                    .foregroundStyle(Theme.coral)
-                Text("Loop")
-                    .foregroundStyle(Theme.blue)
+                Text("Snap").foregroundStyle(Theme.coral)
+                Text("Loop").foregroundStyle(Theme.blue)
             }
             .font(compact ? .system(.headline, design: .rounded, weight: .bold) : .system(size: 34, weight: .bold, design: .rounded))
         }
@@ -56,12 +52,32 @@ struct BrandWordmark: View {
 }
 
 struct BrandScreenBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
-        LinearGradient(
-            colors: [Theme.canvas, Theme.coralSoft.opacity(0.32), Theme.lilacSoft.opacity(0.26)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        ZStack {
+            Theme.canvas
+            if colorScheme == .dark {
+                RadialGradient(
+                    colors: [Theme.blue.opacity(0.10), Theme.canvas.opacity(0.0)],
+                    center: .topTrailing,
+                    startRadius: 20,
+                    endRadius: 520
+                )
+                RadialGradient(
+                    colors: [Theme.lilac.opacity(0.08), Theme.canvas.opacity(0.0)],
+                    center: .bottomLeading,
+                    startRadius: 20,
+                    endRadius: 520
+                )
+            } else {
+                LinearGradient(
+                    colors: [Color.white, Theme.blueSoft.opacity(0.18), Theme.lilacSoft.opacity(0.20)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        }
         .ignoresSafeArea()
     }
 }
@@ -76,11 +92,11 @@ struct PremiumCard<Content: View>: View {
     var body: some View {
         content
             .padding(16)
-            .background(.white.opacity(0.97), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                    .strokeBorder(Theme.separator.opacity(0.16))
+                    .strokeBorder(Theme.divider)
             }
-            .shadow(color: Theme.navy.opacity(0.065), radius: 18, y: 8)
+            .shadow(color: Color.black.opacity(0.10), radius: 18, y: 8)
     }
 }
