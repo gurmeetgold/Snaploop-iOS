@@ -33,7 +33,9 @@ final class ParticipantsModel: ObservableObject {
             if AppEnvironment.useLiveServices {
                 let preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
                 sharingEnabled = preferences.sharingEnabled
-                includeOwnMatches = preferences.includeOwnMatches
+                includeOwnMatches = preferences.sharingEnabled && preferences.includeOwnMatches
+            } else if !sharingEnabled {
+                includeOwnMatches = false
             }
             errorMessage = nil
         } catch {
@@ -81,6 +83,10 @@ final class ParticipantsModel: ObservableObject {
         guard let userId = session?.user?.id else { return }
         errorMessage = nil
         do {
+            if !enabled {
+                try? await MemberPhotoPreferencesClient.setIncludeOwnMatches(eventId: event.id, enabled: false)
+                includeOwnMatches = false
+            }
             try await service?.setSharing(eventId: event.id, userId: userId, enabled: enabled)
             sharingEnabled = enabled
             await reload()
@@ -90,6 +96,10 @@ final class ParticipantsModel: ObservableObject {
     }
 
     func setIncludeOwnMatches(_ enabled: Bool) async {
+        guard sharingEnabled else {
+            includeOwnMatches = false
+            return
+        }
         errorMessage = nil
         do {
             if AppEnvironment.useLiveServices {
@@ -188,8 +198,12 @@ struct ParticipantsView: View {
                                 set: { value in Task { await model.setIncludeOwnMatches(value) } }
                             ))
                             .tint(Theme.violet)
+                            .disabled(!model.sharingEnabled)
+                            .opacity(model.sharingEnabled ? 1 : 0.45)
 
-                            Text("When on, photos from this phone that also contain you can appear in your Gallery. This applies when photo sharing is on.")
+                            Text(model.sharingEnabled
+                                 ? "Turn this on if you also want photos of yourself from this phone to appear in your Gallery."
+                                 : "Turn on Event sharing first to use this option.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
