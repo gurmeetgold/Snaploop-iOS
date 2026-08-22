@@ -137,7 +137,13 @@ struct HomeView: View {
                     Menu {
                         Button { showCreate = true } label: { Label("Create Event", systemImage: "plus") }
                         Button { showJoin = true } label: { Label("Join with Code", systemImage: "qrcode.viewfinder") }
-                    } label: { Image(systemName: "plus").font(.headline).foregroundStyle(.white).padding(10).background(Theme.brandGradient, in: Circle()) }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .background(Theme.socialGradient, in: Circle())
+                    }
                 }
             }
         }
@@ -154,57 +160,109 @@ struct HomeView: View {
     private func eventNotificationCard(_ notification: EventNotification) -> some View {
         PremiumCard {
             HStack(alignment: .top, spacing: 12) {
-                ZStack { Circle().fill(Theme.aqua.opacity(0.14)); Image(systemName: "bell.fill").foregroundStyle(Theme.aqua) }.frame(width: 40, height: 40)
-                VStack(alignment: .leading, spacing: 4) { Text(notification.title).font(.subheadline.bold()).foregroundStyle(Theme.ink); Text(notification.body).font(.caption).foregroundStyle(.secondary) }
+                ZStack {
+                    Circle().fill(Theme.mint.opacity(0.14))
+                    Image(systemName: "bell.fill").foregroundStyle(Theme.mint)
+                }
+                .frame(width: 40, height: 40)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(notification.title).font(.subheadline.bold()).foregroundStyle(Theme.ink)
+                    Text(notification.body).font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button { Task { await model.dismissNotification(notification) } } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }.buttonStyle(.plain)
+                Button { Task { await model.dismissNotification(notification) } } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
             }
         }
     }
 
-    private func sectionHeader(_ title: String) -> some View { HStack { Text(title).font(.title3.weight(.bold)).foregroundStyle(Theme.ink); Spacer() }.padding(.horizontal) }
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title).font(.title3.weight(.bold)).foregroundStyle(Theme.ink)
+            Spacer()
+        }
+        .padding(.horizontal)
+    }
+
     private func eventList(_ events: [Event]) -> some View {
         VStack(spacing: 12) {
             ForEach(events) { event in
                 NavigationLink { EventDashboardView(event: event) } label: {
                     EventCard(event: event, currentUserId: session.user?.id, photoCount: model.photoCounts[event.id])
                 }
-                .buttonStyle(.plain).simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
+                .buttonStyle(.plain)
+                .simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
             }
-        }.padding(.horizontal)
+        }
+        .padding(.horizontal)
     }
 
     private var greeting: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("Hi, \(session.user?.displayName ?? "there") 👋").font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(Theme.ink)
-                Text("Photos your friends took of you on their phones, brought to your phone automatically.").font(.subheadline).foregroundStyle(.secondary)
+                Text("Hi, \(session.user?.displayName ?? "there") 👋")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.ink)
+                Text("Photos your friends took of you on their phones, brought to your phone automatically.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            Spacer(); BrandMark(size: 46)
-        }.padding(.horizontal)
+            Spacer()
+            BrandMark(size: 46)
+        }
+        .padding(.horizontal)
     }
 
     private var createJoinRow: some View {
         HStack(spacing: 12) {
-            Button { showCreate = true } label: { actionCard(title: "Create Event", subtitle: "Trip, party, family & more", icon: "plus", gradient: Theme.sunsetGradient) }
-            Button { showJoin = true } label: { actionCard(title: "Join Event", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient) }
-        }.buttonStyle(.plain).padding(.horizontal)
+            Button { showCreate = true } label: {
+                actionCard(title: "Create Event", subtitle: "Trip, party, family & more", icon: "plus", gradient: Theme.coralGradient)
+            }
+            Button { showJoin = true } label: {
+                actionCard(title: "Join Event", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
     }
 
     private func actionCard(title: String, subtitle: String, icon: String, gradient: LinearGradient) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            ZStack { RoundedRectangle(cornerRadius: 13).fill(.white.opacity(0.22)); Image(systemName: icon).font(.headline).foregroundStyle(.white) }.frame(width: 44, height: 44)
-            Spacer(minLength: 4); Text(title).font(.headline).foregroundStyle(.white); Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.88))
-        }.padding(16).frame(maxWidth: .infinity, minHeight: 150, alignment: .leading).background(gradient, in: RoundedRectangle(cornerRadius: 24)).shadow(color: Theme.ink.opacity(0.10), radius: 16, y: 8)
+            ZStack {
+                RoundedRectangle(cornerRadius: 13).fill(.white.opacity(0.20))
+                Image(systemName: icon).font(.headline).foregroundStyle(.white)
+            }
+            .frame(width: 44, height: 44)
+            Spacer(minLength: 4)
+            Text(title).font(.headline).foregroundStyle(.white)
+            Text(subtitle).font(.caption).foregroundStyle(.white.opacity(0.90))
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
+        .background(gradient, in: RoundedRectangle(cornerRadius: 24))
+        .shadow(color: Color.black.opacity(0.14), radius: 16, y: 8)
     }
 
     private var emptyState: some View {
         PremiumCard {
             VStack(spacing: 14) {
-                ZStack { Circle().fill(Theme.peach.opacity(0.25)); Image(systemName: "photo.on.rectangle.angled").font(.system(size: 34)).foregroundStyle(Theme.sunset) }.frame(width: 74, height: 74)
-                Text("No Events yet").font(.headline)
-                Text("Create an Event, or join one with a code, link or QR.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            }.frame(maxWidth: .infinity).padding(.vertical, 8)
+                ZStack {
+                    Circle().fill(Theme.lilac.opacity(0.14))
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 34))
+                        .foregroundStyle(Theme.lilac)
+                }
+                .frame(width: 74, height: 74)
+                Text("No Events yet").font(.headline).foregroundStyle(Theme.ink)
+                Text("Create an Event, or join one with a code, link or QR.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
     }
 }
@@ -214,18 +272,49 @@ private struct EventCard: View {
     let currentUserId: String?
     let photoCount: Int?
     @EnvironmentObject private var env: AppEnvironment
+
     private var lifecycle: EventLifecycle.Status { EventLifecycle.status(for: event, clock: env.clock, config: env.config.current) }
     private var roleLabel: String { event.creatorUserId == currentUserId ? "ORGANIZER" : "MEMBER" }
     private var statusLabel: String {
-        switch event.status { case .endedByOrganizer: return "ENDED"; case .deletedByOrganizer: return "DELETED"; case .expired: return "COMPLETED"; case .active: switch lifecycle { case .upcoming: return "UPCOMING"; case .active: return "LIVE"; case .grace: return "WRAPPING UP"; case .expired: return "COMPLETED" } }
+        switch event.status {
+        case .endedByOrganizer: return "ENDED"
+        case .deletedByOrganizer: return "DELETED"
+        case .expired: return "COMPLETED"
+        case .active:
+            switch lifecycle {
+            case .upcoming: return "UPCOMING"
+            case .active: return "LIVE"
+            case .grace: return "WRAPPING UP"
+            case .expired: return "COMPLETED"
+            }
+        }
     }
-    private var statusTint: Color { switch event.status { case .endedByOrganizer, .deletedByOrganizer, .expired: return .gray; case .active: return Theme.tint(for: lifecycle) } }
+    private var statusTint: Color {
+        switch event.status {
+        case .endedByOrganizer, .deletedByOrganizer, .expired: return .gray
+        case .active: return Theme.tint(for: lifecycle)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 14) {
-            ZStack { Theme.violetGradient; Image(systemName: event.category.systemImage).font(.title2).foregroundStyle(.white) }.frame(width: 72, height: 72).clipShape(RoundedRectangle(cornerRadius: 18))
+            ZStack {
+                Theme.violetGradient
+                Image(systemName: event.category.systemImage)
+                    .font(.title2)
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+
             VStack(alignment: .leading, spacing: 6) {
                 Text(event.name).font(.headline).foregroundStyle(Theme.ink).lineLimit(1)
-                HStack(spacing: 7) { Label(roleLabel, systemImage: event.creatorUserId == currentUserId ? "crown.fill" : "person.fill").font(.caption2.bold()).foregroundStyle(.secondary); StatusPill(text: statusLabel, tint: statusTint) }
+                HStack(spacing: 7) {
+                    Label(roleLabel, systemImage: event.creatorUserId == currentUserId ? "crown.fill" : "person.fill")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.secondary)
+                    StatusPill(text: statusLabel, tint: statusTint)
+                }
                 HStack(spacing: 10) {
                     Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
                     if let photoCount {
@@ -235,15 +324,24 @@ private struct EventCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            Spacer(); Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
-        }.padding(14).background(.white.opacity(0.95), in: RoundedRectangle(cornerRadius: Theme.cardRadius)).shadow(color: Theme.ink.opacity(0.055), radius: 14, y: 7)
+            Spacer()
+            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+        }
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(Theme.divider)
+        }
+        .shadow(color: Color.black.opacity(0.09), radius: 14, y: 7)
     }
 }
 
 struct EnterCodeView: View {
     let onResolved: (DeepLinkRoute) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var text = ""; @State private var error: String?
+    @State private var text = ""
+    @State private var error: String?
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -251,22 +349,25 @@ struct EnterCodeView: View {
                 VStack(spacing: 20) {
                     Spacer().frame(height: 90)
                     BrandMark(size: 62)
-                    Text("Join an Event").font(.title2.bold())
+                    Text("Join an Event").font(.title2.bold()).foregroundStyle(Theme.ink)
                     TextField("Event code or invite link", text: $text)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .padding()
-                        .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
                     if let error { Text(error).foregroundStyle(.red).font(.footnote) }
                     Button {
                         if let route = DeepLinkRouter.route(forManualEntry: text) { onResolved(route) }
                         else { error = AppError.invalidJoinCode.userMessage }
                     } label: {
-                        Label("Continue", systemImage: "arrow.right.circle.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 52)
+                        Label("Continue", systemImage: "arrow.right.circle.fill")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
-                    .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18))
+                    .background(Theme.socialGradient, in: RoundedRectangle(cornerRadius: 18))
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     Spacer()
                 }
