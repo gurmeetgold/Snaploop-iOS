@@ -37,7 +37,7 @@ final class MyPhotosModel: ObservableObject {
         var loadedParticipants: [EventParticipant] = []
         var firstError: Error?
 
-        do { loadedPhotos = try await photosResult }
+        do { loadedPhotos = (try await photosResult).filter { $0.ownerUserId != userId } }
         catch { firstError = error }
 
         do { loadedParticipants = try await participantsResult }
@@ -52,9 +52,6 @@ final class MyPhotosModel: ObservableObject {
     }
 
     func ownerLabel(for userId: String) -> String {
-        if userId == session?.user?.id {
-            if let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-        }
         if let participant = participants.first(where: { $0.userId == userId }) {
             if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
         }
@@ -151,8 +148,8 @@ struct MyPhotosView: View {
                             message: model.errorMessage == nil
                                 ? (filter == .favorites
                                     ? "Open a photo and tap Favorite to keep it here."
-                                    : "Sync your camera — and as others sync theirs, your matched photos will show up here.")
-                                : "Pull to refresh. If the problem continues, check your connection and event membership.",
+                                    : "When other Event members sync photos containing you, they will show up here.")
+                                : "Pull to refresh. If the problem continues, check your connection and Event membership.",
                             systemImage: model.errorMessage == nil
                                 ? (filter == .favorites ? "heart" : "person.crop.square")
                                 : "exclamationmark.triangle"
@@ -195,8 +192,6 @@ struct MyPhotosView: View {
 
 struct PhotoCard: View {
     let match: PhotoMatch
-    /// Attribution stays available to the detail screen/callers, but the grid
-    /// deliberately does not cover photos with names or initials.
     var ownerLabel: String = "Event member"
     var isFavorite = false
     var compact = false
@@ -349,7 +344,7 @@ struct PhotoDetailView: View {
             Button("Not Me", role: .destructive) { onNotMe(); dismiss() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("MyPicsRoom will hide this photo from My Photos and record the false match so matching can improve.")
+            Text("SnapLoop will hide this photo from My Photos and record the false match so matching can improve.")
         }
     }
 
@@ -368,7 +363,7 @@ struct PhotoDetailView: View {
         guard let image = loader.image else { statusMessage = "The preview is still loading."; return }
         let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard authorization == .authorized || authorization == .limited else {
-            statusMessage = "Allow MyPicsRoom to add photos in iPhone Settings, then try Save again."; return
+            statusMessage = "Allow SnapLoop to add photos in iPhone Settings, then try Save again."; return
         }
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
