@@ -27,12 +27,6 @@ final class HomeModel: ObservableObject {
         notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? []
     }
 
-    /// Home's headline count is the user's complete My Photos total across all
-    /// accessible events. Per-event My Photos already includes matches sourced
-    /// from the user's own camera, so the aggregate must use the same semantics
-    /// or the UI can claim 0 while an event visibly contains matches.
-    /// Cross-event duplicates are collapsed by source owner + stable PhotoKit
-    /// asset id.
     func totalPhotosOfMe() async -> Int {
         guard let env, let userId = session?.user?.id else { return 0 }
         var matches: [PhotoMatch] = []
@@ -88,8 +82,8 @@ struct HomeView: View {
                             }
                             .buttonStyle(.plain)
                             .padding(.horizontal)
-                            .accessibilityLabel("\(photosOfMe) total photos found of you across all events")
-                            .accessibilityHint("Opens photos found across all of your events")
+                            .accessibilityLabel("\(photosOfMe) total photos found of you across all Trips")
+                            .accessibilityHint("Opens photos found across all of your Trips")
 
                             if let errorMessage = model.errorMessage {
                                 Label("Some photo data could not be refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
@@ -105,7 +99,7 @@ struct HomeView: View {
                         }
                     }
 
-                    sectionHeader(showsGreeting ? "Your Events" : "All Events")
+                    sectionHeader(showsGreeting ? "Your Trips" : "All Trips")
 
                     if visibleEvents.isEmpty { emptyState.padding(.horizontal) }
                     else { eventList(visibleEvents) }
@@ -118,13 +112,13 @@ struct HomeView: View {
                 .padding(.vertical, 12)
             }
         }
-        .navigationTitle(showsGreeting ? "" : "Events")
+        .navigationTitle(showsGreeting ? "" : "Trips")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !showsGreeting {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button { showCreate = true } label: { Label("Create Event", systemImage: "plus") }
+                        Button { showCreate = true } label: { Label("Create Trip", systemImage: "plus") }
                         Button { showJoin = true } label: { Label("Join with Code", systemImage: "qrcode.viewfinder") }
                     } label: {
                         Image(systemName: "plus")
@@ -186,7 +180,7 @@ struct HomeView: View {
                 Text("total photos found of you")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.ink.opacity(0.72))
-                Text("Across all events")
+                Text("Across all Trips")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -255,7 +249,7 @@ struct HomeView: View {
                 Text("Hi, \(session.user?.displayName ?? "there") 👋")
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.ink)
-                Text("My photos found on others’ phones.")
+                Text("Your photos, found from everyone’s phone.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -268,10 +262,10 @@ struct HomeView: View {
     private var createJoinRow: some View {
         HStack(spacing: 12) {
             Button { showCreate = true } label: {
-                actionCard(title: "Create Event", subtitle: "Party, trip, family & more", icon: "plus", gradient: Theme.sunsetGradient)
+                actionCard(title: "Create Trip", subtitle: "Travel, party, family & more", icon: "plus", gradient: Theme.sunsetGradient)
             }
             Button { showJoin = true } label: {
-                actionCard(title: "Join Event", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient)
+                actionCard(title: "Join Trip", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient)
             }
         }
         .buttonStyle(.plain)
@@ -303,8 +297,8 @@ struct HomeView: View {
                     Image(systemName: "photo.on.rectangle.angled").font(.system(size: 34)).foregroundStyle(Theme.sunset)
                 }
                 .frame(width: 74, height: 74)
-                Text("No events yet").font(.headline)
-                Text("Create an event, or join one with a code, link or QR.")
+                Text("No Trips yet").font(.headline)
+                Text("Create a Trip, or join one with a code, link or QR.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
@@ -384,8 +378,8 @@ struct EnterCodeView: View {
                 BrandScreenBackground()
                 VStack(spacing: 20) {
                     BrandMark(size: 62)
-                    Text("Join an Event").font(.title2.bold())
-                    TextField("Event code or invite link", text: $text)
+                    Text("Join a Trip").font(.title2.bold())
+                    TextField("Trip code or invite link", text: $text)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .padding()
@@ -404,7 +398,7 @@ struct EnterCodeView: View {
                 }
                 .padding(24)
             }
-            .navigationTitle("Join Event")
+            .navigationTitle("Join Trip")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }
