@@ -8,10 +8,42 @@ extension Notification.Name {
     static let myPicsRoomInviteReceived = Notification.Name("MyPicsRoomInviteReceived")
 }
 
+@MainActor
+final class PushNotificationCoordinator: NSObject, MessagingDelegate, UNUserNotificationCenterDelegate {
+    static let shared = PushNotificationCoordinator()
+
+    func start() {
+        guard AppEnvironment.useLiveServices else { return }
+        Messaging.messaging().delegate = self
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken, !fcmToken.isEmpty else { return }
+        Task { try? await PushNotificationClient.registerFCMToken(fcmToken) }
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        PushNotificationClient.capturePushPayload(notification.request.content.userInfo)
+        return [.banner, .sound, .badge]
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        PushNotificationClient.capturePushPayload(response.notification.request.content.userInfo)
+    }
+}
+
 enum PushNotificationClient {
     @MainActor
     static func requestAuthorizationAndRegister() async {
         guard AppEnvironment.useLiveServices else { return }
+        PushNotificationCoordinator.shared.start()
 
         do {
             let center = UNUserNotificationCenter.current()
@@ -50,9 +82,6 @@ enum PushNotificationClient {
         }
 
         if let eventId, !eventId.isEmpty {
-            // A generic event notification has no public route by event ID.
-            // RootView will refresh pending invites/activity when it receives
-            // this signal, while keeping event lookup authorization server-side.
             NotificationCenter.default.post(name: .myPicsRoomInviteReceived, object: eventId)
         }
     }
