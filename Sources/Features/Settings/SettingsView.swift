@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 import UIKit
 
@@ -25,6 +26,7 @@ struct SettingsView: View {
     @State private var confirmSignOut = false
     @State private var confirmReplayOnboarding = false
     @State private var facePreviewData: Data?
+    @State private var photoAccessStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
 
     var body: some View {
         ZStack {
@@ -36,6 +38,7 @@ struct SettingsView: View {
                         .foregroundStyle(Theme.ink)
                     profileCard
                     accountActions
+                    photoAccessCard
                     privacyCard
                     onboardingCard
                     signOutCard
@@ -45,7 +48,10 @@ struct SettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .task { refreshFaceReference() }
+        .task {
+            refreshFaceReference()
+            refreshPhotoAccessStatus()
+        }
         .onChange(of: session.hasFaceProfile) { _, _ in refreshFaceReference() }
         .confirmationDialog("Sign out of SnapLoop?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) { model.signOut(env: env, session: session) }
@@ -106,9 +112,62 @@ struct SettingsView: View {
                 }
                 if session.hasFaceProfile {
                     Divider().padding(.leading, 46)
-                    menuLink(title: "Test My Face Setup", icon: "checkmark.viewfinder", tint: Theme.aqua) { FaceMatchingTestView() }
+                    menuLink(title: "Test My Face Setup", icon: "checkmark.circle.fill", tint: Theme.aqua) { FaceMatchingTestView() }
                 }
             }
+        }
+    }
+
+    private var photoAccessCard: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    iconBadge("photo.on.rectangle.angled", tint: Theme.aqua)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Photo Access").font(.headline).foregroundStyle(Theme.ink)
+                        Text(photoAccessDescription).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+
+                if photoAccessStatus == .limited {
+                    Button {
+                        presentLimitedLibraryPicker()
+                    } label: {
+                        Label("Add More Photos", systemImage: "photo.badge.plus")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(Theme.socialGradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else if photoAccessStatus == .denied || photoAccessStatus == .restricted {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        Label("Open iOS Settings", systemImage: "gear")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.sunset)
+                    .background(Theme.peach.opacity(0.22), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+            }
+        }
+    }
+
+    private var photoAccessDescription: String {
+        switch photoAccessStatus {
+        case .authorized: return "All Photos"
+        case .limited: return "Selected Photos only — you can add more anytime"
+        case .denied, .restricted: return "Photo access is off"
+        case .notDetermined: return "Photo access has not been requested yet"
+        @unknown default: return "Photo access status unavailable"
         }
     }
 
@@ -176,5 +235,19 @@ struct SettingsView: View {
     private func refreshFaceReference() {
         guard let userId = session.user?.id else { facePreviewData = nil; return }
         facePreviewData = LocalFaceReferenceStore.load(userId: userId)
+    }
+
+    private func refreshPhotoAccessStatus() {
+        photoAccessStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    }
+
+    private func presentLimitedLibraryPicker() {
+        guard photoAccessStatus == .limited else { return }
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else { return }
+        var presenter = root
+        while let presented = presenter.presentedViewController { presenter = presented }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: presenter)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { refreshPhotoAccessStatus() }
     }
 }
