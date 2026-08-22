@@ -11,8 +11,9 @@ struct BrandMark: View {
             .resizable()
             .interpolation(.high)
             .antialiased(true)
-            .scaledToFit()
+            .scaledToFill()
             .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
             .shadow(color: Theme.hotPink.opacity(0.24), radius: size * 0.10, y: size * 0.035)
             .accessibilityHidden(true)
     }
