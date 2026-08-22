@@ -14,6 +14,7 @@ final class PrivacyModel: ObservableObject {
         do {
             try await env.makeErasureService().deleteFaceProfile(userId: userId)
             session?.faceProfile = nil
+            LocalFaceReferenceStore.delete(userId: userId)
             message = "Your Face Setup was removed. Set it up again whenever you want automatic photo matching."
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
@@ -23,9 +24,10 @@ final class PrivacyModel: ObservableObject {
         busy = true; defer { busy = false }
         do {
             try await env.makeErasureService().deleteAccount(userId: userId)
+            LocalFaceReferenceStore.delete(userId: userId)
             session?.user = nil
             session?.faceProfile = nil
-            message = "Your MyPicsRoom account, face data, memberships, and shared previews were deleted."
+            message = "Your SnapLoop account, face data, memberships, and shared previews were deleted."
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
 }
@@ -48,6 +50,7 @@ struct PrivacyView: View {
                         .padding(.horizontal)
 
                     privacyIntro
+                    retentionCard
                     deleteFaceCard
                     deleteAccountCard
 
@@ -70,29 +73,39 @@ struct PrivacyView: View {
             Button("Delete Face Setup", role: .destructive) { Task { await model.deleteFaceProfile() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Automatic face matching will stop until you set it up again.")
+            Text("This removes the local Face Setup images, stored mathematical face profile, and matching derivatives. Automatic face matching stops until you set it up again.")
         }
-        .confirmationDialog("Delete your MyPicsRoom account?", isPresented: $confirmAccount, titleVisibility: .visible) {
+        .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently removes your account, face data, event memberships, and previews you shared. It cannot be undone.")
+            Text("This permanently removes your account, face data, Trip memberships, and previews you shared. It cannot be undone.")
         }
     }
 
     private var privacyIntro: some View {
         PremiumCard {
-            HStack(alignment: .top, spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12).fill(Theme.aqua.opacity(0.13))
-                    Image(systemName: "hand.raised.fill").foregroundStyle(Theme.aqua)
-                }
-                .frame(width: 42, height: 42)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("You stay in control").font(.headline).foregroundStyle(Theme.ink)
-                    Text("Face matching is for photo discovery. Raw guided-scan video is not saved, and deletion controls are available here.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                Label("You stay in control", systemImage: "hand.raised.fill")
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
+                Text("SnapLoop never uploads your entire photo library. Photo matching runs on your iPhone and is limited to the selected Trip date range. Your Face Setup selfie/reference images stay only on this iPhone; SnapLoop stores a mathematical face profile for Trip matching.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private var retentionCard: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Data retention", systemImage: "clock.badge.checkmark")
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
+                Text("Matched cloud previews and their photo-match records are automatically removed 10 days after a Trip ends. If an organizer deletes a Trip, its Trip-related cloud data is permanently removed within 7 days.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal)
@@ -103,7 +116,7 @@ struct PrivacyView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Delete Face Setup", systemImage: "faceid")
                     .font(.headline).foregroundStyle(.red)
-                Text("Removes your face data and your face matches from event metadata. You can set it up again later if you want automatic photo matching.")
+                Text("Removes your local Face Setup reference images, private mathematical face profile, and your face matches from Trip metadata. You can set it up again later.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmProfile = true } label: {
                     Label("Delete Face Setup", systemImage: "trash.fill")
@@ -120,10 +133,10 @@ struct PrivacyView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Delete Account", systemImage: "person.crop.circle.badge.xmark")
                     .font(.headline).foregroundStyle(.red)
-                Text("Deletes your account, face data, event memberships, and shared preview photos sourced from this account.")
+                Text("Deletes your account, face data, Trip memberships, and shared preview photos sourced from this account.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmAccount = true } label: {
-                    Label("Delete MyPicsRoom Account", systemImage: "trash.fill")
+                    Label("Delete SnapLoop Account", systemImage: "trash.fill")
                 }
                 .disabled(model.busy)
             }
