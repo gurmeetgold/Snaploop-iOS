@@ -44,11 +44,7 @@ final class SyncModel: ObservableObject {
             if AppEnvironment.useLiveServices {
                 preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
             } else {
-                preferences = MemberPhotoPreferences(
-                    sharingEnabled: true,
-                    includeOwnMatches: false,
-                    revisionToken: "dev"
-                )
+                preferences = MemberPhotoPreferences(sharingEnabled: true, includeOwnMatches: false, revisionToken: "dev")
             }
 
             guard preferences.sharingEnabled else {
@@ -113,8 +109,11 @@ struct SyncView: View {
         .task { model.configure(env: env, session: session) }
         .onDisappear { model.cancel() }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase != .active {
-                model.cancelForSafety(message: "Camera sync stopped because SnapLoop left the foreground. You can continue when you return.")
+            // `.inactive` can occur for harmless system overlays, Control Center,
+            // permission UI, or transient interruptions while SnapLoop is still
+            // foregrounded. Only stop a manual scan when the app truly backgrounds.
+            if newPhase == .background {
+                model.cancelForSafety(message: "Camera sync stopped because SnapLoop moved to the background. Return to SnapLoop and try again.")
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
