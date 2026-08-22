@@ -41,8 +41,12 @@ final class AllMyPhotosModel: ObservableObject {
         var firstError: Error?
         for event in events where event.status != .deletedByOrganizer {
             guard !Task.isCancelled, generation == reloadGeneration else { return }
-            do { allMatches.append(contentsOf: try await env.matches.myPhotos(eventId: event.id, userId: userId)) }
-            catch { if firstError == nil { firstError = error } }
+            do {
+                let eventMatches = try await env.matches.myPhotos(eventId: event.id, userId: userId)
+                allMatches.append(contentsOf: eventMatches.filter { $0.ownerUserId != userId })
+            } catch {
+                if firstError == nil { firstError = error }
+            }
         }
 
         guard generation == reloadGeneration else { return }
@@ -52,11 +56,7 @@ final class AllMyPhotosModel: ObservableObject {
         isLoading = false
     }
 
-    func ownerLabel(for match: PhotoMatch) -> String {
-        if match.ownerUserId == session?.user?.id,
-           let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-        return "Event member"
-    }
+    func ownerLabel(for match: PhotoMatch) -> String { "Event member" }
     func isFavorite(_ match: PhotoMatch) -> Bool { favoriteIds.contains(match.id) }
     func setFavorite(_ favorite: Bool, match: PhotoMatch) {
         guard let userId = session?.user?.id else { return }
@@ -84,12 +84,12 @@ struct AllMyPhotosView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     InsightBanner(value: "\(model.photos.count)", label: "photos found of you", systemImage: "sparkles").padding(.horizontal)
-                    Text("Across all your Events").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.horizontal)
+                    Text("From other members across all your Events").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.horizontal)
                     if let errorMessage = model.errorMessage {
                         Label("Some Event photos could not be refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red).padding(.horizontal)
                     }
                     if model.photos.isEmpty && !model.isLoading {
-                        ContentUnavailableViewCompat(title: "No photos of you yet", message: "As you and your Event members sync, photos matched to you will appear here.", systemImage: "person.crop.square").frame(minHeight: 300)
+                        ContentUnavailableViewCompat(title: "No photos of you yet", message: "When other Event members sync photos containing you, they will appear here.", systemImage: "person.crop.square").frame(minHeight: 300)
                     } else {
                         LazyVGrid(columns: columns, spacing: 8) {
                             ForEach(model.photos) { match in
