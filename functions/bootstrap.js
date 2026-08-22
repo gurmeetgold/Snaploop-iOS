@@ -30,6 +30,7 @@ exports.declineEventInvite = invites.declineEventInvite;
 exports.revokeEventInvite = notifications.revokeEventInvite;
 exports.notifyPendingInvite = notifications.notifyPendingInvite;
 exports.markInviteJoined = notifications.markInviteJoined;
+exports.hydrateDeferredInvites = notifications.hydrateDeferredInvites;
 exports.expirePendingInvites = notifications.expirePendingInvites;
 
 // Push notification token lifecycle + Firestore-triggered delivery.
