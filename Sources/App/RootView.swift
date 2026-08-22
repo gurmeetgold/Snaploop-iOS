@@ -4,18 +4,21 @@ struct RootView: View {
     @EnvironmentObject private var environment: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("snaploop.onboarding.completed") private var hasCompletedOnboarding = false
     @State private var didBootstrapSession = false
     @State private var isBootstrappingSession = false
 
     var body: some View {
         Group {
-            if isBootstrappingSession {
+            if !hasCompletedOnboarding {
+                OnboardingView(isCompleted: $hasCompletedOnboarding)
+            } else if isBootstrappingSession {
                 ZStack {
                     BrandScreenBackground()
                     VStack(spacing: 18) {
                         BrandMark(size: 68)
                         ProgressView().tint(Theme.sunset)
-                        Text("Opening MyPicsRoom…")
+                        Text("Opening SnapLoop…")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
@@ -36,11 +39,20 @@ struct RootView: View {
             }
         }
         .task {
+            guard hasCompletedOnboarding else { return }
             await environment.config.refresh()
             await bootstrapPersistedSessionIfNeeded()
             await loadPendingInviteIfNeeded()
             if session.user != nil {
                 await PushNotificationClient.requestAuthorizationAndRegister()
+            }
+        }
+        .onChange(of: hasCompletedOnboarding) { _, completed in
+            guard completed else { return }
+            Task {
+                await environment.config.refresh()
+                await bootstrapPersistedSessionIfNeeded()
+                await loadPendingInviteIfNeeded()
             }
         }
         .onChange(of: session.user?.id) { _, userId in
@@ -51,10 +63,11 @@ struct RootView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active, hasCompletedOnboarding else { return }
             Task { await loadPendingInviteIfNeeded() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { _ in
+            guard hasCompletedOnboarding else { return }
             Task { await loadPendingInviteIfNeeded() }
         }
         .onOpenURL { url in captureInvite(url) }
@@ -118,7 +131,7 @@ struct RootView: View {
 
 struct MainTabView: View {
     @State private var selectedTab = Tab.home
-    enum Tab { case home, events, shared, you }
+    enum Tab { case home, trips, shared, you }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -127,8 +140,8 @@ struct MainTabView: View {
                 .tag(Tab.home)
 
             NavigationStack { HomeView(showsGreeting: false) }
-                .tabItem { Label("Events", systemImage: "calendar.badge.clock") }
-                .tag(Tab.events)
+                .tabItem { Label("Trips", systemImage: "calendar.badge.clock") }
+                .tag(Tab.trips)
 
             NavigationStack { ActiveEventSharedView() }
                 .tabItem { Label("Shared", systemImage: "person.2.crop.square.stack.fill") }
@@ -160,8 +173,8 @@ private struct ActiveEventSharedView: View {
                                 .foregroundStyle(Theme.sky)
                         }
                         .frame(width: 76, height: 76)
-                        Text("Pick an event").font(.title3.bold()).foregroundStyle(Theme.ink)
-                        Text("Open an event from Home or Events to see its shared album here.")
+                        Text("Pick a Trip").font(.title3.bold()).foregroundStyle(Theme.ink)
+                        Text("Open a Trip from Home or Trips to see its shared album here.")
                             .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
