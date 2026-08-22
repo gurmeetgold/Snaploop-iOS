@@ -112,7 +112,6 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
 
         return try snap.documents
             .map { try Self.decode(id: $0.documentID, data: $0.data()) }
-            .filter { $0.ownerUserId != userId }
             .sorted { $0.capturedAt > $1.capturedAt }
     }
 
