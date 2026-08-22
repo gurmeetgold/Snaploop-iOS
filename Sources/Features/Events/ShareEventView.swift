@@ -112,11 +112,6 @@ struct ShareEventView: View {
                         Label(copiedMessage, systemImage: "checkmark.circle.fill")
                             .font(.caption.weight(.semibold)).foregroundStyle(.green)
                     }
-
-                    #if DEBUG
-                    Text("Beta invites currently use \(InviteLink.host) until the production MyPicsRoom domain and App Store listing are live.")
-                        .font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    #endif
                 }
                 .padding(20)
             }
