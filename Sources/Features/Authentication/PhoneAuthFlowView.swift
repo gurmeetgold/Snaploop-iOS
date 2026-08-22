@@ -58,7 +58,7 @@ struct PhoneAuthFlowView: View {
                         Spacer(minLength: 72)
                         BrandWordmark()
                         Text("Get every photo of you.").font(.title3.weight(.semibold)).foregroundStyle(Theme.ink)
-                        Text("Photos your friends took of you, brought to your phone automatically.")
+                        Text("Photos your friends took of you on their phones, brought to your phone automatically.")
                             .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 36)
                         PremiumCard { Group { switch model.stage { case .enterPhone: phoneEntry; case .enterCode: codeEntry } } }.padding(.horizontal, 20)
                         if let error = model.errorMessage { Label(error, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center).padding(.horizontal, 28) }
