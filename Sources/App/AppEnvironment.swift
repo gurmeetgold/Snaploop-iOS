@@ -55,11 +55,7 @@ public final class AppEnvironment: ObservableObject {
     }
 
     public func makeErasureService() -> ErasureService {
-        ErasureService(
-            events: events,
-            faceProfiles: faceProfiles,
-            users: users
-        )
+        ErasureService(events: events, faceProfiles: faceProfiles, users: users)
     }
 
     public func makeSyncCoordinator() -> CameraSyncCoordinator {
@@ -74,10 +70,6 @@ public final class AppEnvironment: ObservableObject {
         )
     }
 
-    /// Normal runs use Firebase/live services.
-    ///
-    /// To explicitly use in-memory development stubs, set:
-    ///     SNAPLOOP_DEV=1
     public static var useLiveServices: Bool {
         ProcessInfo.processInfo.environment["SNAPLOOP_DEV"] != "1"
     }
@@ -106,24 +98,12 @@ public final class AppEnvironment: ObservableObject {
         )
     }
 
-    /// Current live state:
-    /// ✅ Firebase Auth
-    /// ✅ Firestore UserDirectory
-    /// ✅ Firestore FaceProfileStore
-    /// ✅ Firestore + Cloud Functions EventRepository
-    ///
-    /// PhotoKit, Remote Config, Firestore match metadata, and Storage thumbnails
-    /// are live. The production face identity model and original-transfer
-    /// orchestration remain separate release slices.
     public static func live() -> AppEnvironment {
         FirebaseBootstrap.configureIfNeeded()
 
-        // v4 landmark-aligned pipeline. Uses a bundled Core ML identity model
-        // if present, else the interim aligned feature-print (DEBUG) / a
-        // not-ready service (release). Replaces the V3
-        // VisionDevelopmentFaceDetectionService (kept in the tree for the Face
-        // Test screen's side-by-side comparison).
-        let faceService: FaceDetectionService = PipelineFaceDetectionService.makeDefault()
+        // Keep first launch responsive. The Core ML model is loaded only when
+        // Face Setup or camera matching actually needs it.
+        let faceService: FaceDetectionService = LazyFaceDetectionService()
 
         return AppEnvironment(
             config: FirebaseRemoteConfigProvider(),
