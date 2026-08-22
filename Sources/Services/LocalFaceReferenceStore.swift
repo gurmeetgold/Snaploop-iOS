@@ -13,18 +13,22 @@ public enum LocalFaceReferenceStore {
         case gallery
     }
 
-    /// Backward-compatible legacy save API. Existing callers that do not specify
-    /// a kind continue to work and their image remains available as a fallback.
+    private static let protectedWriteOptions: Data.WritingOptions = [.atomic, .completeFileProtection]
+
     public static func save(_ jpegData: Data, userId: String) throws {
-        try jpegData.write(to: try fileURL(userId: userId, suffix: "legacy"), options: [.atomic])
+        try jpegData.write(
+            to: try fileURL(userId: userId, suffix: "legacy"),
+            options: protectedWriteOptions
+        )
     }
 
     public static func save(_ jpegData: Data, userId: String, kind: Kind) throws {
-        try jpegData.write(to: try fileURL(userId: userId, suffix: kind.rawValue), options: [.atomic])
+        try jpegData.write(
+            to: try fileURL(userId: userId, suffix: kind.rawValue),
+            options: protectedWriteOptions
+        )
     }
 
-    /// Preferred display reference: guided selfie first, then the optional
-    /// gallery face, then the old single-file reference for migration support.
     public static func load(userId: String) -> Data? {
         load(userId: userId, kind: .guided)
             ?? load(userId: userId, kind: .gallery)
@@ -41,11 +45,12 @@ public enum LocalFaceReferenceStore {
             guard let url = try? fileURL(userId: userId, suffix: suffix) else { continue }
             try? FileManager.default.removeItem(at: url)
         }
+        if let legacy = try? legacyFileURL(userId: userId) {
+            try? FileManager.default.removeItem(at: legacy)
+        }
     }
 
     private static func loadLegacy(userId: String) -> Data? {
-        // Older builds stored exactly one file named <uid>.jpg. Keep reading it
-        // so a same-device upgrade does not lose a previously saved preview.
         guard let url = try? legacyFileURL(userId: userId) else { return nil }
         return try? Data(contentsOf: url)
             ?? (try? Data(contentsOf: fileURL(userId: userId, suffix: "legacy")))
