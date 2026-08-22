@@ -1,6 +1,28 @@
 import Foundation
 import SwiftUI
 
+/// Small local cache used only to paint the authenticated shell immediately.
+/// Firebase remains authoritative and refreshes this record after launch.
+enum SessionUserCache {
+    private static let key = "snaploop.session.cachedUser"
+
+    static func load(userId: String) -> User? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let user = try? JSONDecoder().decode(User.self, from: data),
+              user.id == userId else { return nil }
+        return user
+    }
+
+    static func save(_ user: User) {
+        guard let data = try? JSONEncoder().encode(user) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
 /// Observable holder for the signed-in user's session state.
 @MainActor
 public final class AppSession: ObservableObject {
@@ -19,10 +41,9 @@ public final class AppSession: ObservableObject {
 
     public func beginAuthenticatedSession(user: User, faceProfile: FaceProfile?) {
         activeEvent = nil
-        self.user = nil
-        self.faceProfile = nil
         self.user = user
         self.faceProfile = faceProfile
+        SessionUserCache.save(user)
     }
 
     /// Explicit sign-out clears account-scoped state and any stale persisted
@@ -32,6 +53,7 @@ public final class AppSession: ObservableObject {
         user = nil
         faceProfile = nil
         activeEvent = nil
+        SessionUserCache.clear()
         if !preservePendingRoute {
             pendingRoute = nil
             PendingInviteStore.clear()
