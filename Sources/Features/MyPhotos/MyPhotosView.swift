@@ -152,7 +152,7 @@ struct MyPhotosView: View {
                             message: model.errorMessage == nil
                                 ? (filter == .favorites
                                     ? "Open a photo and tap Favorite to keep it here."
-                                    : "When Event members sync photos containing you, they will appear here.")
+                                    : "SnapLoop automatically checks eligible live Events for new matched photos. You can also use Sync Camera from an Event at any time.")
                                 : "Pull to refresh and try again.",
                             systemImage: model.errorMessage == nil
                                 ? (filter == .favorites ? "heart" : "person.crop.square")
@@ -164,11 +164,12 @@ struct MyPhotosView: View {
                             ForEach(filtered) { match in
                                 NavigationLink {
                                     PhotoDetailView(
-                                        match: match,
-                                        ownerLabel: model.ownerLabel(for: match.ownerUserId),
-                                        isFavorite: model.isFavorite(match),
-                                        onFavoriteChanged: { value in model.setFavorite(value, match: match) },
-                                        onNotMe: { Task { await model.markNotMe(match) } }
+                                        matches: filtered,
+                                        initialMatchID: match.id,
+                                        ownerLabel: { model.ownerLabel(for: $0.ownerUserId) },
+                                        isFavorite: { model.isFavorite($0) },
+                                        onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
+                                        onNotMe: { item in Task { await model.markNotMe(item) } }
                                     )
                                 } label: {
                                     PhotoCard(
@@ -281,7 +282,58 @@ struct ThumbnailCell: View {
 }
 
 struct PhotoDetailView: View {
+    let matches: [PhotoMatch]
+    let ownerLabel: (PhotoMatch) -> String
+    let isFavorite: (PhotoMatch) -> Bool
+    let onFavoriteChanged: (PhotoMatch, Bool) -> Void
+    let onNotMe: (PhotoMatch) -> Void
+
+    @State private var selectedMatchID: String
+
+    init(
+        matches: [PhotoMatch],
+        initialMatchID: String,
+        ownerLabel: @escaping (PhotoMatch) -> String,
+        isFavorite: @escaping (PhotoMatch) -> Bool,
+        onFavoriteChanged: @escaping (PhotoMatch, Bool) -> Void,
+        onNotMe: @escaping (PhotoMatch) -> Void
+    ) {
+        self.matches = matches
+        self.ownerLabel = ownerLabel
+        self.isFavorite = isFavorite
+        self.onFavoriteChanged = onFavoriteChanged
+        self.onNotMe = onNotMe
+        _selectedMatchID = State(initialValue: initialMatchID)
+    }
+
+    var body: some View {
+        ZStack {
+            BrandScreenBackground()
+            TabView(selection: $selectedMatchID) {
+                ForEach(Array(matches.enumerated()), id: \.element.id) { index, match in
+                    SinglePhotoPage(
+                        match: match,
+                        position: index + 1,
+                        total: matches.count,
+                        ownerLabel: ownerLabel(match),
+                        initialFavorite: isFavorite(match),
+                        onFavoriteChanged: { onFavoriteChanged(match, $0) },
+                        onNotMe: { onNotMe(match) }
+                    )
+                    .tag(match.id)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+        .navigationTitle("Photo")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct SinglePhotoPage: View {
     let match: PhotoMatch
+    let position: Int
+    let total: Int
     let ownerLabel: String
     let onFavoriteChanged: (Bool) -> Void
     let onNotMe: () -> Void
@@ -294,68 +346,97 @@ struct PhotoDetailView: View {
     @State private var shareImage: UIImage?
     @State private var confirmNotMe = false
 
-    init(match: PhotoMatch, ownerLabel: String, isFavorite: Bool, onFavoriteChanged: @escaping (Bool) -> Void, onNotMe: @escaping () -> Void) {
+    init(
+        match: PhotoMatch,
+        position: Int,
+        total: Int,
+        ownerLabel: String,
+        initialFavorite: Bool,
+        onFavoriteChanged: @escaping (Bool) -> Void,
+        onNotMe: @escaping () -> Void
+    ) {
         self.match = match
+        self.position = position
+        self.total = total
         self.ownerLabel = ownerLabel
         self.onFavoriteChanged = onFavoriteChanged
         self.onNotMe = onNotMe
-        _favorite = State(initialValue: isFavorite)
+        _favorite = State(initialValue: initialFavorite)
     }
 
     var body: some View {
-        ZStack {
-            BrandScreenBackground()
-            ScrollView {
-                VStack(spacing: 18) {
-                    preview.frame(maxHeight: 520)
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .shadow(color: Theme.ink.opacity(0.10), radius: 18, y: 8)
+        ScrollView {
+            VStack(spacing: 16) {
+                Text("\(position) of \(total)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
 
-                    PremiumCard {
-                        HStack {
-                            ZStack {
-                                Circle().fill(Theme.brandGradient)
-                                Text(String(ownerLabel.prefix(1)).uppercased()).bold().foregroundStyle(.white)
-                            }
-                            .frame(width: 42, height: 42)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Shared by \(ownerLabel)").font(.subheadline.bold())
-                                Text(DateFormatting.longDate(match.capturedAt)).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Label("Preview", systemImage: "photo").font(.caption2.bold()).foregroundStyle(Theme.sunset)
+                preview
+                    .frame(maxHeight: 520)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .shadow(color: Theme.ink.opacity(0.10), radius: 18, y: 8)
+
+                PremiumCard {
+                    HStack {
+                        ZStack {
+                            Circle().fill(Theme.brandGradient)
+                            Text(String(ownerLabel.prefix(1)).uppercased()).bold().foregroundStyle(.white)
                         }
+                        .frame(width: 42, height: 42)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Shared by \(ownerLabel)").font(.subheadline.bold())
+                            Text(DateFormatting.longDate(match.capturedAt)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Label("Preview", systemImage: "photo").font(.caption2.bold()).foregroundStyle(Theme.sunset)
                     }
-
-                    HStack(spacing: 24) {
-                        actionButton("Save", "square.and.arrow.down.fill") { Task { await savePreview() } }
-                        actionButton("Share", "square.and.arrow.up.fill") { sharePreview() }
-                        actionButton(favorite ? "Favorited" : "Favorite", favorite ? "heart.fill" : "heart") { favorite.toggle(); onFavoriteChanged(favorite) }
-                        actionButton("Not Me", "person.crop.circle.badge.xmark", role: .destructive) { confirmNotMe = true }
-                    }
-                    .disabled(loader.image == nil)
-
-                    if let statusMessage { Text(statusMessage).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center) }
                 }
-                .padding()
+
+                HStack(spacing: 24) {
+                    actionButton("Save", "square.and.arrow.down.fill") { Task { await savePreview() } }
+                    actionButton("Share", "square.and.arrow.up.fill") { sharePreview() }
+                    actionButton(favorite ? "Favorited" : "Favorite", favorite ? "heart.fill" : "heart") {
+                        favorite.toggle()
+                        onFavoriteChanged(favorite)
+                    }
+                    actionButton("Not Me", "person.crop.circle.badge.xmark", role: .destructive) { confirmNotMe = true }
+                }
+                .disabled(loader.image == nil)
+
+                Text("Swipe left or right for more photos")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             }
+            .padding()
         }
-        .navigationTitle("Photo")
-        .navigationBarTitleDisplayMode(.inline)
         .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
         .sheet(isPresented: $showShareSheet) { if let shareImage { ActivityView(items: [shareImage]) } }
         .confirmationDialog("This isn't you?", isPresented: $confirmNotMe, titleVisibility: .visible) {
-            Button("Not Me", role: .destructive) { onNotMe(); dismiss() }
+            Button("Not Me", role: .destructive) {
+                onNotMe()
+                dismiss()
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("SnapLoop will hide this photo from My Photos and record the false match so matching can improve.")
+            Text("SnapLoop will hide this photo and record the false match so matching can improve.")
         }
     }
 
     @ViewBuilder private var preview: some View {
-        if let image = loader.image { Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity) }
-        else if loader.failed { ContentUnavailableViewCompat(title: "Preview unavailable", message: "Go back and try again.", systemImage: "exclamationmark.triangle") }
-        else { ProgressView().frame(maxWidth: .infinity, minHeight: 280) }
+        if let image = loader.image {
+            Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity)
+        } else if loader.failed {
+            ContentUnavailableViewCompat(title: "Preview unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
+        } else {
+            ProgressView().frame(maxWidth: .infinity, minHeight: 280)
+        }
     }
 
     private func sharePreview() {
