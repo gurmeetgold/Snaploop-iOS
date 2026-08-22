@@ -10,76 +10,86 @@ struct BrandMark: View {
             RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Theme.coral, Theme.pink, Theme.lilac, Theme.blue],
+                        colors: [
+                            Color(red: 1.00, green: 0.32, blue: 0.18),
+                            Color(red: 1.00, green: 0.08, blue: 0.48),
+                            Color(red: 0.74, green: 0.08, blue: 1.00),
+                            Color(red: 0.14, green: 0.24, blue: 1.00)
+                        ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
 
-            // Camera body.
-            RoundedRectangle(cornerRadius: size * 0.12, style: .continuous)
-                .fill(.white)
-                .frame(width: size * 0.58, height: size * 0.42)
-                .offset(y: size * 0.02)
-
-            RoundedRectangle(cornerRadius: size * 0.045, style: .continuous)
-                .fill(.white)
-                .frame(width: size * 0.22, height: size * 0.09)
-                .offset(x: -size * 0.12, y: -size * 0.22)
-
-            // Friendly face inside the camera lens.
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Theme.pink, Theme.lilac, Theme.blue],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            // Bold white S loop.
+            SnapLoopSShape()
+                .stroke(
+                    .white,
+                    style: StrokeStyle(
+                        lineWidth: max(4, size * 0.145),
+                        lineCap: .round,
+                        lineJoin: .round
                     )
                 )
-                .frame(width: size * 0.30, height: size * 0.30)
-                .offset(y: size * 0.02)
+                .frame(width: size * 0.58, height: size * 0.64)
 
-            HStack(spacing: size * 0.075) {
-                Circle().fill(.white)
-                Circle().fill(.white)
+            // Camera shutter at the center of the S.
+            ZStack {
+                Circle()
+                    .fill(Color(red: 0.48, green: 0.02, blue: 0.46).opacity(0.96))
+                ForEach(0..<6, id: \.self) { index in
+                    ShutterBladeShape()
+                        .fill(.white.opacity(0.96))
+                        .rotationEffect(.degrees(Double(index) * 60))
+                }
+                Circle()
+                    .fill(Color(red: 0.69, green: 0.04, blue: 0.75))
+                    .frame(width: size * 0.085, height: size * 0.085)
             }
-            .frame(width: size * 0.15, height: size * 0.035)
-            .offset(y: -size * 0.015)
-
-            Capsule()
-                .trim(from: 0.0, to: 0.55)
-                .stroke(.white, style: StrokeStyle(lineWidth: max(2, size * 0.035), lineCap: .round))
-                .rotationEffect(.degrees(22))
-                .frame(width: size * 0.15, height: size * 0.09)
-                .offset(y: size * 0.075)
-
-            // Face-finder corner brackets.
-            finderCorner
-                .rotationEffect(.degrees(0))
-                .offset(x: -size * 0.31, y: -size * 0.27)
-            finderCorner
-                .rotationEffect(.degrees(90))
-                .offset(x: size * 0.31, y: -size * 0.27)
-            finderCorner
-                .rotationEffect(.degrees(270))
-                .offset(x: -size * 0.31, y: size * 0.27)
-            finderCorner
-                .rotationEffect(.degrees(180))
-                .offset(x: size * 0.31, y: size * 0.27)
+            .frame(width: size * 0.31, height: size * 0.31)
+            .shadow(color: .black.opacity(0.16), radius: size * 0.025, y: size * 0.012)
         }
         .frame(width: size, height: size)
-        .shadow(color: Theme.lilac.opacity(0.18), radius: size * 0.10, y: size * 0.04)
+        .shadow(color: Color(red: 0.66, green: 0.10, blue: 1.0).opacity(0.26), radius: size * 0.12, y: size * 0.04)
         .accessibilityHidden(true)
     }
+}
 
-    private var finderCorner: some View {
-        Path { path in
-            path.move(to: CGPoint(x: 0, y: size * 0.12))
-            path.addLine(to: CGPoint(x: 0, y: 0))
-            path.addLine(to: CGPoint(x: size * 0.12, y: 0))
-        }
-        .stroke(.white.opacity(0.96), style: StrokeStyle(lineWidth: max(2, size * 0.035), lineCap: .round, lineJoin: .round))
-        .frame(width: size * 0.12, height: size * 0.12)
+private struct SnapLoopSShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.maxX * 0.78, y: rect.minY + rect.height * 0.12))
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.minY + rect.height * 0.12))
+        path.addCurve(
+            to: CGPoint(x: rect.minX + rect.width * 0.34, y: rect.midY),
+            control1: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.minY + rect.height * 0.12),
+            control2: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.midY - rect.height * 0.06)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.maxX * 0.66, y: rect.midY),
+            control1: CGPoint(x: rect.minX + rect.width * 0.43, y: rect.midY + rect.height * 0.02),
+            control2: CGPoint(x: rect.maxX * 0.57, y: rect.midY - rect.height * 0.02)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.minX + rect.width * 0.22, y: rect.maxY * 0.88),
+            control1: CGPoint(x: rect.maxX * 0.88, y: rect.midY + rect.height * 0.02),
+            control2: CGPoint(x: rect.maxX * 0.88, y: rect.maxY * 0.88)
+        )
+        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.62, y: rect.maxY * 0.88))
+        return path
+    }
+}
+
+private struct ShutterBladeShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        path.move(to: CGPoint(x: c.x, y: rect.minY + rect.height * 0.08))
+        path.addLine(to: CGPoint(x: rect.maxX * 0.82, y: rect.minY + rect.height * 0.25))
+        path.addLine(to: CGPoint(x: rect.maxX * 0.64, y: rect.midY))
+        path.addLine(to: c)
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -90,8 +100,29 @@ struct BrandWordmark: View {
         HStack(spacing: compact ? 6 : 9) {
             BrandMark(size: compact ? 30 : 48)
             HStack(spacing: 0) {
-                Text("Snap").foregroundStyle(Theme.coral)
-                Text("Loop").foregroundStyle(Theme.blue)
+                Text("Snap")
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 1.00, green: 0.28, blue: 0.20),
+                                Color(red: 1.00, green: 0.08, blue: 0.48)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                Text("Loop")
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.92, green: 0.04, blue: 0.88),
+                                Color(red: 0.55, green: 0.06, blue: 1.00),
+                                Color(red: 0.12, green: 0.28, blue: 1.00)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
             }
             .font(compact ? .system(.headline, design: .rounded, weight: .bold) : .system(size: 34, weight: .bold, design: .rounded))
         }
