@@ -25,7 +25,7 @@ enum GuidedEnrollmentStep: Int, CaseIterable, Identifiable {
         case .front: return "Front"
         case .left: return "Left"
         case .right: return "Right"
-        case .tilt: return "Tilt"
+        case .tilt: return "Tilt Down"
         case .finishFront: return "Finish"
         }
     }
@@ -39,7 +39,7 @@ enum GuidedEnrollmentStep: Int, CaseIterable, Identifiable {
         case .right:
             return "Turn your face RIGHT"
         case .tilt:
-            return "Tilt slightly UP"
+            return "Tilt slightly DOWN"
         case .finishFront:
             return "Look straight again"
         }
@@ -50,7 +50,7 @@ enum GuidedEnrollmentStep: Int, CaseIterable, Identifiable {
         case .front: return "person.crop.circle"
         case .left: return "arrow.left"
         case .right: return "arrow.right"
-        case .tilt: return "arrow.up"
+        case .tilt: return "arrow.down"
         case .finishFront: return "checkmark"
         }
     }
@@ -371,6 +371,9 @@ final class GuidedFaceEnrollmentController:
             return yaw >= 16 && yaw <= 38
 
         case .tilt:
+            // Vision's positive pitch on the mirrored front-camera stream corresponds
+            // to lowering the chin. Keep the proven numeric threshold and fix the UX
+            // direction so the instruction matches what the detector actually accepts.
             return pitch >= 9 && pitch <= 28 && abs(yaw) <= 18
 
         case .finishFront:
@@ -403,8 +406,8 @@ final class GuidedFaceEnrollmentController:
 
         case .tilt:
             return pitch < 9
-                ? "Lift your chin a little"
-                : "Lower your chin slightly"
+                ? "Lower your chin a little"
+                : "Raise your chin slightly"
         }
     }
 
