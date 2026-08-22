@@ -30,6 +30,7 @@ struct RootView: View {
                 PhoneAuthFlowView()
             }
         }
+        .tint(Theme.lilac)
         .task {
             guard hasCompletedOnboarding else { return }
             await bootstrapPersistedSessionIfNeeded()
@@ -77,12 +78,12 @@ struct RootView: View {
             VStack(spacing: 20) {
                 BrandMark(size: 72)
                 ZStack {
-                    Circle().fill(Color.green.opacity(0.12)).frame(width: 72, height: 72)
+                    Circle().fill(Theme.mint.opacity(0.14)).frame(width: 72, height: 72)
                     Image(systemName: "faceid")
                         .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Theme.mint)
                 }
-                ProgressView().tint(.green).scaleEffect(1.15)
+                ProgressView().tint(Theme.mint).scaleEffect(1.15)
                 Text("Signing you in…")
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
@@ -222,5 +223,8 @@ struct MainTabView: View {
             NavigationStack { SettingsView() }
                 .tabItem { Label("You", systemImage: "person.crop.circle.fill") }
         }
+        .tint(Theme.coral)
+        .toolbarBackground(Theme.surface.opacity(0.97), for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
     }
 }
