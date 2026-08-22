@@ -164,27 +164,33 @@ struct RootView: View {
     private func bootstrapPersistedSessionIfNeeded() async {
         guard !didBootstrapSession else { return }
         didBootstrapSession = true
-        guard session.user == nil, let uid = environment.auth.currentUserId else { return }
+        guard session.user == nil else { return }
 
-        // The local cache lets a returning authenticated user reach Home without
-        // waiting on the network. Firebase refresh remains authoritative.
-        if let cachedUser = SessionUserCache.load(userId: uid) {
-            session.beginAuthenticatedSession(user: cachedUser, faceProfile: nil)
-            Task { await refreshPersistedUser(userId: uid) }
+        // Firebase may need a short moment to restore Auth state from Keychain.
+        // Stay on the branded opening screen during that resolution instead of
+        // flashing the phone-entry UI for a user who is already signed in.
+        isBootstrappingSession = true
+        let uid = await environment.auth.resolvedCurrentUserId()
+
+        guard let uid else {
+            isBootstrappingSession = false
             return
         }
 
-        isBootstrappingSession = true
-        defer { isBootstrappingSession = false }
+        if let cachedUser = SessionUserCache.load(userId: uid) {
+            session.beginAuthenticatedSession(user: cachedUser, faceProfile: nil)
+            isBootstrappingSession = false
+            Task { await refreshPersistedUser(userId: uid) }
+            return
+        }
 
         do {
             let user = try await environment.users.fetch(userId: uid)
             session.beginAuthenticatedSession(user: user, faceProfile: nil)
         } catch {
-            // A valid Firebase Auth session should not be destroyed merely
-            // because the profile service is temporarily slow/offline.
             Log.auth.error("Persisted user refresh failed: \(String(describing: error), privacy: .public)")
         }
+        isBootstrappingSession = false
     }
 
     @MainActor
