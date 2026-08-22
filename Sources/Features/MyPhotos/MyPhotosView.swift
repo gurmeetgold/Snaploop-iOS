@@ -398,13 +398,13 @@ private struct SinglePhotoPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 Text("\(position) of \(total)")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
 
                 preview
-                    .frame(maxHeight: 520)
+                    .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     .shadow(color: Theme.ink.opacity(0.10), radius: 18, y: 8)
 
@@ -434,10 +434,6 @@ private struct SinglePhotoPage: View {
                 }
                 .disabled(loader.image == nil)
 
-                Text("Swipe left or right for more photos · Pinch or double-tap to zoom")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
                 if let statusMessage {
                     Text(statusMessage)
                         .font(.caption)
@@ -445,7 +441,10 @@ private struct SinglePhotoPage: View {
                         .multilineTextAlignment(.center)
                 }
             }
-            .padding()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
         }
         .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
         .sheet(isPresented: $showShareSheet) { if let shareImage { ActivityView(items: [shareImage]) } }
@@ -463,12 +462,20 @@ private struct SinglePhotoPage: View {
     @ViewBuilder private var preview: some View {
         if let image = loader.image {
             ZoomablePhotoView(image: image)
-                .frame(maxWidth: .infinity, minHeight: 300)
+                .frame(maxWidth: .infinity)
+                .aspectRatio(photoAspectRatio(for: image), contentMode: .fit)
+                .frame(minHeight: 360, maxHeight: 680)
         } else if loader.failed {
             ContentUnavailableViewCompat(title: "Photo unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
+                .frame(maxWidth: .infinity, minHeight: 360)
         } else {
-            ProgressView().frame(maxWidth: .infinity, minHeight: 280)
+            ProgressView().frame(maxWidth: .infinity, minHeight: 360)
         }
+    }
+
+    private func photoAspectRatio(for image: UIImage) -> CGFloat {
+        guard image.size.height > 0 else { return 1 }
+        return max(image.size.width / image.size.height, 0.52)
     }
 
     private func shareImageAction() {
