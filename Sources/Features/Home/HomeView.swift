@@ -2,6 +2,7 @@ import SwiftUI
 
 private enum CachedEventList {
     private static func key(userId: String) -> String { "snaploop.events.cache.\(userId)" }
+    private static func countKey(userId: String) -> String { "snaploop.event.photoCounts.\(userId)" }
 
     static func load(userId: String) -> [Event] {
         guard let data = UserDefaults.standard.data(forKey: key(userId: userId)),
@@ -13,12 +14,24 @@ private enum CachedEventList {
         guard let data = try? JSONEncoder().encode(events) else { return }
         UserDefaults.standard.set(data, forKey: key(userId: userId))
     }
+
+    static func loadPhotoCounts(userId: String) -> [String: Int] {
+        guard let data = UserDefaults.standard.data(forKey: countKey(userId: userId)),
+              let counts = try? JSONDecoder().decode([String: Int].self, from: data) else { return [:] }
+        return counts
+    }
+
+    static func savePhotoCounts(_ counts: [String: Int], userId: String) {
+        guard let data = try? JSONEncoder().encode(counts) else { return }
+        UserDefaults.standard.set(data, forKey: countKey(userId: userId))
+    }
 }
 
 @MainActor
 final class HomeModel: ObservableObject {
     @Published var events: [Event] = []
     @Published var notifications: [EventNotification] = []
+    @Published var photoCounts: [String: Int] = [:]
     @Published var isLoading = false
     @Published var errorMessage: String?
     private var env: AppEnvironment?
@@ -29,6 +42,7 @@ final class HomeModel: ObservableObject {
         self.session = session
         if let userId = session.user?.id, events.isEmpty {
             events = CachedEventList.load(userId: userId)
+            photoCounts = CachedEventList.loadPhotoCounts(userId: userId)
         }
     }
 
@@ -41,15 +55,26 @@ final class HomeModel: ObservableObject {
             let refreshed = try await env.events.events(forUserId: userId)
             events = refreshed
             CachedEventList.save(refreshed, userId: userId)
+            Task { await refreshPhotoCounts(events: refreshed, userId: userId) }
         } catch {
-            // Keep the last known Event list visible rather than flashing an
-            // empty state during a slow or transient network refresh.
             errorMessage = (error as NSError).localizedDescription
         }
 
-        // Updates are useful but must never hold back the Event list.
         notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? notifications
         isLoading = false
+    }
+
+    private func refreshPhotoCounts(events: [Event], userId: String) async {
+        guard let env else { return }
+        var refreshedCounts = photoCounts
+        for event in events where event.status != .deletedByOrganizer {
+            guard !Task.isCancelled else { return }
+            if let matches = try? await env.matches.myPhotos(eventId: event.id, userId: userId) {
+                refreshedCounts[event.id] = matches.count
+                photoCounts = refreshedCounts
+            }
+        }
+        CachedEventList.savePhotoCounts(refreshedCounts, userId: userId)
     }
 
     func dismissNotification(_ notification: EventNotification) async {
@@ -141,8 +166,10 @@ struct HomeView: View {
     private func eventList(_ events: [Event]) -> some View {
         VStack(spacing: 12) {
             ForEach(events) { event in
-                NavigationLink { EventDashboardView(event: event) } label: { EventCard(event: event, currentUserId: session.user?.id) }
-                    .buttonStyle(.plain).simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
+                NavigationLink { EventDashboardView(event: event) } label: {
+                    EventCard(event: event, currentUserId: session.user?.id, photoCount: model.photoCounts[event.id])
+                }
+                .buttonStyle(.plain).simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
             }
         }.padding(.horizontal)
     }
@@ -183,7 +210,9 @@ struct HomeView: View {
 }
 
 private struct EventCard: View {
-    let event: Event; let currentUserId: String?
+    let event: Event
+    let currentUserId: String?
+    let photoCount: Int?
     @EnvironmentObject private var env: AppEnvironment
     private var lifecycle: EventLifecycle.Status { EventLifecycle.status(for: event, clock: env.clock, config: env.config.current) }
     private var roleLabel: String { event.creatorUserId == currentUserId ? "ORGANIZER" : "MEMBER" }
@@ -197,7 +226,14 @@ private struct EventCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(event.name).font(.headline).foregroundStyle(Theme.ink).lineLimit(1)
                 HStack(spacing: 7) { Label(roleLabel, systemImage: event.creatorUserId == currentUserId ? "crown.fill" : "person.fill").font(.caption2.bold()).foregroundStyle(.secondary); StatusPill(text: statusLabel, tint: statusTint) }
-                Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar").font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
+                    if let photoCount {
+                        Label("\(photoCount) \(photoCount == 1 ? "photo" : "photos")", systemImage: "photo.fill")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer(); Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
         }.padding(14).background(.white.opacity(0.95), in: RoundedRectangle(cornerRadius: Theme.cardRadius)).shadow(color: Theme.ink.opacity(0.055), radius: 14, y: 7)
