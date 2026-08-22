@@ -35,10 +35,11 @@ final class PhoneAuthModel: ObservableObject {
                     try await env.users.save(created); user = created
                 } else { throw error }
             }
-            let faceProfile = try await env.faceProfiles.load(userId: uid)
-            var reconciledUser = user
-            if (faceProfile != nil) != user.hasFaceProfile { reconciledUser.hasFaceProfile = faceProfile != nil; try await env.users.save(reconciledUser) }
-            session.beginAuthenticatedSession(user: reconciledUser, faceProfile: faceProfile)
+
+            // Enter the authenticated UI immediately after identity is resolved.
+            // Face-profile hydration is deliberately deferred by RootView so it
+            // never holds the user on the login screen.
+            session.beginAuthenticatedSession(user: user, faceProfile: nil)
         } catch let error as AppError { errorMessage = error.userMessage }
         catch { errorMessage = AppError.unknown("\(error)").userMessage }
     }
