@@ -3,9 +3,14 @@ import Foundation
 // MARK: - Authentication
 public protocol AuthService: Sendable {
     var currentUserId: String? { get }
+    func resolvedCurrentUserId() async -> String?
     func startPhoneVerification(phoneNumber: String) async throws -> String
     func confirmVerification(verificationId: String, code: String) async throws -> String
     func signOut() throws
+}
+
+public extension AuthService {
+    func resolvedCurrentUserId() async -> String? { currentUserId }
 }
 
 // MARK: - Remote Config
