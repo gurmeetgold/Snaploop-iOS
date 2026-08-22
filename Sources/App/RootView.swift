@@ -50,14 +50,20 @@ struct RootView: View {
 
 struct MainTabView: View {
     @State private var selectedTab = Tab.home
-    enum Tab { case home, events, gallery, you }
+    enum Tab { case home, gallery, you }
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack { HomeView(showsGreeting: true) }.tabItem { Label("Home", systemImage: "house.fill") }.tag(Tab.home)
-            NavigationStack { HomeView(showsGreeting: false) }.tabItem { Label("Events", systemImage: "calendar.badge.clock") }.tag(Tab.events)
-            NavigationStack { AllMyPhotosView() }.tabItem { Label("Gallery", systemImage: "photo.stack.fill") }.tag(Tab.gallery)
-            NavigationStack { SettingsView() }.tabItem { Label("You", systemImage: "person.crop.circle.fill") }.tag(Tab.you)
-        }.tint(Theme.sunset)
+            NavigationStack { HomeView(showsGreeting: true) }
+                .tabItem { Label("Home", systemImage: "house.fill") }
+                .tag(Tab.home)
+            NavigationStack { AllMyPhotosView() }
+                .tabItem { Label("Gallery", systemImage: "photo.stack.fill") }
+                .tag(Tab.gallery)
+            NavigationStack { SettingsView() }
+                .tabItem { Label("You", systemImage: "person.crop.circle.fill") }
+                .tag(Tab.you)
+        }
+        .tint(Theme.sunset)
     }
 }
 
