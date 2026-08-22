@@ -15,10 +15,6 @@ private enum CachedGalleryMatches {
     }
 }
 
-/// Keeps the exact same underlying camera-library asset from appearing twice
-/// when that asset is surfaced through more than one Event. This does not use
-/// visual similarity and does not collapse burst shots, screenshots, crops, or
-/// separate photos that merely look alike.
 enum PhotoMatchDeduplication {
     static func unique(_ matches: [PhotoMatch]) -> [PhotoMatch] {
         var seen = Set<String>()
@@ -137,7 +133,7 @@ struct AllMyPhotosView: View {
     @EnvironmentObject private var session: AppSession
     @StateObject private var model = AllMyPhotosModel()
     @State private var filter: PhotoFilter = .all
-    @State private var columnCount = 2
+    @State private var columnCount = 3
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: columnCount >= 6 ? 4 : 8, alignment: .top), count: columnCount)
@@ -172,7 +168,7 @@ struct AllMyPhotosView: View {
                         }
                         Spacer()
                         Menu {
-                            ForEach([2, 4, 6, 8], id: \.self) { count in
+                            ForEach([2, 3, 4, 6], id: \.self) { count in
                                 Button {
                                     withAnimation(.snappy) { columnCount = count }
                                 } label: {
@@ -180,12 +176,14 @@ struct AllMyPhotosView: View {
                                 }
                             }
                         } label: {
-                            Label("\(columnCount)", systemImage: "square.grid.3x3.fill")
+                            Image(systemName: "square.grid.2x2.fill")
                                 .font(.subheadline.bold())
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
-                                .background(.white.opacity(0.9), in: Capsule())
-                                .foregroundStyle(Theme.sunset)
+                                .padding(11)
+                                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.divider)
+                                }
+                                .foregroundStyle(Theme.lilac)
                         }
                     }
                     .padding(.horizontal)
@@ -200,7 +198,7 @@ struct AllMyPhotosView: View {
                     if filtered.isEmpty {
                         if model.isLoading {
                             VStack(spacing: 12) {
-                                ProgressView().tint(Theme.sunset)
+                                ProgressView().tint(Theme.lilac)
                                 Text("Refreshing your photos…")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
