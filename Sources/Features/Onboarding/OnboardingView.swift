@@ -157,6 +157,8 @@ struct OnboardingView: View {
                 faceSetup
             case .privacy:
                 privacyControls
+            case .storage:
+                storageSummary
             }
         }
     }
@@ -234,6 +236,31 @@ struct OnboardingView: View {
         }
     }
 
+    private var storageSummary: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(.white)
+                    .shadow(color: Theme.navy.opacity(0.08), radius: 14, y: 7)
+                VStack(spacing: 12) {
+                    Image(systemName: "icloud.and.arrow.up.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(Theme.aqua)
+                    HStack(spacing: 8) {
+                        permissionChip(icon: "person.crop.circle", text: "Account")
+                        permissionChip(icon: "calendar", text: "Trip")
+                    }
+                    permissionChip(icon: "photo.badge.checkmark", text: "Matched previews")
+                }
+            }
+            .frame(width: 210, height: 170)
+
+            Label("Not your full photo library", systemImage: "xmark.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.sunset)
+        }
+    }
+
     private func symbolCard(_ icon: String, tint: Color, rotation: Double, x: CGFloat, y: CGFloat) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -281,7 +308,7 @@ struct OnboardingView: View {
 }
 
 private struct OnboardingPage {
-    enum Kind { case find, trip, dates, face, privacy }
+    enum Kind { case find, trip, dates, face, privacy, storage }
     struct Note { let icon: String; let text: String }
 
     let kind: Kind
@@ -294,9 +321,9 @@ private struct OnboardingPage {
         .init(
             kind: .find,
             title: "Find the photos you're in",
-            body: "After a trip, your best photos may be sitting on everyone else's phones. SnapLoop helps bring the photos of you together in one place.",
+            body: "After a trip, your best photos may be sitting on everyone else's phones. SnapLoop automatically brings the photos you're in to your phone.",
             primaryCTA: "See How It Works",
-            note: .init(icon: "sparkles", text: "Less chasing friends. More of your memories." )
+            note: .init(icon: "sparkles", text: "Less chasing friends. More of your memories.")
         ),
         .init(
             kind: .trip,
@@ -322,9 +349,16 @@ private struct OnboardingPage {
         .init(
             kind: .privacy,
             title: "Your photos. Your control.",
-            body: "Photo access lets SnapLoop check Trip-date photos on your iPhone for matches. Full Access works best for automatic discovery; Limited Access works with only the photos you choose. You can change permissions, revoke access, remove face data, or delete your account anytime.",
-            primaryCTA: "Continue to SnapLoop",
+            body: "Photo access lets SnapLoop check Trip-date photos on your iPhone for matches. Full Access works best for automatic discovery; Limited Access works with only the photos you choose. You can change permissions, revoke access, or remove face data at any time.",
+            primaryCTA: "Continue",
             note: .init(icon: "lock.shield.fill", text: "SnapLoop explains why access is needed before iOS asks you for permission.")
+        ),
+        .init(
+            kind: .storage,
+            title: "What SnapLoop stores",
+            body: "SnapLoop does not upload or store your entire photo library. Matching happens on your iPhone. We store only the information needed to run your account and Trips, plus matched optimized previews that are shared with Trip members.",
+            primaryCTA: "Continue to SnapLoop",
+            note: .init(icon: "iphone", text: "Your original photo library stays on your iPhone — SnapLoop never makes a full copy of it.")
         )
     ]
 }
