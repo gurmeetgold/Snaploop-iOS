@@ -109,9 +109,6 @@ struct SyncView: View {
         .task { model.configure(env: env, session: session) }
         .onDisappear { model.cancel() }
         .onChange(of: scenePhase) { _, newPhase in
-            // `.inactive` can occur for harmless system overlays, Control Center,
-            // permission UI, or transient interruptions while SnapLoop is still
-            // foregrounded. Only stop a manual scan when the app truly backgrounds.
             if newPhase == .background {
                 model.cancelForSafety(message: "Camera sync stopped because SnapLoop moved to the background. Return to SnapLoop and try again.")
             }
@@ -194,21 +191,23 @@ struct SyncView: View {
             VStack(spacing: 18) {
                 ZStack {
                     Circle().fill(Color.green.opacity(0.12))
-                    Image(systemName: summary.alreadyCaughtUp ? "checkmark.circle.fill" : "sparkles")
-                        .font(.system(size: 46)).foregroundStyle(summary.alreadyCaughtUp ? Color.green : Theme.sunset)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 46))
+                        .foregroundStyle(Color.green)
                 }
                 .frame(width: 94, height: 94)
 
-                Text(summary.alreadyCaughtUp
-                     ? "You're all caught up"
-                     : "Found \(summary.matchedPhotos) \(summary.matchedPhotos == 1 ? "matched photo" : "matched photos")")
-                    .font(.title3.bold()).foregroundStyle(Theme.ink)
+                Text("Scan complete")
+                    .font(.title3.bold())
+                    .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
                 Text(summary.alreadyCaughtUp
-                     ? "No new photos needed processing for this Event."
+                     ? "You're up to date for this Event."
                      : "Matched photos are now available to the Event members found in them.")
-                    .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
 
                 if summary.hasMore {
                     Button { model.start(event: event) } label: {
