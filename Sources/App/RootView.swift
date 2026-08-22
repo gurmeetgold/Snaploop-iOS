@@ -13,17 +13,8 @@ struct RootView: View {
         Group {
             if !hasCompletedOnboarding {
                 OnboardingView(isCompleted: $hasCompletedOnboarding)
-            } else if isBootstrappingSession {
-                ZStack {
-                    BrandScreenBackground()
-                    VStack(spacing: 18) {
-                        BrandMark(size: 68)
-                        ProgressView().tint(Theme.sunset)
-                        Text("Opening SnapLoop…")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            } else if isBootstrappingSession || (session.user == nil && environment.auth.currentUserId != nil) {
+                openingView
             } else if session.user != nil {
                 MainTabView()
                     .sheet(item: $session.pendingRoute) { route in
@@ -80,6 +71,19 @@ struct RootView: View {
         }
     }
 
+    private var openingView: some View {
+        ZStack {
+            BrandScreenBackground()
+            VStack(spacing: 18) {
+                BrandMark(size: 68)
+                ProgressView().tint(Theme.sunset)
+                Text("Opening SnapLoop…")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     @MainActor
     private func kickOffDeferredStartupWork() {
         guard let userId = session.user?.id else {
@@ -116,6 +120,7 @@ struct RootView: View {
             if var user = session.user, (faceProfile != nil) != user.hasFaceProfile {
                 user.hasFaceProfile = faceProfile != nil
                 session.user = user
+                SessionUserCache.save(user)
                 try? await environment.users.save(user)
             }
         } catch {
@@ -161,6 +166,14 @@ struct RootView: View {
         didBootstrapSession = true
         guard session.user == nil, let uid = environment.auth.currentUserId else { return }
 
+        // The local cache lets a returning authenticated user reach Home without
+        // waiting on the network. Firebase refresh remains authoritative.
+        if let cachedUser = SessionUserCache.load(userId: uid) {
+            session.beginAuthenticatedSession(user: cachedUser, faceProfile: nil)
+            Task { await refreshPersistedUser(userId: uid) }
+            return
+        }
+
         isBootstrappingSession = true
         defer { isBootstrappingSession = false }
 
@@ -168,8 +181,21 @@ struct RootView: View {
             let user = try await environment.users.fetch(userId: uid)
             session.beginAuthenticatedSession(user: user, faceProfile: nil)
         } catch {
-            try? environment.auth.signOut()
-            session.clearAuthenticatedSession(preservePendingRoute: true)
+            // A valid Firebase Auth session should not be destroyed merely
+            // because the profile service is temporarily slow/offline.
+            Log.auth.error("Persisted user refresh failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    @MainActor
+    private func refreshPersistedUser(userId: String) async {
+        do {
+            let refreshed = try await environment.users.fetch(userId: userId)
+            guard session.user?.id == userId else { return }
+            session.user = refreshed
+            SessionUserCache.save(refreshed)
+        } catch {
+            Log.auth.error("Background user refresh failed: \(String(describing: error), privacy: .public)")
         }
     }
 }
