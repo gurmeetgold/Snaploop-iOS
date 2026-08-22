@@ -66,14 +66,14 @@ struct PrivacyView: View {
         .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("This permanently removes your account, face data, Trip memberships, and photo previews sourced from your account. It cannot be undone.") }
+        } message: { Text("This permanently removes your account, face data, Event memberships, and photo previews sourced from your account. It cannot be undone.") }
     }
 
     private var privacyIntro: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
                 Label("You stay in control", systemImage: "hand.raised.fill").font(.headline).foregroundStyle(Theme.ink)
-                Text("SnapLoop never uploads your entire photo library. Photo matching runs on your iPhone and is limited to the selected Trip date range. Your Face Setup selfie/reference images stay only on this iPhone; SnapLoop stores only face-template metadata for matching.")
+                Text("SnapLoop never uploads your entire photo library. Photo matching runs on your iPhone and is limited to the selected Event date range. Your Face Setup selfie/reference images stay only on this iPhone; SnapLoop stores only face-template metadata for matching.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.padding(.horizontal)
@@ -83,7 +83,7 @@ struct PrivacyView: View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Data retention", systemImage: "clock.badge.checkmark").font(.headline).foregroundStyle(Theme.ink)
-                Text("All Trip-related cloud data, including matched photo previews, is deleted within 15 days after a Trip ends. If a Trip is manually deleted, its Trip-related cloud data is also deleted within 15 days of deletion.")
+                Text("All Event-related cloud data, including matched photo previews, is deleted within 15 days after an Event ends. If an Event is manually deleted, its Event-related cloud data is also deleted within 15 days of deletion.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.padding(.horizontal)
@@ -93,7 +93,7 @@ struct PrivacyView: View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Delete Face Setup", systemImage: "faceid").font(.headline).foregroundStyle(.red)
-                Text("Removes your local Face Setup reference images, private face-template metadata, and your face matches from Trip metadata. You can set it up again later.")
+                Text("Removes your local Face Setup reference images, private face-template metadata, and your face matches from Event metadata. You can set it up again later.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmProfile = true } label: { Label("Delete Face Setup", systemImage: "trash.fill") }.disabled(model.busy)
             }.frame(maxWidth: .infinity, alignment: .leading)
@@ -104,7 +104,7 @@ struct PrivacyView: View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Delete Account", systemImage: "person.crop.circle.badge.xmark").font(.headline).foregroundStyle(.red)
-                Text("Deletes your account, face data, Trip memberships, and photo previews sourced from this account.")
+                Text("Deletes your account, face data, Event memberships, and photo previews sourced from this account.")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmAccount = true } label: { Label("Delete SnapLoop Account", systemImage: "trash.fill") }.disabled(model.busy)
             }.frame(maxWidth: .infinity, alignment: .leading)
