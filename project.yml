@@ -78,6 +78,11 @@ targets:
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "MyPicsRoom saves a shared photo preview to your Photos library only when you tap Save."
         INFOPLIST_KEY_NSCameraUsageDescription: "MyPicsRoom uses the front camera for guided Face Setup and can use the camera for event QR codes."
         INFOPLIST_KEY_NSContactsUsageDescription: "MyPicsRoom lets an organizer choose a contact to send that person an event invitation. MyPicsRoom does not upload your address book."
+      configs:
+        Debug:
+          APS_ENVIRONMENT: development
+        Release:
+          APS_ENVIRONMENT: production
 
   SnapLoopTests:
     type: bundle.unit-test
