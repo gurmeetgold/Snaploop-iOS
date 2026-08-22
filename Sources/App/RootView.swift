@@ -76,14 +76,10 @@ struct RootView: View {
         ZStack {
             BrandScreenBackground()
             VStack(spacing: 20) {
-                BrandMark(size: 72)
-                ZStack {
-                    Circle().fill(Theme.mint.opacity(0.14)).frame(width: 72, height: 72)
-                    Image(systemName: "faceid")
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(Theme.mint)
-                }
-                ProgressView().tint(Theme.mint).scaleEffect(1.15)
+                BrandMark(size: 78)
+                ProgressView()
+                    .tint(Theme.lilac)
+                    .controlSize(.large)
                 Text("Signing you in…")
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
