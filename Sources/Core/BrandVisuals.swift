@@ -7,50 +7,75 @@ struct BrandMark: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+            RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 1.00, green: 0.32, blue: 0.18),
-                            Color(red: 1.00, green: 0.08, blue: 0.48),
-                            Color(red: 0.74, green: 0.08, blue: 1.00),
-                            Color(red: 0.14, green: 0.24, blue: 1.00)
+                            Color(red: 1.00, green: 0.36, blue: 0.16),
+                            Color(red: 1.00, green: 0.04, blue: 0.42),
+                            Color(red: 0.95, green: 0.00, blue: 0.88),
+                            Color(red: 0.53, green: 0.04, blue: 1.00),
+                            Color(red: 0.08, green: 0.27, blue: 1.00)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
+                .overlay {
+                    RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [.white.opacity(0.20), .clear, .black.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+                        .stroke(.white.opacity(0.30), lineWidth: max(1, size * 0.014))
+                }
 
-            // Bold white S loop.
             SnapLoopSShape()
                 .stroke(
                     .white,
                     style: StrokeStyle(
-                        lineWidth: max(4, size * 0.145),
+                        lineWidth: max(4, size * 0.15),
                         lineCap: .round,
                         lineJoin: .round
                     )
                 )
-                .frame(width: size * 0.58, height: size * 0.64)
+                .frame(width: size * 0.60, height: size * 0.66)
+                .shadow(color: .black.opacity(0.18), radius: size * 0.025, y: size * 0.018)
 
-            // Camera shutter at the center of the S.
             ZStack {
                 Circle()
-                    .fill(Color(red: 0.48, green: 0.02, blue: 0.46).opacity(0.96))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.95, green: 0.00, blue: 0.58),
+                                Color(red: 0.43, green: 0.01, blue: 0.78)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
                 ForEach(0..<6, id: \.self) { index in
                     ShutterBladeShape()
-                        .fill(.white.opacity(0.96))
+                        .fill(.white.opacity(0.98))
                         .rotationEffect(.degrees(Double(index) * 60))
                 }
+
                 Circle()
-                    .fill(Color(red: 0.69, green: 0.04, blue: 0.75))
-                    .frame(width: size * 0.085, height: size * 0.085)
+                    .fill(Color(red: 0.76, green: 0.01, blue: 0.93))
+                    .frame(width: size * 0.080, height: size * 0.080)
             }
-            .frame(width: size * 0.31, height: size * 0.31)
-            .shadow(color: .black.opacity(0.16), radius: size * 0.025, y: size * 0.012)
+            .frame(width: size * 0.32, height: size * 0.32)
+            .shadow(color: .black.opacity(0.20), radius: size * 0.030, y: size * 0.016)
         }
         .frame(width: size, height: size)
-        .shadow(color: Color(red: 0.66, green: 0.10, blue: 1.0).opacity(0.26), radius: size * 0.12, y: size * 0.04)
+        .shadow(color: Color(red: 0.91, green: 0.02, blue: 0.82).opacity(0.24), radius: size * 0.12, y: size * 0.04)
         .accessibilityHidden(true)
     }
 }
@@ -104,8 +129,8 @@ struct BrandWordmark: View {
                     .foregroundStyle(
                         LinearGradient(
                             colors: [
-                                Color(red: 1.00, green: 0.28, blue: 0.20),
-                                Color(red: 1.00, green: 0.08, blue: 0.48)
+                                Color(red: 1.00, green: 0.31, blue: 0.17),
+                                Color(red: 1.00, green: 0.02, blue: 0.48)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
@@ -115,9 +140,9 @@ struct BrandWordmark: View {
                     .foregroundStyle(
                         LinearGradient(
                             colors: [
-                                Color(red: 0.92, green: 0.04, blue: 0.88),
-                                Color(red: 0.55, green: 0.06, blue: 1.00),
-                                Color(red: 0.12, green: 0.28, blue: 1.00)
+                                Color(red: 0.96, green: 0.00, blue: 0.88),
+                                Color(red: 0.63, green: 0.02, blue: 1.00),
+                                Color(red: 0.08, green: 0.30, blue: 1.00)
                             ],
                             startPoint: .leading,
                             endPoint: .trailing
