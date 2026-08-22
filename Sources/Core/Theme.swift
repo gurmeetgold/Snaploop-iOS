@@ -1,26 +1,59 @@
 import SwiftUI
 
-/// MyPicsTube "Coral Luxe" design system.
-/// Coral drives personal/photo actions, lilac adds youthful energy, deep navy
-/// carries typography and trust, and warm ivory keeps the interface light,
-/// premium and calm.
+/// SnapLoop bright gradient design system.
+/// The palette stays energetic in Light Mode and shifts to deep navy surfaces in Dark Mode.
 public enum Theme {
 
-    // MARK: Brand colors
-    public static let coral = Color(red: 1.00, green: 0.42, blue: 0.37)          // #FF6B5E
-    public static let coralDeep = Color(red: 0.96, green: 0.35, blue: 0.29)      // #F45A4B
-    public static let coralSoft = Color(red: 1.00, green: 0.88, blue: 0.86)      // #FFE2DE
-    public static let peach = Color(red: 1.00, green: 0.84, blue: 0.81)          // #FFD7CF
-    public static let lilac = Color(red: 0.65, green: 0.55, blue: 0.98)          // #A78BFA
-    public static let lilacSoft = Color(red: 0.93, green: 0.91, blue: 1.00)      // #EEE7FF
-    public static let blue = Color(red: 0.31, green: 0.55, blue: 0.99)           // #4F8DFD
-    public static let blueSoft = Color(red: 0.91, green: 0.95, blue: 1.00)       // #E8F1FF
-    public static let mint = Color(red: 0.15, green: 0.78, blue: 0.48)           // #27C77B
-    public static let amber = Color(red: 0.96, green: 0.70, blue: 0.26)          // #F5B342
-    public static let ink = Color(red: 0.086, green: 0.094, blue: 0.149)         // #161826
-    public static let navy = Color(red: 0.086, green: 0.129, blue: 0.243)        // #16213E
-    public static let canvas = Color(red: 0.985, green: 0.976, blue: 0.969)      // warm ivory
-    public static let surface = Color.white
+    // MARK: - Brand colors
+    public static let coral = Color(red: 1.00, green: 0.29, blue: 0.35)          // #FF4A59
+    public static let coralDeep = Color(red: 0.95, green: 0.19, blue: 0.34)      // #F33056
+    public static let coralSoft = Color(red: 1.00, green: 0.88, blue: 0.89)
+    public static let peach = Color(red: 1.00, green: 0.53, blue: 0.31)          // #FF874F
+    public static let lilac = Color(red: 0.56, green: 0.27, blue: 0.98)          // #8F45FA
+    public static let lilacSoft = Color(red: 0.92, green: 0.88, blue: 1.00)
+    public static let blue = Color(red: 0.18, green: 0.36, blue: 1.00)           // #2E5CFF
+    public static let blueSoft = Color(red: 0.88, green: 0.92, blue: 1.00)
+    public static let mint = Color(red: 0.05, green: 0.79, blue: 0.46)           // #0CC976
+    public static let amber = Color(red: 1.00, green: 0.63, blue: 0.08)          // #FFA114
+
+    // MARK: - Adaptive semantic colors
+    public static let ink = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.96, green: 0.97, blue: 1.00, alpha: 1)
+            : UIColor(red: 0.045, green: 0.065, blue: 0.12, alpha: 1)
+    })
+
+    public static let navy = ink
+
+    public static let canvas = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.018, green: 0.050, blue: 0.082, alpha: 1)  // deep blue-black
+            : UIColor(red: 0.985, green: 0.988, blue: 0.997, alpha: 1)
+    })
+
+    public static let surface = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.045, green: 0.095, blue: 0.135, alpha: 1)
+            : UIColor.white
+    })
+
+    public static let elevatedSurface = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.055, green: 0.115, blue: 0.16, alpha: 1)
+            : UIColor(red: 0.995, green: 0.995, blue: 1.0, alpha: 1)
+    })
+
+    public static let subtleSurface = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.075, green: 0.13, blue: 0.18, alpha: 1)
+            : UIColor(red: 0.965, green: 0.97, blue: 0.985, alpha: 1)
+    })
+
+    public static let divider = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(0.10)
+            : UIColor.black.withAlphaComponent(0.08)
+    })
 
     // Compatibility aliases while older screens are migrated.
     public static let sunset = coral
@@ -28,30 +61,59 @@ public enum Theme {
     public static let pink = lilac
     public static let aqua = mint
     public static let sky = blue
-    public static let skyDeep = Color(red: 0.22, green: 0.46, blue: 0.90)
+    public static let skyDeep = Color(red: 0.10, green: 0.38, blue: 0.96)
     public static let violet = lilac
-    public static let violetDeep = Color(red: 0.50, green: 0.39, blue: 0.88)
-
+    public static let violetDeep = Color(red: 0.42, green: 0.20, blue: 0.90)
     public static let separator = Color(uiColor: .separator)
 
-    // MARK: Gradients
+    // MARK: - Gradients
     public static let brandGradient = LinearGradient(
-        colors: [coral, coralDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
-    public static let coralGradient = brandGradient
-    public static let sunsetGradient = LinearGradient(
-        colors: [coral, peach], startPoint: .topLeading, endPoint: .bottomTrailing)
-    public static let socialGradient = LinearGradient(
-        colors: [blue, lilac], startPoint: .topLeading, endPoint: .bottomTrailing)
-    public static let skyGradient = socialGradient
-    public static let violetGradient = LinearGradient(
-        colors: [lilac, coral], startPoint: .topLeading, endPoint: .bottomTrailing)
-    public static let amberGradient = LinearGradient(
-        colors: [amber, coral], startPoint: .topLeading, endPoint: .bottomTrailing)
-    public static let softWash = LinearGradient(
-        colors: [coralSoft.opacity(0.72), lilacSoft.opacity(0.72), blueSoft.opacity(0.48)],
-        startPoint: .leading, endPoint: .trailing)
+        colors: [coral, Color(red: 0.91, green: 0.20, blue: 0.56), lilac, blue],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
 
-    // MARK: Geometry
+    public static let coralGradient = LinearGradient(
+        colors: [Color(red: 1.00, green: 0.39, blue: 0.27), coralDeep],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    public static let sunsetGradient = coralGradient
+
+    public static let socialGradient = LinearGradient(
+        colors: [blue, Color(red: 0.38, green: 0.30, blue: 1.00), lilac],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    public static let skyGradient = socialGradient
+
+    public static let violetGradient = LinearGradient(
+        colors: [coral, Color(red: 0.82, green: 0.22, blue: 0.69), lilac, blue],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    public static let amberGradient = LinearGradient(
+        colors: [amber, peach, coral],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    public static let galleryGradient = LinearGradient(
+        colors: [coral, Color(red: 0.86, green: 0.20, blue: 0.65), lilac, blue],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+
+    public static let softWash = LinearGradient(
+        colors: [coralSoft.opacity(0.72), lilacSoft.opacity(0.62), blueSoft.opacity(0.55)],
+        startPoint: .leading,
+        endPoint: .trailing
+    )
+
+    // MARK: - Geometry
     public static let cardRadius: CGFloat = 24
     public static let tileRadius: CGFloat = 22
     public static let chipRadius: CGFloat = 22
@@ -96,7 +158,8 @@ struct GradientTile: View {
                     if let badge {
                         Text(badge)
                             .font(.caption2).bold()
-                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
                             .background(.white.opacity(0.22), in: Capsule())
                             .foregroundStyle(.white)
                     }
@@ -109,7 +172,7 @@ struct GradientTile: View {
         }
         .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous))
-        .shadow(color: Theme.navy.opacity(0.10), radius: 14, y: 8)
+        .shadow(color: Color.black.opacity(0.12), radius: 14, y: 8)
     }
 }
 
@@ -126,14 +189,15 @@ struct FilterChip: View {
                 Text(title)
             }
             .font(.subheadline).bold()
-            .padding(.horizontal, 14).padding(.vertical, 9)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
             .background(
-                isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(.white.opacity(0.92)),
+                isSelected ? AnyShapeStyle(Theme.socialGradient) : AnyShapeStyle(Theme.surface),
                 in: Capsule()
             )
-            .foregroundStyle(isSelected ? .white : Theme.navy)
-            .overlay(Capsule().strokeBorder(isSelected ? .clear : Theme.separator.opacity(0.20)))
-            .shadow(color: isSelected ? Theme.coral.opacity(0.18) : .clear, radius: 8, y: 4)
+            .foregroundStyle(isSelected ? .white : Theme.ink)
+            .overlay(Capsule().strokeBorder(isSelected ? .clear : Theme.divider))
+            .shadow(color: isSelected ? Theme.lilac.opacity(0.24) : .clear, radius: 10, y: 4)
         }
         .buttonStyle(.plain)
     }
@@ -146,28 +210,21 @@ struct InsightBanner: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Theme.coralSoft)
-                Image(systemName: systemImage)
-                    .font(.title2)
-                    .foregroundStyle(Theme.coralDeep)
-            }
-            .frame(width: 54, height: 54)
-
             VStack(alignment: .leading, spacing: 2) {
-                Text(value).font(.title).bold().foregroundStyle(Theme.navy)
-                Text(label).font(.subheadline).foregroundStyle(.secondary)
+                Text(value)
+                    .font(.system(size: 42, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.94))
             }
             Spacer()
-            Image(systemName: "sparkles")
-                .foregroundStyle(Theme.lilac.opacity(0.85))
+            Image(systemName: systemImage)
+                .font(.title)
+                .foregroundStyle(.white)
         }
-        .padding(16)
-        .background(Theme.softWash, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                .strokeBorder(.white.opacity(0.78))
-        }
+        .padding(20)
+        .background(Theme.galleryGradient, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .shadow(color: Theme.lilac.opacity(0.20), radius: 18, y: 8)
     }
 }
