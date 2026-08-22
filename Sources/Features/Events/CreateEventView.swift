@@ -21,7 +21,7 @@ final class CreateEventModel: ObservableObject {
     func create() async -> Event? {
         guard let env, let session else { return nil }
         guard let user = session.user, let profile = session.faceProfile else {
-            errorMessage = "Complete Face Setup before creating a Trip so SnapLoop can find your photos."
+            errorMessage = "Complete Face Setup before creating an Event so SnapLoop can find your photos."
             return nil
         }
         isSaving = true
@@ -65,10 +65,7 @@ struct CreateEventView: View {
     }
 
     private var allowedEndDates: ClosedRange<Date> {
-        let durationEnd = EventLifecycle.maximumEndDate(
-            from: model.startsAt,
-            config: env.config.current
-        )
+        let durationEnd = EventLifecycle.maximumEndDate(from: model.startsAt, config: env.config.current)
         let upper = min(allowedDates.upperBound, durationEnd)
         return model.startsAt...max(model.startsAt, upper)
     }
@@ -85,16 +82,16 @@ struct CreateEventView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         BrandMark(size: 58)
-                        Text("Create a Trip")
+                        Text("Create an Event")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.ink)
-                        Text("Travel, party, family celebration, wedding — give the shared memories a home.")
+                        Text("Travel, party, family celebration, wedding — bring everyone's photos together.")
                             .font(.subheadline).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
 
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                fieldLabel("Trip name", icon: "textformat")
+                                fieldLabel("Event name", icon: "textformat")
                                 TextField("e.g. Banff Weekend", text: $model.name)
                                     .textInputAutocapitalization(.words)
                                     .padding(14)
@@ -121,7 +118,7 @@ struct CreateEventView: View {
 
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                fieldLabel("Trip dates", icon: "calendar")
+                                fieldLabel("Event dates", icon: "calendar")
                                 DatePicker("Starts", selection: $model.startsAt, in: allowedDates, displayedComponents: [.date])
                                     .onChange(of: model.startsAt) { _, newStart in
                                         if model.endsAt < newStart || !allowedEndDates.contains(model.endsAt) {
@@ -130,7 +127,7 @@ struct CreateEventView: View {
                                     }
                                 Divider()
                                 DatePicker("Ends", selection: $model.endsAt, in: allowedEndDates, displayedComponents: [.date])
-                                Text("SnapLoop only considers photos taken within this Trip's selected date range. For this MVP, dates must stay within 15 days before or after today, and a Trip can span at most 15 calendar days.")
+                                Text("SnapLoop only considers photos taken within this Event's selected date range. For this MVP, dates must stay within 15 days before or after today, and an Event can span at most 15 calendar days.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -153,7 +150,7 @@ struct CreateEventView: View {
                             HStack {
                                 if model.isSaving { ProgressView().tint(.white) }
                                 else { Image(systemName: "sparkles") }
-                                Text("Create Trip")
+                                Text("Create Event")
                             }
                         }
                         .buttonStyle(MyPicsTubePrimaryButtonStyle())
@@ -163,7 +160,7 @@ struct CreateEventView: View {
                     .padding(20)
                 }
             }
-            .navigationTitle("New Trip")
+            .navigationTitle("New Event")
             .navigationBarTitleDisplayMode(.inline)
             .task { model.configure(env: env, session: session) }
             .toolbar {
