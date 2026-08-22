@@ -2,119 +2,19 @@ import SwiftUI
 import UIKit
 
 /// SnapLoop visual identity used throughout the app.
+/// Uses the approved production brand asset so the in-app mark and installed icon stay identical.
 struct BrandMark: View {
     var size: CGFloat = 72
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 1.00, green: 0.36, blue: 0.16),
-                            Color(red: 1.00, green: 0.04, blue: 0.42),
-                            Color(red: 0.95, green: 0.00, blue: 0.88),
-                            Color(red: 0.53, green: 0.04, blue: 1.00),
-                            Color(red: 0.08, green: 0.27, blue: 1.00)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [.white.opacity(0.20), .clear, .black.opacity(0.08)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
-                        .stroke(.white.opacity(0.30), lineWidth: max(1, size * 0.014))
-                }
-
-            SnapLoopSShape()
-                .stroke(
-                    .white,
-                    style: StrokeStyle(
-                        lineWidth: max(4, size * 0.15),
-                        lineCap: .round,
-                        lineJoin: .round
-                    )
-                )
-                .frame(width: size * 0.60, height: size * 0.66)
-                .shadow(color: .black.opacity(0.18), radius: size * 0.025, y: size * 0.018)
-
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.95, green: 0.00, blue: 0.58),
-                                Color(red: 0.43, green: 0.01, blue: 0.78)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                ForEach(0..<6, id: \.self) { index in
-                    ShutterBladeShape()
-                        .fill(.white.opacity(0.98))
-                        .rotationEffect(.degrees(Double(index) * 60))
-                }
-
-                Circle()
-                    .fill(Color(red: 0.76, green: 0.01, blue: 0.93))
-                    .frame(width: size * 0.080, height: size * 0.080)
-            }
-            .frame(width: size * 0.32, height: size * 0.32)
-            .shadow(color: .black.opacity(0.20), radius: size * 0.030, y: size * 0.016)
-        }
-        .frame(width: size, height: size)
-        .shadow(color: Color(red: 0.91, green: 0.02, blue: 0.82).opacity(0.24), radius: size * 0.12, y: size * 0.04)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct SnapLoopSShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.maxX * 0.78, y: rect.minY + rect.height * 0.12))
-        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.38, y: rect.minY + rect.height * 0.12))
-        path.addCurve(
-            to: CGPoint(x: rect.minX + rect.width * 0.34, y: rect.midY),
-            control1: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.minY + rect.height * 0.12),
-            control2: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.midY - rect.height * 0.06)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.maxX * 0.66, y: rect.midY),
-            control1: CGPoint(x: rect.minX + rect.width * 0.43, y: rect.midY + rect.height * 0.02),
-            control2: CGPoint(x: rect.maxX * 0.57, y: rect.midY - rect.height * 0.02)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.minX + rect.width * 0.22, y: rect.maxY * 0.88),
-            control1: CGPoint(x: rect.maxX * 0.88, y: rect.midY + rect.height * 0.02),
-            control2: CGPoint(x: rect.maxX * 0.88, y: rect.maxY * 0.88)
-        )
-        path.addLine(to: CGPoint(x: rect.minX + rect.width * 0.62, y: rect.maxY * 0.88))
-        return path
-    }
-}
-
-private struct ShutterBladeShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        path.move(to: CGPoint(x: c.x, y: rect.minY + rect.height * 0.08))
-        path.addLine(to: CGPoint(x: rect.maxX * 0.82, y: rect.minY + rect.height * 0.25))
-        path.addLine(to: CGPoint(x: rect.maxX * 0.64, y: rect.midY))
-        path.addLine(to: c)
-        path.closeSubpath()
-        return path
+        Image("SnapLoopBrandMark")
+            .resizable()
+            .renderingMode(.original)
+            .interpolation(.high)
+            .antialiased(true)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
 
@@ -124,32 +24,9 @@ struct BrandWordmark: View {
     var body: some View {
         HStack(spacing: compact ? 6 : 9) {
             BrandMark(size: compact ? 30 : 48)
-            HStack(spacing: 0) {
-                Text("Snap")
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 1.00, green: 0.31, blue: 0.17),
-                                Color(red: 1.00, green: 0.02, blue: 0.48)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                Text("Loop")
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [
-                                Color(red: 0.96, green: 0.00, blue: 0.88),
-                                Color(red: 0.63, green: 0.02, blue: 1.00),
-                                Color(red: 0.08, green: 0.30, blue: 1.00)
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-            }
-            .font(compact ? .system(.headline, design: .rounded, weight: .bold) : .system(size: 34, weight: .bold, design: .rounded))
+            Text("SnapLoop")
+                .font(compact ? .system(.headline, design: .rounded, weight: .bold) : .system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.brandGradient)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("SnapLoop")
@@ -164,20 +41,25 @@ struct BrandScreenBackground: View {
             Theme.canvas
             if colorScheme == .dark {
                 RadialGradient(
-                    colors: [Theme.blue.opacity(0.10), Theme.canvas.opacity(0.0)],
+                    colors: [Theme.lilac.opacity(0.14), Theme.canvas.opacity(0.0)],
                     center: .topTrailing,
                     startRadius: 20,
-                    endRadius: 520
+                    endRadius: 540
                 )
                 RadialGradient(
-                    colors: [Theme.lilac.opacity(0.08), Theme.canvas.opacity(0.0)],
+                    colors: [Theme.hotPink.opacity(0.10), Theme.canvas.opacity(0.0)],
                     center: .bottomLeading,
                     startRadius: 20,
                     endRadius: 520
                 )
             } else {
                 LinearGradient(
-                    colors: [Color.white, Theme.blueSoft.opacity(0.18), Theme.lilacSoft.opacity(0.20)],
+                    colors: [
+                        Color.white,
+                        Color(red: 1.00, green: 0.96, blue: 0.94),
+                        Color(red: 1.00, green: 0.95, blue: 0.98),
+                        Color(red: 0.97, green: 0.95, blue: 1.00)
+                    ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
@@ -202,7 +84,7 @@ struct PremiumCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                     .strokeBorder(Theme.divider)
             }
-            .shadow(color: Color.black.opacity(0.10), radius: 18, y: 8)
+            .shadow(color: Theme.hotPink.opacity(0.07), radius: 18, y: 8)
     }
 }
 
