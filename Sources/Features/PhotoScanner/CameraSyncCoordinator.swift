@@ -10,8 +10,9 @@ public struct CameraSyncCoordinator {
     private let matches: MatchRepository
     private let scanStateStore: ScanStateStore
 
-    private static let normalSafetyBatchCap = 25
-    private static let lowPowerSafetyBatchCap = 10
+    private static let normalSafetyBatchCap = 50
+    private static let lowPowerSafetyBatchCap = 15
+    private static let elevatedThermalBatchCap = 10
 
     public init(
         config: ConfigProviding,
@@ -76,9 +77,7 @@ public struct CameraSyncCoordinator {
         state.retainScannedAssetIds(Set(assets.map(\.id)))
 
         let planned = ScanPlanner(config: values).plan(assets: assets, event: event, state: state)
-        let safetyCap = ProcessInfo.processInfo.isLowPowerModeEnabled
-            ? Self.lowPowerSafetyBatchCap
-            : Self.normalSafetyBatchCap
+        let safetyCap = Self.currentSafetyBatchCap()
         let toScan = Array(planned.toScan.prefix(safetyCap))
         let deferredBySafetyCap = max(0, planned.toScan.count - toScan.count)
         let remainingAfterPass = planned.remaining + deferredBySafetyCap
@@ -189,10 +188,24 @@ public struct CameraSyncCoordinator {
         return true
     }
 
+    private static func currentSafetyBatchCap() -> Int {
+        let baseCap = ProcessInfo.processInfo.isLowPowerModeEnabled
+            ? lowPowerSafetyBatchCap
+            : normalSafetyBatchCap
+
+        // At Apple's `.serious` thermal state we continue conservatively with a
+        // much smaller batch instead of presenting a hard-stop message. Only a
+        // `.critical` state stops face scanning outright.
+        if ProcessInfo.processInfo.thermalState == .serious {
+            return min(baseCap, elevatedThermalBatchCap)
+        }
+        return baseCap
+    }
+
     private static func checkDeviceSafety() throws {
         switch ProcessInfo.processInfo.thermalState {
-        case .serious, .critical: throw AppError.deviceTooWarm
-        case .nominal, .fair: return
+        case .critical: throw AppError.deviceTooWarm
+        case .nominal, .fair, .serious: return
         @unknown default: return
         }
     }
