@@ -1,82 +1,20 @@
 import SwiftUI
 import UIKit
 
-/// SnapLoop production brand mark: vivid social-photo gradient + white S + aperture.
-/// Built from scalable vector primitives so it stays crisp and never clips at small sizes.
+/// Exact production SnapLoop mark supplied for the app icon and in-app branding.
+/// Keeping one raster source prevents the S/aperture geometry from drifting between screens.
 struct BrandMark: View {
     var size: CGFloat = 72
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(Theme.brandGradient)
-                .overlay {
-                    LinearGradient(
-                        colors: [.white.opacity(0.20), .clear, .black.opacity(0.06)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                        .strokeBorder(.white.opacity(0.28), lineWidth: max(1, size * 0.012))
-                }
-
-            Text("S")
-                .font(.system(size: size * 0.74, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
-                .minimumScaleFactor(1)
-                .shadow(color: .black.opacity(0.16), radius: size * 0.025, y: size * 0.018)
-                .offset(y: -size * 0.006)
-
-            ApertureMark(size: size * 0.31)
-                .shadow(color: .black.opacity(0.18), radius: size * 0.026, y: size * 0.012)
-        }
-        .frame(width: size, height: size)
-        .shadow(color: Theme.hotPink.opacity(0.22), radius: size * 0.10, y: size * 0.035)
-        .accessibilityHidden(true)
-    }
-}
-
-private struct ApertureMark: View {
-    let size: CGFloat
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(
-                    LinearGradient(
-                        colors: [Theme.coralDeep, Theme.hotPink, Theme.magenta, Theme.violetDeep],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            ForEach(0..<6, id: \.self) { index in
-                ApertureBlade()
-                    .fill(.white.opacity(0.98))
-                    .rotationEffect(.degrees(Double(index) * 60))
-            }
-
-            Circle()
-                .fill(Theme.magenta)
-                .frame(width: size * 0.18, height: size * 0.18)
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-private struct ApertureBlade: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.08))
-        path.addLine(to: CGPoint(x: rect.maxX * 0.83, y: rect.minY + rect.height * 0.28))
-        path.addLine(to: CGPoint(x: rect.maxX * 0.64, y: rect.midY))
-        path.addLine(to: c)
-        path.closeSubpath()
-        return path
+        Image("SnapLoopBrandMark")
+            .resizable()
+            .interpolation(.high)
+            .antialiased(true)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .shadow(color: Theme.hotPink.opacity(0.24), radius: size * 0.10, y: size * 0.035)
+            .accessibilityHidden(true)
     }
 }
 
@@ -103,27 +41,41 @@ struct BrandScreenBackground: View {
             Theme.canvas
             if colorScheme == .dark {
                 RadialGradient(
-                    colors: [Theme.lilac.opacity(0.14), Theme.canvas.opacity(0.0)],
+                    colors: [Theme.lilac.opacity(0.16), Theme.canvas.opacity(0.0)],
                     center: .topTrailing,
                     startRadius: 20,
                     endRadius: 540
                 )
                 RadialGradient(
-                    colors: [Theme.hotPink.opacity(0.10), Theme.canvas.opacity(0.0)],
+                    colors: [Theme.hotPink.opacity(0.12), Theme.canvas.opacity(0.0)],
                     center: .bottomLeading,
                     startRadius: 20,
                     endRadius: 520
                 )
             } else {
+                // Neutral white base with restrained pink/violet bloom. Avoids the old
+                // peach/golden cast while letting the saturated controls stay crisp.
                 LinearGradient(
                     colors: [
                         Color.white,
-                        Color(red: 1.00, green: 0.96, blue: 0.94),
-                        Color(red: 1.00, green: 0.95, blue: 0.98),
-                        Color(red: 0.97, green: 0.95, blue: 1.00)
+                        Color(red: 1.00, green: 0.975, blue: 0.985),
+                        Color(red: 0.985, green: 0.970, blue: 1.00),
+                        Color.white
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
+                )
+                RadialGradient(
+                    colors: [Theme.hotPink.opacity(0.055), .clear],
+                    center: .bottomLeading,
+                    startRadius: 10,
+                    endRadius: 430
+                )
+                RadialGradient(
+                    colors: [Theme.lilac.opacity(0.045), .clear],
+                    center: .topTrailing,
+                    startRadius: 10,
+                    endRadius: 430
                 )
             }
         }
@@ -146,7 +98,7 @@ struct PremiumCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                     .strokeBorder(Theme.divider)
             }
-            .shadow(color: Theme.hotPink.opacity(0.07), radius: 18, y: 8)
+            .shadow(color: Theme.hotPink.opacity(0.08), radius: 18, y: 8)
     }
 }
 
