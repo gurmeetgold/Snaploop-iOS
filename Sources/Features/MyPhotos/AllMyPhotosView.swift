@@ -34,6 +34,7 @@ final class AllMyPhotosModel: ObservableObject {
     @Published var favoriteIds: Set<String> = []
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published private(set) var ownerNames: [String: String] = [:]
     private var env: AppEnvironment?
     private var session: AppSession?
     private var reloadGeneration = 0
@@ -44,6 +45,7 @@ final class AllMyPhotosModel: ObservableObject {
         if let userId = session.user?.id, photos.isEmpty {
             photos = CachedGalleryMatches.load(userId: userId)
             favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+            if let name = session.user?.displayName, !name.isEmpty { ownerNames[userId] = name }
         }
     }
 
@@ -66,6 +68,8 @@ final class AllMyPhotosModel: ObservableObject {
 
         var allMatches: [PhotoMatch] = []
         var firstError: Error?
+        var names = ownerNames
+        if let ownName = session?.user?.displayName, !ownName.isEmpty { names[userId] = ownName }
 
         for event in events where event.status != .deletedByOrganizer {
             guard !Task.isCancelled, generation == reloadGeneration else { return }
@@ -75,6 +79,16 @@ final class AllMyPhotosModel: ObservableObject {
                 let (eventMatches, members) = try await (matchesTask, membersTask)
                 let sharingEnabled = members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
                 allMatches.append(contentsOf: eventMatches.filter { sharingEnabled || $0.ownerUserId != userId })
+
+                for member in members where names[member.userId] == nil {
+                    if member.userId == userId, let ownName = session?.user?.displayName, !ownName.isEmpty {
+                        names[member.userId] = ownName
+                    } else if let user = try? await env.users.fetch(userId: member.userId),
+                              let displayName = user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              !displayName.isEmpty {
+                        names[member.userId] = displayName
+                    }
+                }
             } catch AppError.notAMember {
                 continue
             } catch AppError.eventNotFound {
@@ -87,6 +101,7 @@ final class AllMyPhotosModel: ObservableObject {
         guard generation == reloadGeneration else { return }
         let refreshed = PhotoMatchDeduplication.unique(allMatches).sorted { $0.capturedAt > $1.capturedAt }
         photos = refreshed
+        ownerNames = names
         CachedGalleryMatches.save(refreshed, userId: userId)
         favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
         errorMessage = firstError.map { ($0 as NSError).localizedDescription }
@@ -94,7 +109,8 @@ final class AllMyPhotosModel: ObservableObject {
     }
 
     func ownerLabel(for match: PhotoMatch) -> String {
-        match.ownerUserId == session?.user?.id ? "You" : "Event member"
+        if match.ownerUserId == session?.user?.id { return session?.user?.displayName ?? "You" }
+        return ownerNames[match.ownerUserId] ?? "Event member"
     }
 
     func isFavorite(_ match: PhotoMatch) -> Bool { favoriteIds.contains(match.id) }
