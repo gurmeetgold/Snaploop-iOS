@@ -30,11 +30,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        guard AppEnvironment.useLiveServices else { return }
-        Task { @MainActor in AutomaticEventSync.shared.scheduleBackgroundProcessing() }
-    }
-
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
