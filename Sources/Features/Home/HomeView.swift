@@ -211,7 +211,7 @@ struct HomeView: View {
     private var createJoinRow: some View {
         HStack(spacing: 12) {
             Button { showCreate = true } label: {
-                actionCard(title: "Create Event", subtitle: "Trip, party, family & more", icon: "plus", gradient: Theme.coralGradient)
+                actionCard(title: "Create Event", subtitle: "Trip, party, family & more", icon: "plus", gradient: Theme.brandGradient)
             }
             Button { showJoin = true } label: {
                 actionCard(title: "Join Event", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient)
@@ -318,12 +318,20 @@ private struct EventCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.80)
 
-                Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                    Text(DateFormatting.range(event.startsAt, event.endsAt))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .allowsTightening(true)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
+            .layoutPriority(1)
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
 
             VStack(alignment: .trailing, spacing: 10) {
                 StatusPill(text: statusLabel, tint: statusTint)
