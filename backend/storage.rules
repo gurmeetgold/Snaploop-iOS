@@ -29,9 +29,11 @@ service firebase.storage {
         firestore.get(memberPath(eventId, request.auth.uid)).data.sharingEnabled == true;
     }
 
-    function publishedPhotoMatchesOwner(eventId, ownerUserId, photoId) {
-      return firestore.exists(photoPath(eventId, photoId)) &&
-        firestore.get(photoPath(eventId, photoId)).data.sourceUserId == ownerUserId;
+    function publishedPhotoVisibleToViewer(eventId, ownerUserId, photoId) {
+      return firestore.exists(photoPath(eventId, photoId))
+        && firestore.get(photoPath(eventId, photoId)).data.sourceUserId == ownerUserId
+        && firestore.get(photoPath(eventId, photoId)).data.matchedUserIds is list
+        && firestore.get(photoPath(eventId, photoId)).data.matchedUserIds.hasAny([request.auth.uid]);
     }
 
     match /events/{eventId}/cover.jpg {
@@ -43,16 +45,11 @@ service firebase.storage {
     }
 
     match /events/{eventId}/photos/{ownerUserId}/{photoId}/thumbnail.jpg {
-      // Read evaluation touches at most two Firestore documents: the viewer's
-      // membership and the trusted backing photo metadata. Turning sharing off
-      // deletes the backing photo metadata before the callable completes, which
-      // immediately makes the object unreadable even if physical object cleanup
-      // needs a retry.
+      // Cloud previews are private to people who are actually matched in the
+      // photo. Membership alone is not enough to retrieve another person's image.
       allow read: if isMember(eventId)
-        && publishedPhotoMatchesOwner(eventId, ownerUserId, photoId);
+        && publishedPhotoVisibleToViewer(eventId, ownerUserId, photoId);
 
-      // Upload evaluation touches only the signed-in owner's member document.
-      // publishMatch later verifies the object and creates trusted metadata.
       allow create, update: if request.auth.uid == ownerUserId
         && ownSharingEnabled(eventId)
         && request.resource.size < 5 * 1024 * 1024
@@ -60,7 +57,6 @@ service firebase.storage {
       allow delete: if isMember(eventId) && request.auth.uid == ownerUserId;
     }
 
-    // Originals are never exposed through ordinary client Storage rules.
     match /events/{eventId}/transfers/{transferId}/{file} {
       allow read, write: if false;
     }
