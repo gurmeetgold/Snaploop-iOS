@@ -1,5 +1,20 @@
 import SwiftUI
 
+private enum CachedEventList {
+    private static func key(userId: String) -> String { "snaploop.events.cache.\(userId)" }
+
+    static func load(userId: String) -> [Event] {
+        guard let data = UserDefaults.standard.data(forKey: key(userId: userId)),
+              let events = try? JSONDecoder().decode([Event].self, from: data) else { return [] }
+        return events
+    }
+
+    static func save(_ events: [Event], userId: String) {
+        guard let data = try? JSONEncoder().encode(events) else { return }
+        UserDefaults.standard.set(data, forKey: key(userId: userId))
+    }
+}
+
 @MainActor
 final class HomeModel: ObservableObject {
     @Published var events: [Event] = []
@@ -8,14 +23,35 @@ final class HomeModel: ObservableObject {
     @Published var errorMessage: String?
     private var env: AppEnvironment?
     private var session: AppSession?
-    func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
+
+    func configure(env: AppEnvironment, session: AppSession) {
+        self.env = env
+        self.session = session
+        if let userId = session.user?.id, events.isEmpty {
+            events = CachedEventList.load(userId: userId)
+        }
+    }
+
     func reload() async {
         guard let env, let userId = session?.user?.id else { return }
-        isLoading = true; errorMessage = nil; defer { isLoading = false }
-        do { events = try await env.events.events(forUserId: userId) }
-        catch { events = []; errorMessage = (error as NSError).localizedDescription }
-        notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? []
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let refreshed = try await env.events.events(forUserId: userId)
+            events = refreshed
+            CachedEventList.save(refreshed, userId: userId)
+        } catch {
+            // Keep the last known Event list visible rather than flashing an
+            // empty state during a slow or transient network refresh.
+            errorMessage = (error as NSError).localizedDescription
+        }
+
+        // Updates are useful but must never hold back the Event list.
+        notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? notifications
+        isLoading = false
     }
+
     func dismissNotification(_ notification: EventNotification) async {
         guard let userId = session?.user?.id else { return }
         notifications.removeAll { $0.id == notification.id }
@@ -54,7 +90,15 @@ struct HomeView: View {
                         }
                     }
                     sectionHeader(showsGreeting ? "Your Events" : "All Events")
-                    if visibleEvents.isEmpty { emptyState.padding(.horizontal) } else { eventList(visibleEvents) }
+                    if visibleEvents.isEmpty {
+                        if model.isLoading {
+                            ProgressView().frame(maxWidth: .infinity).padding(.vertical, 36)
+                        } else {
+                            emptyState.padding(.horizontal)
+                        }
+                    } else {
+                        eventList(visibleEvents)
+                    }
                     if !deletedEvents.isEmpty { sectionHeader("Deleted"); eventList(deletedEvents) }
                 }
                 .padding(.vertical, 12)
@@ -72,7 +116,10 @@ struct HomeView: View {
                 }
             }
         }
-        .task { model.configure(env: env, session: session); await model.reload() }
+        .task {
+            model.configure(env: env, session: session)
+            await model.reload()
+        }
         .refreshable { await model.reload() }
         .sheet(isPresented: $showCreate) { CreateEventView { event in session.activeEvent = event; Task { await model.reload() } } }
         .sheet(isPresented: $showJoin) { EnterCodeView { route in showJoin = false; joinRoute = route } }
