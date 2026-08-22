@@ -17,13 +17,51 @@ struct RootView: View {
                 MainTabView().sheet(item: $session.pendingRoute) { route in NavigationStack { JoinEventView(route: route) { event in PendingInviteStore.clear(); session.pendingRoute = nil; session.activeEvent = event } } }
             } else { PhoneAuthFlowView() }
         }
-        .task { guard hasCompletedOnboarding else { return }; await environment.config.refresh(); await bootstrapPersistedSessionIfNeeded(); await loadPendingInviteIfNeeded(); if session.user != nil { await PushNotificationClient.requestAuthorizationAndRegister() } }
-        .onChange(of: hasCompletedOnboarding) { _, completed in guard completed else { return }; Task { await environment.config.refresh(); await bootstrapPersistedSessionIfNeeded(); await loadPendingInviteIfNeeded() } }
-        .onChange(of: session.user?.id) { _, userId in guard userId != nil else { return }; Task { await loadPendingInviteIfNeeded(); await PushNotificationClient.requestAuthorizationAndRegister() } }
-        .onChange(of: scenePhase) { _, phase in guard phase == .active, hasCompletedOnboarding else { return }; Task { await loadPendingInviteIfNeeded() } }
-        .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { _ in guard hasCompletedOnboarding else { return }; Task { await loadPendingInviteIfNeeded() } }
+        .task {
+            guard hasCompletedOnboarding else { return }
+            await environment.config.refresh()
+            await bootstrapPersistedSessionIfNeeded()
+            await loadPendingInviteIfNeeded()
+            if session.user != nil {
+                await PushNotificationClient.requestAuthorizationAndRegister()
+                configureAutomaticSyncAndRun()
+            }
+        }
+        .onChange(of: hasCompletedOnboarding) { _, completed in
+            guard completed else { return }
+            Task {
+                await environment.config.refresh()
+                await bootstrapPersistedSessionIfNeeded()
+                await loadPendingInviteIfNeeded()
+                if session.user != nil { configureAutomaticSyncAndRun() }
+            }
+        }
+        .onChange(of: session.user?.id) { _, userId in
+            guard userId != nil else { return }
+            Task {
+                await loadPendingInviteIfNeeded()
+                await PushNotificationClient.requestAuthorizationAndRegister()
+                configureAutomaticSyncAndRun()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, hasCompletedOnboarding else { return }
+            Task {
+                await loadPendingInviteIfNeeded()
+                if session.user != nil { configureAutomaticSyncAndRun() }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { _ in
+            guard hasCompletedOnboarding else { return }
+            Task { await loadPendingInviteIfNeeded() }
+        }
         .onOpenURL { url in captureInvite(url) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in if let url = activity.webpageURL { captureInvite(url) } }
+    }
+
+    @MainActor private func configureAutomaticSyncAndRun() {
+        AutomaticEventSync.shared.configure(environment: environment, session: session)
+        AutomaticEventSync.shared.runWhenAppBecomesActive()
     }
 
     @MainActor private func captureInvite(_ url: URL) { if let route = DeepLinkRouter.route(for: url) { PendingInviteStore.save(route); session.pendingRoute = route } }
