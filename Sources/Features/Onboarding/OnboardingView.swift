@@ -33,7 +33,7 @@ struct OnboardingView: View {
     private var topBar: some View {
         HStack {
             BrandWordmark()
-                .scaleEffect(0.86, anchor: .leading)
+                .scaleEffect(0.82, anchor: .leading)
 
             Spacer()
 
@@ -43,21 +43,21 @@ struct OnboardingView: View {
                 .accessibilityLabel("Step \(page + 1) of \(pages.count)")
         }
         .padding(.horizontal, 22)
-        .padding(.top, 12)
+        .padding(.top, 6)
     }
 
     private func onboardingPage(_ item: OnboardingPage, index: Int) -> some View {
         ScrollView {
-            VStack(spacing: 28) {
-                Spacer(minLength: 20)
+            VStack(spacing: 18) {
+                Spacer(minLength: 4)
 
                 illustration(for: item, index: index)
-                    .frame(height: 240)
+                    .frame(height: 205)
                     .accessibilityHidden(true)
 
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     Text(item.title)
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -66,7 +66,7 @@ struct OnboardingView: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .lineSpacing(3)
+                        .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 28)
@@ -77,21 +77,22 @@ struct OnboardingView: View {
                         .foregroundStyle(Theme.ink.opacity(0.78))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 10)
                         .frame(maxWidth: 340)
                         .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .padding(.horizontal, 24)
                 }
 
-                Spacer(minLength: 12)
+                Spacer(minLength: 4)
             }
             .frame(maxWidth: .infinity)
+            .padding(.bottom, 6)
         }
         .scrollIndicators(.hidden)
     }
 
     private var footer: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             HStack(spacing: 7) {
                 ForEach(pages.indices, id: \.self) { index in
                     Capsule()
@@ -118,13 +119,14 @@ struct OnboardingView: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(minHeight: 36)
+                .frame(minHeight: 32)
             } else {
-                Color.clear.frame(height: 36)
+                Color.clear.frame(height: 32)
             }
         }
         .padding(.horizontal, 22)
-        .padding(.bottom, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
         .background(.ultraThinMaterial.opacity(0.72))
     }
 
@@ -141,7 +143,7 @@ struct OnboardingView: View {
         ZStack {
             Circle()
                 .fill(Theme.softWash)
-                .frame(width: 208, height: 208)
+                .frame(width: 190, height: 190)
                 .scaleEffect(motion ? 1 : 0.92)
                 .opacity(motion ? 1 : 0.5)
                 .animation(.easeOut(duration: 0.7).delay(Double(index) * 0.05), value: motion)
@@ -163,35 +165,35 @@ struct OnboardingView: View {
 
     private var photoStack: some View {
         ZStack {
-            symbolCard("photo.fill", tint: Theme.sky, rotation: -10, x: -54, y: 18)
-            symbolCard("person.2.fill", tint: Theme.violet, rotation: 9, x: 52, y: 10)
-            symbolCard("person.crop.square.fill", tint: Theme.sunset, rotation: 0, x: 0, y: -25)
+            symbolCard("photo.fill", tint: Theme.sky, rotation: -10, x: -50, y: 16)
+            symbolCard("person.2.fill", tint: Theme.violet, rotation: 9, x: 48, y: 8)
+            symbolCard("person.crop.square.fill", tint: Theme.sunset, rotation: 0, x: 0, y: -22)
             Image(systemName: "sparkles")
-                .font(.system(size: 30, weight: .semibold))
+                .font(.system(size: 28, weight: .semibold))
                 .foregroundStyle(Theme.sunset)
-                .offset(x: 76, y: -70)
+                .offset(x: 70, y: -62)
                 .symbolEffect(.pulse, options: .repeating)
         }
     }
 
     private var faceSetup: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .stroke(Theme.violet.opacity(0.35), lineWidth: 3)
-                .frame(width: 150, height: 184)
+                .frame(width: 140, height: 170)
             Image(systemName: "faceid")
-                .font(.system(size: 92, weight: .light))
+                .font(.system(size: 84, weight: .light))
                 .foregroundStyle(Theme.violet)
             Image(systemName: "iphone.gen3.circle.fill")
-                .font(.system(size: 38))
+                .font(.system(size: 36))
                 .foregroundStyle(Theme.aqua)
                 .background(Circle().fill(.white))
-                .offset(x: 70, y: 78)
+                .offset(x: 65, y: 70)
         }
     }
 
     private var tripFlow: some View {
-        HStack(spacing: 13) {
+        HStack(spacing: 11) {
             featureBubble(icon: "plus.circle.fill", label: "Create")
             Image(systemName: "arrow.left.and.right")
                 .font(.title2.bold())
@@ -204,7 +206,7 @@ struct OnboardingView: View {
         HStack(spacing: 10) {
             VStack(spacing: 8) {
                 Image(systemName: "person.2.crop.square.stack.fill")
-                    .font(.system(size: 52))
+                    .font(.system(size: 48))
                     .foregroundStyle(Theme.violet)
                 Text("Trip phones").font(.caption.bold())
             }
@@ -213,7 +215,7 @@ struct OnboardingView: View {
                 .foregroundStyle(Theme.sunset)
             VStack(spacing: 8) {
                 Image(systemName: "person.crop.square.fill")
-                    .font(.system(size: 60))
+                    .font(.system(size: 54))
                     .foregroundStyle(Theme.sky)
                 Text("Photos of you").font(.caption.bold())
             }
@@ -221,9 +223,9 @@ struct OnboardingView: View {
     }
 
     private var privacySummary: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 9) {
             Image(systemName: "lock.shield.fill")
-                .font(.system(size: 66))
+                .font(.system(size: 58))
                 .foregroundStyle(Theme.sky)
             HStack(spacing: 8) {
                 permissionChip(icon: "calendar", text: "Trip dates only")
@@ -231,7 +233,7 @@ struct OnboardingView: View {
             }
             HStack(spacing: 8) {
                 permissionChip(icon: "photo.on.rectangle.angled", text: "No full upload")
-                permissionChip(icon: "trash", text: "Deletion controls")
+                permissionChip(icon: "trash", text: "10-day deletion")
             }
         }
     }
@@ -242,10 +244,10 @@ struct OnboardingView: View {
                 .fill(.white)
                 .shadow(color: Theme.navy.opacity(0.11), radius: 13, y: 7)
             Image(systemName: icon)
-                .font(.system(size: 39, weight: .medium))
+                .font(.system(size: 37, weight: .medium))
                 .foregroundStyle(tint)
         }
-        .frame(width: 92, height: 106)
+        .frame(width: 86, height: 98)
         .rotationEffect(.degrees(rotation))
         .offset(x: x, y: y)
     }
@@ -253,11 +255,11 @@ struct OnboardingView: View {
     private func featureBubble(icon: String, label: String) -> some View {
         VStack(spacing: 9) {
             Image(systemName: icon)
-                .font(.system(size: 45))
+                .font(.system(size: 42))
                 .foregroundStyle(Theme.sunset)
             Text(label).font(.caption.bold()).foregroundStyle(Theme.ink)
         }
-        .frame(width: 104, height: 112)
+        .frame(width: 98, height: 104)
         .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .shadow(color: Theme.navy.opacity(0.08), radius: 14, y: 7)
     }
@@ -296,7 +298,7 @@ private struct OnboardingPage {
             title: "Set up your face once",
             body: "Take a quick guided selfie so SnapLoop can recognize you in Trip photos. Your selfie and reference images stay only on this iPhone and are not uploaded to SnapLoop.",
             primaryCTA: "Continue",
-            note: .init(icon: "function", text: "To enable matching across your Trips, SnapLoop stores a mathematical face template — not your selfie photo.")
+            note: .init(icon: "lock.shield.fill", text: "To enable matching across your Trips, SnapLoop stores a mathematical face template — not your selfie photo.")
         ),
         .init(
             kind: .trip,
@@ -315,9 +317,9 @@ private struct OnboardingPage {
         .init(
             kind: .privacy,
             title: "Private by design",
-            body: "SnapLoop never uploads your entire photo library. It checks only photos within your Trip's selected date range, and face matching happens on your iPhone. SnapLoop stores account and Trip information, your mathematical face-matching profile, and optimized previews of matched photos. You can change permissions, revoke access, remove Face Setup, or delete your account.",
+            body: "SnapLoop never uploads your entire photo library. It checks only photos within your Trip's selected date range, and face matching happens on your iPhone.",
             primaryCTA: "Start Using SnapLoop",
-            note: .init(icon: "trash.fill", text: "Matched cloud previews are automatically removed 10 days after a Trip ends. If a Trip is deleted, its Trip-related cloud data is removed within 7 days.")
+            note: .init(icon: "trash.fill", text: "All Trip-related cloud data, including matched photo previews, is deleted within a maximum of 10 days after the Trip ends.")
         )
     ]
 }
