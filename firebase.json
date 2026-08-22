@@ -26,6 +26,13 @@
     ],
     "rewrites": [
       {
+        "source": "/api/invite-preview",
+        "function": {
+          "functionId": "invitePreview",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "/e/**",
         "destination": "/index.html"
       },
