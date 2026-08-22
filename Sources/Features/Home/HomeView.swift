@@ -308,24 +308,43 @@ private struct EventCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 18))
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(event.name).font(.headline).foregroundStyle(Theme.ink).lineLimit(1)
+                Text(event.name)
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+
                 HStack(spacing: 7) {
                     Label(roleLabel, systemImage: event.creatorUserId == currentUserId ? "crown.fill" : "person.fill")
                         .font(.caption2.bold())
                         .foregroundStyle(.secondary)
                     StatusPill(text: statusLabel, tint: statusTint)
                 }
-                HStack(spacing: 10) {
-                    Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
-                    if let photoCount {
-                        Label("\(photoCount) \(photoCount == 1 ? "photo" : "photos")", systemImage: "photo.fill")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+
+                Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Spacer()
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+
+            Spacer(minLength: 8)
+
+            VStack(spacing: 10) {
+                if let photoCount {
+                    HStack(spacing: 5) {
+                        Image(systemName: "photo.fill")
+                        Text("\(photoCount)")
+                            .monospacedDigit()
+                    }
+                    .font(.caption.bold())
+                    .foregroundStyle(Theme.lilac)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Theme.lilac.opacity(0.12), in: Capsule())
+                }
+
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+            }
         }
         .padding(14)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
