@@ -227,10 +227,6 @@ struct FaceSetupView: View {
         !model.consentActive || model.templates.isEmpty || model.isBusy || (session.hasFaceProfile && !model.hasChanges)
     }
 
-    private var saveGradient: LinearGradient {
-        LinearGradient(colors: [Theme.aqua, Theme.sky], startPoint: .leading, endPoint: .trailing)
-    }
-
     var body: some View {
         ZStack {
             BrandScreenBackground()
@@ -258,7 +254,7 @@ struct FaceSetupView: View {
                         }
                     }
 
-                    actionButton("Guided Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.socialGradient) {
+                    actionButton("Guided Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.brandGradient) {
                         if model.consentActive {
                             showGuidedEnrollment = true
                         } else {
@@ -301,9 +297,9 @@ struct FaceSetupView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
-                    .background(saveGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .disabled(saveDisabled)
-                    .opacity(saveDisabled ? 0.38 : 1)
+                    .opacity(saveDisabled ? 0.5 : 1)
 
                     if session.hasFaceProfile {
                         NavigationLink { FaceMatchingTestView() } label: {
@@ -416,7 +412,7 @@ struct FaceSetupView: View {
                     .font(.caption.bold())
                     .foregroundStyle(model.hasGalleryReference ? .green : .secondary)
             }
-            Text("One optional gallery reference is supported. If the photo has several people, SnapLoop asks you to choose your face.")
+            Text("MVP allows one gallery face only. If the photo has several people, SnapLoop asks you to choose your face.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }
