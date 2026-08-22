@@ -1,10 +1,8 @@
-import FirebaseFunctions
 import SwiftUI
 
 @MainActor
 final class ParticipantsModel: ObservableObject {
     @Published var members: [EventMember] = []
-    @Published var participants: [EventParticipant] = []
     @Published var sharingEnabled = true
     @Published var errorMessage: String?
 
@@ -26,37 +24,28 @@ final class ParticipantsModel: ObservableObject {
 
     func reload() async {
         guard let env else { return }
-        if AppEnvironment.useLiveServices { try? await syncRosterIdentity() }
-        async let membersResult = env.events.members(eventId: event.id)
-        async let participantsResult = env.events.participants(eventId: event.id)
-        members = (try? await membersResult) ?? []
-        participants = (try? await participantsResult) ?? []
-        if let me = members.first(where: { $0.userId == session?.user?.id }) {
-            sharingEnabled = me.sharingEnabled
-        }
-    }
-
-    private func syncRosterIdentity() async throws {
-        let functions = Functions.functions()
-        let _: Any = try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Any, Error>) in
-            functions.httpsCallable("syncEventRosterIdentities").call(["eventId": event.id]) { result, error in
-                if let error { continuation.resume(throwing: error); return }
-                continuation.resume(returning: result?.data as Any)
+        do {
+            members = try await env.events.members(eventId: event.id)
+            if let me = members.first(where: { $0.userId == session?.user?.id }) {
+                sharingEnabled = me.sharingEnabled
             }
+            errorMessage = nil
+        } catch {
+            members = []
+            errorMessage = EventManagementClient.userMessage(for: error)
         }
     }
 
     func displayName(for member: EventMember) -> String {
         if member.userId == session?.user?.id {
-            if let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return "\(name) (You)" }
-            if let phone = session?.user?.phoneNumber, !phone.isEmpty { return "\(phone) (You)" }
+            if let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                return "\(name) (You)"
+            }
         }
-        if let participant = participants.first(where: { $0.userId == member.userId }) {
-            if let name = participant.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-            if let phone = participant.phoneNumber, !phone.isEmpty { return phone }
+        if let name = member.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
         }
-        return member.role.displayName
+        return "Event member"
     }
 
     func initial(for member: EventMember) -> String {
@@ -88,6 +77,7 @@ final class ParticipantsModel: ObservableObject {
         do {
             try await service?.setSharing(eventId: event.id, userId: userId, enabled: enabled)
             sharingEnabled = enabled
+            await reload()
         } catch {
             errorMessage = EventManagementClient.userMessage(for: error)
         }
@@ -124,12 +114,8 @@ final class ParticipantsModel: ObservableObject {
         do {
             if AppEnvironment.useLiveServices {
                 try await EventManagementClient.setRole(eventId: event.id, userId: member.userId, role: role)
-            } else {
-                // Dev-only role mutation isn't persisted by the legacy in-memory
-                // repository; update local presentation for UI testing.
-                if let index = members.firstIndex(where: { $0.userId == member.userId }) {
-                    members[index].role = role
-                }
+            } else if let index = members.firstIndex(where: { $0.userId == member.userId }) {
+                members[index].role = role
             }
             await reload()
             errorMessage = nil
@@ -159,11 +145,15 @@ struct ParticipantsView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             Label("Your sharing", systemImage: "photo.stack.fill")
                                 .font(.headline).foregroundStyle(Theme.ink)
-                            Toggle("Share my matched previews to this event", isOn: Binding(
+                            Toggle("Show matched pictures from my phone in this Event", isOn: Binding(
                                 get: { model.sharingEnabled },
                                 set: { value in Task { await model.setSharing(value) } }
                             ))
                             .tint(Theme.sunset)
+
+                            Text("When this is on, SnapLoop can share matched Event previews found on your phone with the people they match.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
 
                             if model.currentUserCanInvite {
                                 NavigationLink { ShareEventView(event: model.event) } label: {
@@ -178,7 +168,7 @@ struct ParticipantsView: View {
                                     Label("Leave Event", systemImage: "rectangle.portrait.and.arrow.right")
                                 }
                             } else {
-                                Label("Organizer controls for editing, ending and deleting are on the event screen.", systemImage: "crown.fill")
+                                Label("Organizer controls for editing, ending and deleting are on the Event screen.", systemImage: "crown.fill")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -230,7 +220,7 @@ struct ParticipantsView: View {
             await model.reload()
         }
         .refreshable { await model.reload() }
-        .confirmationDialog("Leave this event?", isPresented: $confirmLeave, titleVisibility: .visible) {
+        .confirmationDialog("Leave this Event?", isPresented: $confirmLeave, titleVisibility: .visible) {
             Button("Leave Event", role: .destructive) {
                 Task {
                     await model.leave()
@@ -242,7 +232,7 @@ struct ParticipantsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your membership will be removed from this event.")
+            Text("Your membership will be removed from this Event.")
         }
     }
 
