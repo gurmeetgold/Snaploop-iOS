@@ -74,11 +74,20 @@ struct RootView: View {
     private var openingView: some View {
         ZStack {
             BrandScreenBackground()
-            VStack(spacing: 18) {
-                BrandMark(size: 68)
-                ProgressView().tint(Theme.sunset)
-                Text("Opening SnapLoop…")
-                    .font(.subheadline.weight(.semibold))
+            VStack(spacing: 20) {
+                BrandMark(size: 72)
+                ZStack {
+                    Circle().fill(Color.green.opacity(0.12)).frame(width: 72, height: 72)
+                    Image(systemName: "faceid")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(.green)
+                }
+                ProgressView().tint(.green).scaleEffect(1.15)
+                Text("Signing you in…")
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
+                Text("Restoring your secure SnapLoop session")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -166,9 +175,6 @@ struct RootView: View {
         didBootstrapSession = true
         guard session.user == nil else { return }
 
-        // Firebase may need a short moment to restore Auth state from Keychain.
-        // Stay on the branded opening screen during that resolution instead of
-        // flashing the phone-entry UI for a user who is already signed in.
         isBootstrappingSession = true
         let uid = await environment.auth.resolvedCurrentUserId()
 
