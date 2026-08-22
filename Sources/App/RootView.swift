@@ -39,13 +39,22 @@ struct RootView: View {
             await environment.config.refresh()
             await bootstrapPersistedSessionIfNeeded()
             await loadPendingInviteIfNeeded()
+            if session.user != nil {
+                await PushNotificationClient.requestAuthorizationAndRegister()
+            }
         }
         .onChange(of: session.user?.id) { _, userId in
             guard userId != nil else { return }
-            Task { await loadPendingInviteIfNeeded() }
+            Task {
+                await loadPendingInviteIfNeeded()
+                await PushNotificationClient.requestAuthorizationAndRegister()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
+            Task { await loadPendingInviteIfNeeded() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { _ in
             Task { await loadPendingInviteIfNeeded() }
         }
         .onOpenURL { url in captureInvite(url) }
