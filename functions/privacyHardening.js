@@ -9,8 +9,6 @@ const FieldValue = admin.firestore.FieldValue;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PREVIEW_RETENTION_DAYS = 10;
-// Run deletion early enough that an hourly scheduler still completes within the
-// public seven-day deletion commitment even with ordinary execution jitter.
 const DELETED_TRIP_HARD_DELETE_AFTER_MS = (6 * DAY_MS) + (12 * 60 * 60 * 1000);
 
 function requireAuth(request) {
@@ -35,6 +33,14 @@ async function commitDeletes(refs) {
   }
 }
 
+async function commitUpdates(items) {
+  for (let offset = 0; offset < items.length; offset += 400) {
+    const batch = db.batch();
+    for (const item of items.slice(offset, offset + 400)) batch.update(item.ref, item.data);
+    await batch.commit();
+  }
+}
+
 async function deleteCollection(path) {
   const snap = await db.collection(path).get();
   await commitDeletes(snap.docs.map((doc) => doc.ref));
@@ -52,9 +58,6 @@ async function purgePhotoPreviews(eventId) {
   try {
     await admin.storage().bucket().deleteFiles({ prefix: `events/${eventId}/photos/` });
   } catch (error) {
-    // Firestore metadata is authoritative for access. Storage Rules deny reads
-    // when the trusted photo record is gone; physical object cleanup is retried
-    // by later retention passes if the provider has a transient failure.
     console.error("Trip preview object cleanup failed", { eventId, error });
   }
 }
@@ -97,9 +100,19 @@ async function hardDeleteTrip(eventId, event) {
   await db.doc(`events/${eventId}`).delete();
 }
 
-// Face descriptors are no longer directly readable from participant roster
-// documents. A signed-in member requests the minimum matching set through this
-// trusted callable; it verifies membership before reading private face profiles.
+function callableTemplates(rawTemplates) {
+  if (!Array.isArray(rawTemplates)) return [];
+  return rawTemplates
+    .filter((item) => item && Array.isArray(item.embedding) && item.embedding.length > 0)
+    .map((item) => ({
+      id: typeof item.id === "string" ? item.id : null,
+      embedding: item.embedding,
+      pose: typeof item.pose === "string" ? item.pose : "alternate",
+      quality: Number(item.quality || 1),
+      createdAtMillis: item.createdAt instanceof Timestamp ? item.createdAt.toMillis() : Date.now(),
+    }));
+}
+
 exports.listEventFaceProfiles = onCall(async (request) => {
   const uid = requireAuth(request);
   const eventId = requireString((request.data || {}).eventId, "eventId");
@@ -132,7 +145,7 @@ exports.listEventFaceProfiles = onCall(async (request) => {
       userId: member.id,
       displayName: user.displayName || null,
       faceEmbedding: profile.embedding,
-      faceTemplates: Array.isArray(profile.templates) ? profile.templates : [],
+      faceTemplates: callableTemplates(profile.templates),
       faceProfileVersion: Number(profile.version || memberData.faceTemplateVersion || 1),
       joinedAtMillis: memberData.joinedAt instanceof Timestamp ? memberData.joinedAt.toMillis() : Date.now(),
     });
@@ -141,8 +154,6 @@ exports.listEventFaceProfiles = onCall(async (request) => {
   return { eventId, participants: result };
 });
 
-// Defense in depth for legacy and older-client writes: participant documents may
-// contain public roster metadata but never biometric descriptors.
 exports.scrubParticipantBiometrics = onDocumentWritten(
   "events/{eventId}/participants/{userId}",
   async (event) => {
@@ -159,9 +170,29 @@ exports.scrubParticipantBiometrics = onDocumentWritten(
   }
 );
 
-// Deleting a Trip immediately removes photo-match records and preview objects;
-// the remaining restorable Trip metadata is then permanently hard-deleted by
-// the scheduled seven-day cleanup below.
+// Migrates beta data that predates the participant-write scrubber. Firestore
+// Rules already deny participant reads; this removes the redundant stored copy.
+exports.scrubLegacyParticipantBiometrics = onSchedule("every 24 hours", async () => {
+  const snap = await db.collectionGroup("participants").limit(500).get();
+  const updates = [];
+  for (const doc of snap.docs) {
+    const data = doc.data() || {};
+    if (
+      Object.prototype.hasOwnProperty.call(data, "faceEmbedding")
+      || Object.prototype.hasOwnProperty.call(data, "faceTemplates")
+    ) {
+      updates.push({
+        ref: doc.ref,
+        data: {
+          faceEmbedding: FieldValue.delete(),
+          faceTemplates: FieldValue.delete(),
+        },
+      });
+    }
+  }
+  if (updates.length) await commitUpdates(updates);
+});
+
 exports.purgeDeletedTripPreviews = onDocumentWritten(
   "events/{eventId}",
   async (event) => {
@@ -180,9 +211,6 @@ exports.purgeDeletedTripPreviews = onDocumentWritten(
   }
 );
 
-// Ended Trip previews exist only for a short recovery/download window. This
-// also covers Trips that naturally pass their selected end date without an
-// explicit organizer status transition.
 exports.purgeExpiredTripPreviews = onSchedule("every 6 hours", async () => {
   const cutoff = Timestamp.fromMillis(Date.now() - PREVIEW_RETENTION_DAYS * DAY_MS);
   const snap = await db.collection("events").where("endsAt", "<=", cutoff).limit(250).get();
@@ -195,8 +223,6 @@ exports.purgeExpiredTripPreviews = onSchedule("every 6 hours", async () => {
   }
 });
 
-// Deleted Trip cloud data is permanently removed within seven days. The 6.5-day
-// threshold leaves operational margin for the hourly scheduler and retries.
 exports.hardDeleteDeletedTrips = onSchedule("every 60 minutes", async () => {
   const snap = await db.collection("events")
     .where("status", "==", "deletedByOrganizer")
