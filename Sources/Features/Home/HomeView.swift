@@ -43,7 +43,15 @@ struct HomeView: View {
                     if showsGreeting {
                         greeting
                         createJoinRow
-                        if let notification = model.notifications.first { eventNotificationCard(notification).padding(.horizontal) }
+                        if !model.notifications.isEmpty {
+                            sectionHeader("Updates")
+                            VStack(spacing: 10) {
+                                ForEach(Array(model.notifications.prefix(3))) { notification in
+                                    eventNotificationCard(notification)
+                                }
+                            }
+                            .padding(.horizontal)
+                        }
                     }
                     sectionHeader(showsGreeting ? "Your Events" : "All Events")
                     if visibleEvents.isEmpty { emptyState.padding(.horizontal) } else { eventList(visibleEvents) }
