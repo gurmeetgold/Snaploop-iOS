@@ -39,10 +39,7 @@ service cloud.firestore {
 
       match /privacy/{doc} {
         allow read: if isSelf(userId);
-        allow create, update: if isSelf(userId)
-          && request.resource.data.userId == userId
-          && request.resource.data.get('withdrawnAt', null) == null;
-        allow delete: if false;
+        allow write: if false;
       }
 
       match /eventRefs/{eventId} {
