@@ -96,8 +96,6 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         guard let userId = Auth.auth().currentUser?.uid else {
             throw AppError.notAuthenticated
         }
-        // "Shared" is intentionally personalized: membership alone never grants
-        // access to cloud previews containing other people.
         return try await matchedPhotos(eventId: eventId, userId: userId)
     }
 
@@ -114,6 +112,7 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
 
         return try snap.documents
             .map { try Self.decode(id: $0.documentID, data: $0.data()) }
+            .filter { $0.ownerUserId != userId }
             .sorted { $0.capturedAt > $1.capturedAt }
     }
 
