@@ -4,7 +4,8 @@ struct BiometricConsentView: View {
     let onAccept: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var understandsPurpose = false
-    @State private var understandsDeletion = false
+    @State private var understandsStorage = false
+    @State private var understandsControl = false
 
     var body: some View {
         NavigationStack {
@@ -15,28 +16,85 @@ struct BiometricConsentView: View {
                         HStack {
                             BrandMark(size: 54)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Face Match Consent").font(.title2.bold()).foregroundStyle(Theme.ink)
-                                Text("Optional biometric setup for photo discovery")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                Text("Face Match Consent")
+                                    .font(.title2.bold())
+                                    .foregroundStyle(Theme.ink)
+                                Text("Please review before setting up your face")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
 
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                consentPoint("Purpose", "MyPicsRoom uses your face template only to help find photos of you in events you join. It is not used for advertising, stranger identification, or account authentication.", icon: "sparkles", tint: Theme.sunset)
+                                consentPoint(
+                                    "Purpose",
+                                    "SnapLoop creates a mathematical face template from your Face Setup so participating devices can find photos of you in Trips you join. It is used for photo matching only — not advertising, stranger identification, surveillance, or account authentication.",
+                                    icon: "sparkles",
+                                    tint: Theme.sunset
+                                )
                                 Divider()
-                                consentPoint("What is stored", "MyPicsRoom stores mathematical face descriptors. Raw guided-scan video is not saved. The reference preview shown in Face Setup stays on this device.", icon: "function", tint: Theme.violet)
+                                consentPoint(
+                                    "Your selfie stays on your iPhone",
+                                    "Guided selfie and gallery reference images are stored only inside SnapLoop's protected app storage on this iPhone. SnapLoop does not upload those reference images or raw guided-scan video to Firebase.",
+                                    icon: "iphone.gen3",
+                                    tint: Theme.aqua
+                                )
                                 Divider()
-                                consentPoint("Event matching", "For the current MVP, event-scoped descriptors can be shared with authorized event members' devices so matching can happen on-device.", icon: "person.2.fill", tint: Theme.aqua)
+                                consentPoint(
+                                    "Mathematical face template",
+                                    "SnapLoop stores mathematical face descriptors in your private account data so matching can work across Trips. Authorized participant devices may receive the descriptors needed for an active Trip to perform matching on-device. Other Trip members cannot directly browse your private face-profile document.",
+                                    icon: "function",
+                                    tint: Theme.violet
+                                )
                                 Divider()
-                                consentPoint("Your control", "You can update Face Setup or delete your face data later from Privacy & Data.", icon: "lock.shield.fill", tint: Theme.sky)
+                                consentPoint(
+                                    "Photo-library scope",
+                                    "SnapLoop does not upload your entire photo library. On-device scanning is limited to photos available to SnapLoop within the selected Trip date range. Limited Photos access is supported; Full Access provides the most complete automatic discovery.",
+                                    icon: "photo.on.rectangle.angled",
+                                    tint: Theme.sky
+                                )
+                                Divider()
+                                consentPoint(
+                                    "Matched-photo privacy",
+                                    "Only optimized previews of confirmed matches are uploaded for sharing. SnapLoop's cloud access controls are designed so a participant can retrieve a shared preview only when that participant is matched in the photo. Your original photo remains on the source device unless you explicitly save or transfer it through a supported feature.",
+                                    icon: "person.crop.square.fill",
+                                    tint: Theme.aqua
+                                )
+                                Divider()
+                                consentPoint(
+                                    "Retention",
+                                    "Matched cloud previews and their photo-match records are automatically removed 10 days after a Trip ends. If an organizer deletes a Trip, its Trip-related cloud data is scheduled for permanent deletion within 7 days.",
+                                    icon: "clock.badge.checkmark",
+                                    tint: Theme.sunset
+                                )
+                                Divider()
+                                consentPoint(
+                                    "Your control",
+                                    "You can change iOS photo or camera permissions at any time. In Privacy & Data you can remove Face Setup, withdraw biometric consent, or delete your account. Removing Face Setup stops future face matching and requests deletion of the stored face template and matching derivatives.",
+                                    icon: "lock.shield.fill",
+                                    tint: Theme.sky
+                                )
                             }
                         }
 
-                        Toggle("I understand why MyPicsRoom uses my face data.", isOn: $understandsPurpose)
+                        Text("Consent")
+                            .font(.headline)
+                            .foregroundStyle(Theme.ink)
+
+                        Toggle("I understand SnapLoop uses a mathematical face template for Trip photo matching.", isOn: $understandsPurpose)
                             .tint(Theme.sunset)
-                        Toggle("I understand I can delete Face Setup later.", isOn: $understandsDeletion)
+
+                        Toggle("I understand my selfie images stay on this iPhone, while mathematical face descriptors are stored by SnapLoop for matching.", isOn: $understandsStorage)
                             .tint(Theme.sunset)
+
+                        Toggle("I understand I can withdraw consent and remove Face Setup later.", isOn: $understandsControl)
+                            .tint(Theme.sunset)
+
+                        Text("By tapping I Agree & Continue, you give SnapLoop permission to create, store, use, and disclose your mathematical face template only for the face-matching purposes described above. If you do not agree, choose Not Now and Face Setup will not proceed.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         Button {
                             onAccept()
@@ -45,8 +103,8 @@ struct BiometricConsentView: View {
                             Label("I Agree & Continue", systemImage: "checkmark.shield.fill")
                         }
                         .buttonStyle(MyPicsTubePrimaryButtonStyle())
-                        .disabled(!understandsPurpose || !understandsDeletion)
-                        .opacity((!understandsPurpose || !understandsDeletion) ? 0.5 : 1)
+                        .disabled(!understandsPurpose || !understandsStorage || !understandsControl)
+                        .opacity((!understandsPurpose || !understandsStorage || !understandsControl) ? 0.5 : 1)
 
                         Button("Not Now", role: .cancel) { dismiss() }
                             .frame(maxWidth: .infinity)
