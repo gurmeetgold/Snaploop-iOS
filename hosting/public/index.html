@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#FF6B5E" />
-  <title>Open invitation in MyPicsRoom</title>
+  <title>Join this Event in SnapLoop</title>
   <style>
     :root { color-scheme: light; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif; }
     * { box-sizing:border-box; }
@@ -13,75 +13,100 @@
       background:linear-gradient(145deg,#FFF9F7 0%,#FFE8E3 48%,#F1EEFF 100%); color:#161C2E;
     }
     main {
-      width:min(430px,100%); background:rgba(255,255,255,.95); border-radius:32px;
+      width:min(430px,100%); background:rgba(255,255,255,.96); border-radius:32px;
       padding:34px 28px; box-shadow:0 24px 70px rgba(42,35,65,.12); text-align:center;
       border:1px solid rgba(255,107,94,.11);
     }
-    .mark { position:relative; width:78px; height:62px; border:5px solid #FF6B5E; border-radius:19px; margin:0 auto 22px; background:#fff; }
+    .mark { position:relative; width:78px; height:62px; border:5px solid #FF6B5E; border-radius:19px; margin:0 auto 16px; background:#fff; }
     .mark:before { content:""; position:absolute; width:26px; height:10px; border-radius:5px 5px 0 0; background:#FF6B5E; left:10px; top:-13px; }
     .lens { position:absolute; width:28px; height:28px; border-radius:50%; border:5px solid #4F8DFD; left:20px; top:13px; }
     .dot { position:absolute; width:9px; height:9px; border-radius:50%; background:#A78BFA; right:9px; top:11px; }
-    .brand { font-size:20px; font-weight:800; margin-bottom:22px; color:#FF6B5E; }
-    h1 { margin:0 0 9px; font-size:30px; letter-spacing:-.5px; }
-    p { line-height:1.5; color:#6B7280; margin:8px 0; }
-    a.button { display:block; text-decoration:none; padding:15px 18px; border-radius:18px; font-weight:750; margin-top:14px; }
-    #open { background:linear-gradient(135deg,#FF6B5E,#F45A4B); color:#fff; box-shadow:0 10px 22px rgba(244,90,75,.18); }
-    #store { background:#FFF0ED; color:#E85C4A; }
-    .small { font-size:13px; margin-top:20px; }
+    .brand { font-size:22px; font-weight:850; margin-bottom:22px; color:#FF6B5E; }
+    .eyebrow { font-size:14px; font-weight:700; color:#6B7280; margin-bottom:8px; }
+    h1 { margin:0 0 12px; font-size:32px; letter-spacing:-.6px; }
+    p { line-height:1.5; color:#646975; margin:8px 0; }
+    #conversation { font-size:17px; margin:14px 0 8px; }
+    #privacy { font-size:14px; margin-top:16px; }
+    a.button {
+      display:block; text-decoration:none; padding:16px 18px; border-radius:18px;
+      font-weight:800; margin-top:22px; background:linear-gradient(135deg,#FF6B5E,#F45A4B);
+      color:#fff; box-shadow:0 10px 22px rgba(244,90,75,.18);
+    }
+    #error { color:#B42318; font-size:14px; margin-top:14px; display:none; }
   </style>
 </head>
 <body>
-  <main id="card">
+  <main>
     <div class="mark"><div class="lens"></div><div class="dot"></div></div>
-    <div class="brand">MyPicsRoom</div>
-    <h1>Opening your event…</h1>
-    <p id="message">If MyPicsRoom is installed, this invitation will open directly in the app.</p>
-    <a id="open" class="button" href="#">Open MyPicsRoom</a>
-    <a id="store" class="button" href="#" hidden>Get MyPicsRoom</a>
-    <p id="dev" class="small">If the app does not open, use the button above. App Store fallback becomes automatic after the production App Store URL is configured.</p>
+    <div class="brand">SnapLoop</div>
+    <div class="eyebrow">You've been invited to an Event</div>
+    <h1 id="eventName">Join this Event</h1>
+    <p id="conversation">Opening your invitation…</p>
+    <p id="privacy">SnapLoop checks only photos from this Event's date range and matches faces on your device.</p>
+    <a id="join" class="button" href="#">Join Event</a>
+    <p id="error">We couldn't load the Event details, but you can still open the invitation in SnapLoop.</p>
   </main>
 <script>
 (() => {
   const match = window.location.pathname.match(/^\/(e|c)\/([^/]+)/);
-  const open = document.getElementById("open");
-  const store = document.getElementById("store");
-  const message = document.getElementById("message");
+  const join = document.getElementById("join");
+  const eventName = document.getElementById("eventName");
+  const conversation = document.getElementById("conversation");
+  const error = document.getElementById("error");
 
-  // Keep the technical scheme for backward compatibility. It is never shown as
-  // user-facing copy. Set the final App Store URL here when the listing exists.
+  // Add the production App Store listing URL when it is available. Until then,
+  // Join Event opens the installed app through SnapLoop's deep-link scheme.
   const APP_STORE_URL = "";
 
   if (!match) {
-    open.href = "snaploop://";
-    message.textContent = "Open MyPicsRoom to continue.";
+    join.href = "snaploop://";
+    conversation.textContent = "Open SnapLoop to continue.";
     return;
   }
 
   const kind = match[1];
-  const value = encodeURIComponent(match[2]);
+  const rawValue = match[2];
+  const value = encodeURIComponent(rawValue);
   const appURL = `snaploop://${kind}/${value}`;
-  open.href = appURL;
+  join.href = appURL;
 
-  if (APP_STORE_URL) {
-    store.href = APP_STORE_URL;
-    store.hidden = false;
-  }
+  const formatDate = (millis) => {
+    if (!millis) return null;
+    return new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric", year:"numeric" }).format(new Date(millis));
+  };
 
-  // Attempt the installed-app path immediately instead of forcing an extra tap.
-  // iOS/Safari may keep this page visible when custom-scheme launch is blocked;
-  // the explicit Open button remains a reliable fallback.
-  window.location.replace(appURL);
+  const categoryName = (category) => {
+    if (!category) return "Event";
+    return category.charAt(0).toUpperCase() + category.slice(1);
+  };
 
-  if (APP_STORE_URL) {
+  fetch(`/api/invite-preview?kind=${encodeURIComponent(kind)}&value=${value}`)
+    .then((response) => {
+      if (!response.ok) throw new Error("preview unavailable");
+      return response.json();
+    })
+    .then((data) => {
+      eventName.textContent = data.name || "Join this Event";
+      const start = formatDate(data.startsAtMillis);
+      const end = formatDate(data.endsAtMillis);
+      const dates = start && end ? ` from ${start} to ${end}` : "";
+      const inviter = data.inviterName || "A SnapLoop member";
+      conversation.textContent = `${inviter} invited you to join ${data.name}, a ${categoryName(data.category)} Event${dates}. Join to automatically find photos of you from the Event.`;
+    })
+    .catch(() => {
+      conversation.textContent = "You've been invited to join an Event in SnapLoop.";
+      error.style.display = "block";
+    });
+
+  join.addEventListener("click", () => {
+    if (!APP_STORE_URL) return;
     const started = Date.now();
     setTimeout(() => {
-      // If Safari is still visible after the launch attempt, send the user to
-      // the App Store. Leaving the page for the app normally suspends this timer.
       if (document.visibilityState === "visible" && Date.now() - started >= 1100) {
-        window.location.replace(APP_STORE_URL);
+        window.location.href = APP_STORE_URL;
       }
     }, 1200);
-  }
+  });
 })();
 </script>
 </body>
