@@ -1,22 +1,18 @@
 import Foundation
 import FirebaseAuth
-import FirebaseFirestore
 import FirebaseFunctions
 import FirebaseStorage
 
 /// Live match metadata + thumbnail repository.
 /// Originals remain device-local; signed original transfers are a later slice.
 public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable {
-    private let db: Firestore
     private let storage: Storage
     private let functions: Functions
 
     public init(
-        db: Firestore = .firestore(),
         storage: Storage = .storage(),
         functions: Functions = .functions()
     ) {
-        self.db = db
         self.storage = storage
         self.functions = functions
     }
@@ -54,12 +50,7 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         ]
 
         do {
-            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
-                functions.httpsCallable("publishMatch").call(payload) { result, error in
-                    if let error { continuation.resume(throwing: error); return }
-                    continuation.resume(returning: result?.data as Any)
-                }
-            }
+            _ = try await call("publishMatch", data: payload)
         } catch {
             try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 ref.delete { cleanupError in
@@ -76,43 +67,48 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             throw AppError.decoding("match id missing event id")
         }
 
-        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
-            functions.httpsCallable("dismissAppearance").call([
-                "eventId": eventId,
-                "matchId": matchId,
-                "participantUserId": participantUserId
-            ]) { result, error in
-                if let error { continuation.resume(throwing: error); return }
-                continuation.resume(returning: result?.data as Any)
-            }
-        }
+        _ = try await call("dismissAppearance", data: [
+            "eventId": eventId,
+            "matchId": matchId,
+            "participantUserId": participantUserId
+        ])
     }
 
     public func myPhotos(eventId: String, userId: String) async throws -> [PhotoMatch] {
-        try await matchedPhotos(eventId: eventId, userId: userId)
+        guard Auth.auth().currentUser?.uid == userId else { throw AppError.notAuthenticated }
+        return try await matchedPhotos(eventId: eventId)
     }
 
     public func sharedAlbum(eventId: String) async throws -> [PhotoMatch] {
-        guard let userId = Auth.auth().currentUser?.uid else {
-            throw AppError.notAuthenticated
-        }
-        return try await matchedPhotos(eventId: eventId, userId: userId)
+        guard Auth.auth().currentUser?.uid != nil else { throw AppError.notAuthenticated }
+        return try await matchedPhotos(eventId: eventId)
     }
 
     public func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL {
         throw AppError.originalUnavailable
     }
 
-    private func matchedPhotos(eventId: String, userId: String) async throws -> [PhotoMatch] {
-        let snap = try await db.collection("events")
-            .document(eventId)
-            .collection("photos")
-            .whereField("matchedUserIds", arrayContains: userId)
-            .getDocuments()
+    private func matchedPhotos(eventId: String) async throws -> [PhotoMatch] {
+        let raw = try await call("listMyMatchedPhotos", data: ["eventId": eventId])
+        guard let wrapper = raw as? [String: Any],
+              let rows = wrapper["photos"] as? [[String: Any]] else {
+            throw AppError.decoding("matched photo response is malformed")
+        }
 
-        return try snap.documents
-            .map { try Self.decode(id: $0.documentID, data: $0.data()) }
-            .sorted { $0.capturedAt > $1.capturedAt }
+        return try rows.map(Self.decodeCallable).sorted { $0.capturedAt > $1.capturedAt }
+    }
+
+    private func call(_ name: String, data: [String: Any]) async throws -> Any {
+        try await withCheckedThrowingContinuation { continuation in
+            functions.httpsCallable(name).call(data) { result, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let result else {
+                    continuation.resume(throwing: AppError.backend(code: "empty_function_result", message: "\(name) returned no result"))
+                    return
+                }
+                continuation.resume(returning: result.data)
+            }
+        }
     }
 
     private static func documentId(for value: String) -> String {
@@ -122,30 +118,21 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private static func decode(id: String, data: [String: Any]) throws -> PhotoMatch {
-        guard
-            let matchId = data["id"] as? String,
-            let eventId = data["eventId"] as? String,
-            let sourceUserId = data["sourceUserId"] as? String,
-            let assetLocalId = data["assetLocalId"] as? String,
-            let capturedAt = (data["capturedAt"] as? Timestamp)?.dateValue(),
-            let matchedAt = (data["matchedAt"] as? Timestamp)?.dateValue()
-        else {
-            throw AppError.decoding("photo \(id) missing required fields")
+    private static func decodeCallable(_ data: [String: Any]) throws -> PhotoMatch {
+        guard let matchId = data["id"] as? String,
+              let eventId = data["eventId"] as? String,
+              let sourceUserId = data["sourceUserId"] as? String,
+              let assetLocalId = data["assetLocalId"] as? String,
+              let capturedAtMillis = numeric(data["capturedAtMillis"]),
+              let matchedAtMillis = numeric(data["matchedAtMillis"]) else {
+            throw AppError.decoding("matched photo is missing required fields")
         }
 
-        let raw = data["appearances"] as? [[String: Any]] ?? []
-        let appearances = raw.compactMap { item -> PhotoMatch.Appearance? in
+        let appearances = (data["appearances"] as? [[String: Any]] ?? []).compactMap { item -> PhotoMatch.Appearance? in
             guard let userId = item["participantUserId"] as? String else { return nil }
-            let confidence = (item["confidence"] as? NSNumber)?.doubleValue
-                ?? item["confidence"] as? Double
-                ?? 0
+            let confidence = numeric(item["confidence"]) ?? 0
             let dismissed = item["dismissedByUser"] as? Bool ?? false
-            return PhotoMatch.Appearance(
-                participantUserId: userId,
-                confidence: confidence,
-                dismissedByUser: dismissed
-            )
+            return PhotoMatch.Appearance(participantUserId: userId, confidence: confidence, dismissedByUser: dismissed)
         }
 
         let match = PhotoMatch(
@@ -153,14 +140,19 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             ownerUserId: sourceUserId,
             assetLocalId: assetLocalId,
             appearances: appearances,
-            capturedAt: capturedAt,
-            matchedAt: matchedAt,
+            capturedAt: Date(timeIntervalSince1970: capturedAtMillis / 1000),
+            matchedAt: Date(timeIntervalSince1970: matchedAtMillis / 1000),
             thumbnailPath: data["thumbnailPath"] as? String
         )
-
-        if match.id != matchId {
-            throw AppError.decoding("photo \(id) id mismatch")
-        }
+        guard match.id == matchId else { throw AppError.decoding("matched photo id mismatch") }
         return match
+    }
+
+    private static func numeric(_ value: Any?) -> Double? {
+        if let n = value as? NSNumber { return n.doubleValue }
+        if let d = value as? Double { return d }
+        if let i = value as? Int { return Double(i) }
+        if let i = value as? Int64 { return Double(i) }
+        return nil
     }
 }
