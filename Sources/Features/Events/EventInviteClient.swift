@@ -17,9 +17,6 @@ struct EventInviteStatusRow: Identifiable, Sendable {
 enum EventInviteClient {
     @MainActor
     static func invite(eventId: String, phoneNumber: String) async throws -> EventInviteDelivery {
-        // Use the long-lived callable name. New deployments override this alias
-        // with the managed implementation, while older deployed backends already
-        // expose it, preventing a needless Functions NOT_FOUND during rollout.
         let data = try await call("inviteByPhone", data: [
             "eventId": eventId,
             "phoneNumber": phoneNumber,
@@ -44,7 +41,6 @@ enum EventInviteClient {
 
     @MainActor
     static func list(eventId: String) async throws -> [EventInviteStatusRow] {
-        // Same compatibility rule as inviteByPhone above.
         let data = try await call("listEventInvites", data: ["eventId": eventId])
         guard let dict = data as? [String: Any], let rows = dict["invites"] as? [[String: Any]] else { return [] }
         return rows.map {
@@ -59,6 +55,14 @@ enum EventInviteClient {
     @MainActor
     static func decline(eventId: String) async throws {
         _ = try await call("declineEventInvite", data: ["eventId": eventId])
+    }
+
+    @MainActor
+    static func revoke(eventId: String, phoneNumber: String) async throws {
+        _ = try await call("revokeEventInvite", data: [
+            "eventId": eventId,
+            "phoneNumber": phoneNumber,
+        ])
     }
 
     static func userMessage(for error: Error) -> String {
