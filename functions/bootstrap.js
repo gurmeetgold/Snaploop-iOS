@@ -27,12 +27,15 @@ exports.inviteByPhone = managed.inviteByPhoneManaged;
 exports.listEventInvites = managed.listEventInvitesManaged;
 exports.nextPendingInvite = invites.nextPendingInvite;
 exports.declineEventInvite = invites.declineEventInvite;
+exports.revokeEventInvite = notifications.revokeEventInvite;
+exports.notifyPendingInvite = notifications.notifyPendingInvite;
+exports.markInviteJoined = notifications.markInviteJoined;
+exports.expirePendingInvites = notifications.expirePendingInvites;
 
 // Push notification token lifecycle + Firestore-triggered delivery.
 exports.registerPushToken = notifications.registerPushToken;
 exports.unregisterPushToken = notifications.unregisterPushToken;
 exports.deliverNotificationRecord = notifications.deliverNotificationRecord;
-exports.notifyPendingInvite = notifications.notifyPendingInvite;
 
 // Server-owned identity/profile operations.
 exports.syncMyUserProfile = security.syncMyUserProfile;
