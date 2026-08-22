@@ -28,11 +28,12 @@ exports.getMemberPhotoPreferences = onCall(async (request) => {
   const uid = requireAuth(request);
   const eventId = requireEventId(request);
   const { data } = await requireMembership(eventId, uid);
+  const sharingEnabled = data.sharingEnabled !== false;
 
   return {
     eventId,
-    sharingEnabled: data.sharingEnabled !== false,
-    includeOwnMatches: data.includeOwnMatches === true,
+    sharingEnabled,
+    includeOwnMatches: sharingEnabled && data.includeOwnMatches === true,
     sharingUpdatedAtMillis: data.sharingUpdatedAt?.toMillis ? data.sharingUpdatedAt.toMillis() : 0,
     ownMatchesUpdatedAtMillis: data.ownMatchesUpdatedAt?.toMillis ? data.ownMatchesUpdatedAt.toMillis() : 0,
   };
@@ -46,11 +47,18 @@ exports.setOwnPhotoVisibility = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "enabled must be true or false.");
   }
 
-  const { ref } = await requireMembership(eventId, uid);
+  const { ref, data } = await requireMembership(eventId, uid);
+  if (enabled && data.sharingEnabled === false) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Turn on photo sharing for this Event before showing your own matched photos."
+    );
+  }
+
   await ref.update({ includeOwnMatches: enabled, ownMatchesUpdatedAt: Timestamp.now() });
 
-  // Turning this off should hide existing photos sourced from this phone from
-  // the owner's own Gallery while preserving appearances for other members.
+  // Turning this off hides existing photos sourced from this phone from the
+  // owner's own Gallery while preserving appearances for other matched members.
   if (!enabled) {
     const sourceSnap = await db.collection(`events/${eventId}/photos`)
       .where("sourceUserId", "==", uid)
@@ -59,11 +67,11 @@ exports.setOwnPhotoVisibility = onCall(async (request) => {
     const batch = db.batch();
     let changed = 0;
     for (const doc of sourceSnap.docs) {
-      const data = doc.data() || {};
-      const matched = Array.isArray(data.matchedUserIds) ? data.matchedUserIds : [];
+      const photo = doc.data() || {};
+      const matched = Array.isArray(photo.matchedUserIds) ? photo.matchedUserIds : [];
       if (!matched.includes(uid)) continue;
-      const appearances = Array.isArray(data.appearances)
-        ? data.appearances.filter((appearance) => appearance.participantUserId !== uid)
+      const appearances = Array.isArray(photo.appearances)
+        ? photo.appearances.filter((appearance) => appearance.participantUserId !== uid)
         : [];
       batch.update(doc.ref, {
         appearances,
