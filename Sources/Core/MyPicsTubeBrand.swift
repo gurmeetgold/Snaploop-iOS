@@ -1,11 +1,11 @@
 import SwiftUI
 import UIKit
 
-/// Brand metadata and system chrome for the MyPicsRoom MVP/TestFlight build.
+/// Brand metadata and system chrome for the SnapLoop MVP/TestFlight build.
 /// Visual colors live in `Theme` so there is one source of truth.
 enum MyPicsTubeBrand {
-    static let name = "MyPicsRoom"
-    static let tagline = "My pics, found from everyone’s phone."
+    static let name = "SnapLoop"
+    static let tagline = "Your trip photos, found from everyone’s phone."
 
     static func configureUIKitAppearance() {
         let tab = UITabBarAppearance()
