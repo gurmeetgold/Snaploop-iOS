@@ -167,7 +167,7 @@ struct AllMyPhotosView: View {
                             message: model.errorMessage == nil
                                 ? (filter == .favorites
                                     ? "Open a photo and tap Favorite to keep it here."
-                                    : "SnapLoop automatically checks eligible live Events for new matched photos. You can also use Sync Now from an Event at any time.")
+                                    : "SnapLoop automatically checks eligible live Events for new matched photos. You can also use Sync Camera from an Event at any time.")
                                 : "Pull to refresh and try again.",
                             systemImage: model.errorMessage == nil
                                 ? (filter == .favorites ? "heart" : "person.crop.square")
@@ -179,11 +179,12 @@ struct AllMyPhotosView: View {
                             ForEach(filtered) { match in
                                 NavigationLink {
                                     PhotoDetailView(
-                                        match: match,
-                                        ownerLabel: model.ownerLabel(for: match),
-                                        isFavorite: model.isFavorite(match),
-                                        onFavoriteChanged: { model.setFavorite($0, match: match) },
-                                        onNotMe: { Task { await model.markNotMe(match) } }
+                                        matches: filtered,
+                                        initialMatchID: match.id,
+                                        ownerLabel: { model.ownerLabel(for: $0) },
+                                        isFavorite: { model.isFavorite($0) },
+                                        onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
+                                        onNotMe: { item in Task { await model.markNotMe(item) } }
                                     )
                                 } label: {
                                     PhotoCard(
