@@ -54,12 +54,13 @@ final class FaceSetupModel: ObservableObject {
         }
     }
 
+    /// Builds the multi-angle template set and persists it immediately.
+    /// A completed guided scan is the save action; there is no second manual save/update step.
     func useGuidedFrames(_ frames: [GuidedEnrollmentFrame]) async {
         guard let env else { return }
         isBusy = true
         didSave = false
         message = "Building your multi-angle face profile…"
-        defer { isBusy = false }
 
         do {
             var newGuidedTemplates: [FaceTemplate] = []
@@ -86,23 +87,30 @@ final class FaceSetupModel: ObservableObject {
             pendingGuidedReferenceData = bestReference?.data
             previewData = bestReference?.data ?? previewData
             hasChanges = true
-            message = "Captured \(guided.count) guided angles. Save Face Setup when you're ready."
-        } catch let error as AppError { message = error.userMessage }
-        catch { message = (error as NSError).localizedDescription }
+            message = "Saving Face Setup…"
+            isBusy = false
+            await saveFaceSetup(automatic: true)
+        } catch let error as AppError {
+            isBusy = false
+            message = error.userMessage
+        } catch {
+            isBusy = false
+            message = (error as NSError).localizedDescription
+        }
     }
 
-    func saveFaceSetup() async {
+    func saveFaceSetup(automatic: Bool = false) async {
         guard let env, let session, var user = session.user,
               consentActive, hasUsableEnrollment else { return }
 
         if session.hasFaceProfile && !hasChanges {
             didSave = false
-            message = "No changes to save."
+            message = "Face Setup is already up to date."
             return
         }
 
         isBusy = true
-        message = nil
+        message = automatic ? "Saving Face Setup…" : nil
         didSave = false
         defer { isBusy = false }
 
@@ -130,7 +138,7 @@ final class FaceSetupModel: ObservableObject {
             pendingGuidedReferenceData = nil
             hasChanges = false
             didSave = true
-            message = "Face Setup saved."
+            message = automatic ? "Face Setup updated automatically." : "Face Setup saved."
         } catch let error as AppError { message = error.userMessage }
         catch { message = (error as NSError).localizedDescription }
     }
@@ -158,10 +166,6 @@ struct FaceSetupView: View {
     @State private var showConsent = false
     @State private var pendingAction: PendingAction?
 
-    private var saveDisabled: Bool {
-        !model.consentActive || !model.hasUsableEnrollment || model.isBusy || (session.hasFaceProfile && !model.hasChanges)
-    }
-
     var body: some View {
         ZStack {
             BrandScreenBackground()
@@ -171,7 +175,7 @@ struct FaceSetupView: View {
                     Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("Complete one guided selfie scan. SnapLoop captures several angles of your face for more reliable matching.")
+                    Text("Complete one guided selfie scan. SnapLoop captures several angles and saves your Face Setup automatically when the scan finishes.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -195,27 +199,8 @@ struct FaceSetupView: View {
                             showConsent = true
                         }
                     }
-
-                    Button {
-                        Task {
-                            await model.saveFaceSetup()
-                            if model.didSave, onSaved != nil { onSaved?(); dismiss() }
-                        }
-                    } label: {
-                        HStack {
-                            if model.isBusy { ProgressView().tint(.white) }
-                            else { Image(systemName: "checkmark.seal.fill") }
-                            Text(session.hasFaceProfile ? "Update Face Setup" : "Save Face Setup")
-                        }
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
-                    .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .disabled(saveDisabled)
-                    .opacity(saveDisabled ? 0.42 : 1)
+                    .disabled(model.isBusy)
+                    .opacity(model.isBusy ? 0.62 : 1)
 
                     if session.hasFaceProfile {
                         NavigationLink { FaceMatchingTestView() } label: {
@@ -244,7 +229,15 @@ struct FaceSetupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.configure(env: env, session: session) }
         .fullScreenCover(isPresented: $showGuidedEnrollment) {
-            GuidedFaceEnrollmentView { frames in Task { await model.useGuidedFrames(frames) } }
+            GuidedFaceEnrollmentView { frames in
+                Task {
+                    await model.useGuidedFrames(frames)
+                    if model.didSave, onSaved != nil {
+                        onSaved?()
+                        dismiss()
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showConsent, onDismiss: resumePendingActionAfterConsent) {
             BiometricConsentView { await model.acceptConsent() }
@@ -272,7 +265,7 @@ struct FaceSetupView: View {
                     .clipShape(Circle())
                     .clipped()
                     .overlay(Circle().strokeBorder(Theme.brandGradient, lineWidth: 4))
-                    .shadow(color: Theme.hotPink.opacity(0.16), radius: 14, y: 7)
+                    .shadow(color: Theme.hotPink.opacity(0.18), radius: 14, y: 7)
                 Label("Face Reference Active", systemImage: "checkmark.circle.fill")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(Theme.ink)
@@ -330,6 +323,6 @@ struct FaceSetupView: View {
         .buttonStyle(.plain)
         .foregroundStyle(.white)
         .background(gradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: Theme.hotPink.opacity(0.13), radius: 12, y: 5)
+        .shadow(color: Theme.hotPink.opacity(0.16), radius: 12, y: 5)
     }
 }
