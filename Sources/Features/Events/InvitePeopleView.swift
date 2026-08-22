@@ -60,7 +60,7 @@ struct InvitePeopleView: View {
 
     private var token: InviteToken { InviteToken(event.inviteToken) ?? InviteToken(unchecked: event.inviteToken) }
     private var inviteURL: URL { InviteLink.url(forToken: token) }
-    private var messageBody: String { "Join \(event.name) on MyPicsRoom: \(inviteURL.absoluteString)" }
+    private var messageBody: String { "Join \(event.name) on SnapLoop: \(inviteURL.absoluteString)" }
 
     var body: some View {
         ZStack {
@@ -84,15 +84,12 @@ struct InvitePeopleView: View {
                                         Button("\(value.name)  \(value.callingCode)") { country = value }
                                     }
                                 } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Country").font(.caption2).foregroundStyle(.secondary)
-                                        HStack(spacing: 4) {
-                                            Text(country.regionCode).bold()
-                                            Text(country.callingCode).bold()
-                                            Image(systemName: "chevron.down").font(.caption2)
-                                        }
-                                        .foregroundStyle(Theme.sunset)
+                                    HStack(spacing: 4) {
+                                        Text(country.regionCode).bold()
+                                        Text(country.callingCode).bold()
+                                        Image(systemName: "chevron.down").font(.caption2)
                                     }
+                                    .foregroundStyle(Theme.sunset)
                                     .padding(.horizontal, 11)
                                     .frame(height: 58)
                                     .background(Theme.peach.opacity(0.18), in: RoundedRectangle(cornerRadius: 15))
@@ -194,9 +191,9 @@ struct InvitePeopleView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("How it works", systemImage: "sparkles")
                     .font(.headline).foregroundStyle(Theme.ink)
-                Text("Enter a phone number or select a contact. If that person already uses MyPicsRoom, the invitation is delivered in the app. Otherwise, MyPicsRoom prepares an SMS invitation link for you to send.")
+                Text("Enter a phone number or choose a contact. Existing SnapLoop users receive the invitation directly in the app. If they are not on SnapLoop yet, you can send them an SMS invite link.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("The person joins only after accepting the invitation. Face matching starts only after they join the Event and complete Face Setup.")
+                Text("They join only after accepting the invitation.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -222,15 +219,15 @@ struct InvitePeopleView: View {
             phone = normalized
             switch delivery.kind {
             case .inApp:
-                message = "Invitation delivered in MyPicsRoom. No SMS was sent."
+                message = "Invitation delivered in SnapLoop. No SMS was sent."
             case .sms:
                 smsRecipient = normalized
                 guard MFMessageComposeViewController.canSendText() else {
-                    message = "This person does not have MyPicsRoom yet. Use Share Invite to send the Event link."
+                    message = "This person is not on SnapLoop yet. Use Share Invite to send the Event link."
                     await refreshStatuses()
                     return
                 }
-                message = "This person does not have MyPicsRoom yet. Send the prepared SMS invitation."
+                message = "This person is not on SnapLoop yet. Send the prepared SMS invitation."
                 showMessage = true
             }
             await refreshStatuses()
