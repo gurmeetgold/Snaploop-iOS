@@ -122,12 +122,13 @@ struct SyncView: View {
         PremiumCard {
             VStack(spacing: 18) {
                 ZStack {
-                    Circle().fill(Theme.aqua.opacity(0.14))
+                    Circle().fill(Theme.brandGradient)
                     Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 40, weight: .semibold))
-                        .foregroundStyle(Theme.aqua)
+                        .font(.system(size: 38, weight: .semibold))
+                        .foregroundStyle(.white)
                 }
                 .frame(width: 92, height: 92)
+                .shadow(color: Theme.hotPink.opacity(0.22), radius: 14, y: 6)
 
                 Text("Find photos from this Event")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
@@ -147,10 +148,13 @@ struct SyncView: View {
         PremiumCard {
             VStack(spacing: 18) {
                 ZStack {
-                    Circle().fill(Theme.sunset.opacity(0.13))
-                    ProgressView().controlSize(.large).tint(Theme.sunset)
+                    Circle().fill(Theme.brandGradient)
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.white)
                 }
-                .frame(width: 88, height: 88)
+                .frame(width: 92, height: 92)
+                .shadow(color: Theme.hotPink.opacity(0.22), radius: 14, y: 6)
 
                 Text(progress.statusText)
                     .font(.headline).foregroundStyle(Theme.ink)
@@ -162,8 +166,13 @@ struct SyncView: View {
 
                 Button(role: .cancel) { model.cancel() } label: {
                     Label("Stop Sync", systemImage: "stop.circle")
+                        .font(.headline)
+                        .padding(.horizontal, 22)
+                        .frame(height: 46)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.hotPink)
+                .background(Theme.hotPink.opacity(0.10), in: Capsule())
             }
         }
     }
@@ -172,7 +181,7 @@ struct SyncView: View {
         PremiumCard {
             VStack(spacing: 16) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 42)).foregroundStyle(Theme.sunset)
+                    .font(.system(size: 42)).foregroundStyle(Theme.hotPink)
                 Text("Sync stopped").font(.title3.bold())
                 Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
@@ -181,7 +190,7 @@ struct SyncView: View {
                 }
                 .buttonStyle(MyPicsTubePrimaryButtonStyle())
 
-                Button("Done") { dismiss() }.foregroundStyle(Theme.sunset)
+                Button("Done") { dismiss() }.foregroundStyle(Theme.hotPink)
             }
         }
     }
@@ -190,12 +199,13 @@ struct SyncView: View {
         PremiumCard {
             VStack(spacing: 18) {
                 ZStack {
-                    Circle().fill(Color.green.opacity(0.12))
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 46))
-                        .foregroundStyle(Color.green)
+                    Circle().fill(Theme.brandGradient)
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 38, weight: .bold))
+                        .foregroundStyle(.white)
                 }
                 .frame(width: 94, height: 94)
+                .shadow(color: Theme.hotPink.opacity(0.20), radius: 14, y: 6)
 
                 Text("Scan complete")
                     .font(.title3.bold())
@@ -214,7 +224,7 @@ struct SyncView: View {
                         Label("Scan Next Batch", systemImage: "arrow.triangle.2.circlepath")
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
-                    Button("Done") { dismiss() }.foregroundStyle(Theme.sunset)
+                    Button("Done") { dismiss() }.foregroundStyle(Theme.hotPink)
                 } else {
                     Button { dismiss() } label: {
                         Label("Done", systemImage: "checkmark.circle.fill")
