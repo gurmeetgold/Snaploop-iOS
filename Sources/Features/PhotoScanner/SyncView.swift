@@ -40,9 +40,19 @@ final class SyncModel: ObservableObject {
         defer { syncTask = nil }
 
         do {
-            let members = try await env.events.members(eventId: event.id)
-            guard members.first(where: { $0.userId == userId })?.sharingEnabled == true else {
-                state = .failed("Turn on ‘Show matched pictures from my phone in this Event’ in Event Members before syncing.")
+            let preferences: MemberPhotoPreferences
+            if AppEnvironment.useLiveServices {
+                preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
+            } else {
+                preferences = MemberPhotoPreferences(
+                    sharingEnabled: true,
+                    includeOwnMatches: false,
+                    revisionToken: "dev"
+                )
+            }
+
+            guard preferences.sharingEnabled else {
+                state = .failed("You have turned off photo sharing for this Event. Turn on ‘Share matched pictures from my phone in this Event’ in Event Members before syncing.")
                 return
             }
 
@@ -52,7 +62,9 @@ final class SyncModel: ObservableObject {
             let summary = try await coordinator.sync(
                 event: event,
                 participants: participants,
-                currentUserId: userId
+                currentUserId: userId,
+                includeOwnMatches: preferences.includeOwnMatches,
+                preferenceRevision: preferences.revisionToken
             ) { [weak self] progress in
                 Task { @MainActor in self?.state = .running(progress) }
             }
@@ -127,10 +139,6 @@ struct SyncView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Text("If sharing is on, matched photos from this phone are added for the people found in them — including you when you appear in your own photos.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-
                 Button { model.start(event: event) } label: {
                     Label("Start Sync", systemImage: "sparkles")
                 }
@@ -152,7 +160,7 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Keep SnapLoop in the foreground while scanning. The scan pauses automatically for heat, memory pressure, or when you leave the app.")
+                Text("Keep SnapLoop open to scan for latest photos of the Event.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
