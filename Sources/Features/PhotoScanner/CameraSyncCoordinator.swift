@@ -10,8 +10,6 @@ public struct CameraSyncCoordinator {
     private let matches: MatchRepository
     private let scanStateStore: ScanStateStore
 
-    /// Beta/device-safety ceiling. Remote Config may request a larger batch,
-    /// but the client never exceeds this amount in one user-initiated pass.
     private static let normalSafetyBatchCap = 25
     private static let lowPowerSafetyBatchCap = 10
 
@@ -62,21 +60,11 @@ public struct CameraSyncCoordinator {
 
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
-
-        // Account + event + scan-generation isolation. A different user on the
-        // same iPhone or any recognition-pipeline revision gets an independent
-        // scan state. v5.1 intentionally rescans assets processed by v5.0.
-        let scanStateKey = [event.id, currentUserId, FaceModelPolicy.scanGeneration]
-            .joined(separator: "::")
+        let scanStateKey = [event.id, currentUserId, FaceModelPolicy.scanGeneration].joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
-
-        // PhotoKit local identifiers can disappear when a photo is deleted or
-        // Limited Photos access changes. Retain only identifiers still visible
-        // in this event window so local scan-state storage stays bounded.
         state.retainScannedAssetIds(Set(assets.map(\.id)))
 
         let planned = ScanPlanner(config: values).plan(assets: assets, event: event, state: state)
-
         let safetyCap = ProcessInfo.processInfo.isLowPowerModeEnabled
             ? Self.lowPowerSafetyBatchCap
             : Self.normalSafetyBatchCap
@@ -112,8 +100,6 @@ public struct CameraSyncCoordinator {
                 if matched { matchedCount += 1 }
                 processedIds.append(asset.id)
             } catch is CancellationError {
-                // Persist completed work before surfacing cancellation so a user
-                // can safely continue later without rescanning completed assets.
                 state.markScanned(processedIds)
                 state.lastSyncedAt = clock.now()
                 scanStateStore.save(state)
@@ -124,9 +110,6 @@ public struct CameraSyncCoordinator {
                 scanStateStore.save(state)
                 throw error
             } catch {
-                // Failed assets are deliberately NOT marked scanned. They remain
-                // eligible for the next user-initiated sync instead of being
-                // silently lost after a transient Storage/network/model error.
                 failedCount += 1
                 Log.scanner.error("Skipping asset during sync: \(String(describing: error), privacy: .public)")
             }
@@ -138,9 +121,6 @@ public struct CameraSyncCoordinator {
                 matched: matchedCount,
                 remaining: (totalThisPass - completedThisPass) + remainingAfterPass + failedCount
             ))
-
-            // Cooperative yield prevents long runs from monopolizing an
-            // executor and gives cancellation/UI work a chance between photos.
             await Task.yield()
         }
 
@@ -165,8 +145,6 @@ public struct CameraSyncCoordinator {
     ) async throws -> Bool {
         try Task.checkCancellation()
 
-        // The PhotoKit service now requests a bounded working image directly;
-        // it no longer loads the full-resolution original before downsampling.
         let working = try await photoLibrary.imageData(
             for: asset.id,
             maxPixelSize: max(values.thumbnailMaxPixelSize, 2048)
@@ -174,7 +152,10 @@ public struct CameraSyncCoordinator {
         try Task.checkCancellation()
 
         let faces = try await faceDetection.detectFaces(in: working)
+        // The user already owns photos on this device. Only publish this camera's
+        // matches for OTHER Event members; the user's own face is not a recipient.
         let appearances = matcher.appearances(in: faces, participants: participants)
+            .filter { $0.participantUserId != currentUserId }
         guard !appearances.isEmpty else { return false }
 
         try Task.checkCancellation()
@@ -197,12 +178,9 @@ public struct CameraSyncCoordinator {
 
     private static func checkDeviceSafety() throws {
         switch ProcessInfo.processInfo.thermalState {
-        case .serious, .critical:
-            throw AppError.deviceTooWarm
-        case .nominal, .fair:
-            return
-        @unknown default:
-            return
+        case .serious, .critical: throw AppError.deviceTooWarm
+        case .nominal, .fair: return
+        @unknown default: return
         }
     }
 }
