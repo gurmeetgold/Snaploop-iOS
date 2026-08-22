@@ -40,6 +40,12 @@ final class SyncModel: ObservableObject {
         defer { syncTask = nil }
 
         do {
+            let members = try await env.events.members(eventId: event.id)
+            guard members.first(where: { $0.userId == userId })?.sharingEnabled == true else {
+                state = .failed("Turn on ‘Show matched pictures from my phone in this Event’ in Event Members before syncing.")
+                return
+            }
+
             let participants = try await EventFaceProfileClient.list(eventId: event.id)
             try Task.checkCancellation()
             let coordinator = env.makeSyncCoordinator()
@@ -117,11 +123,11 @@ struct SyncView: View {
 
                 Text("Find photos from this Event")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
-                Text("SnapLoop checks this Event's selected date window on your iPhone and matches other Event members on-device.")
+                Text("SnapLoop checks this Event's selected date window on your iPhone and matches Event members on-device.")
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Text("Your own-camera photos are not added to your Gallery. Each pass processes a small batch for device safety.")
+                Text("If sharing is on, matched photos from this phone are added for the people found in them — including you when you appear in your own photos.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
@@ -188,13 +194,13 @@ struct SyncView: View {
 
                 Text(summary.alreadyCaughtUp
                      ? "You're all caught up"
-                     : "Found \(summary.matchedPhotos) \(summary.matchedPhotos == 1 ? "photo" : "photos") for other Event members")
+                     : "Found \(summary.matchedPhotos) \(summary.matchedPhotos == 1 ? "matched photo" : "matched photos")")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
                 Text(summary.alreadyCaughtUp
                      ? "No new photos needed processing for this Event."
-                     : "Matched photos are now available to the people found in them.")
+                     : "Matched photos are now available to the Event members found in them.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
                 if summary.hasMore {
