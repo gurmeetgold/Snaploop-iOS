@@ -46,7 +46,7 @@ final class SyncModel: ObservableObject {
         defer { syncTask = nil }
 
         do {
-            let participants = try await env.events.participants(eventId: event.id)
+            let participants = try await EventFaceProfileClient.list(eventId: event.id)
             try Task.checkCancellation()
 
             let coordinator = env.makeSyncCoordinator()
@@ -100,7 +100,7 @@ struct SyncView: View {
         .onDisappear { model.cancel() }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase != .active {
-                model.cancelForSafety(message: "Camera sync stopped because MyPicsRoom left the foreground. You can continue when you return.")
+                model.cancelForSafety(message: "Camera sync stopped because SnapLoop left the foreground. You can continue when you return.")
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
@@ -119,9 +119,9 @@ struct SyncView: View {
                 }
                 .frame(width: 92, height: 92)
 
-                Text("Find your event photos")
+                Text("Find your Trip photos")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
-                Text("MyPicsRoom scans photos from this event's date window on this iPhone and looks for confident matches on-device.")
+                Text("SnapLoop checks photos from this Trip's date window on this iPhone and looks for confident matches on-device.")
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
@@ -151,7 +151,7 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Keep MyPicsRoom in the foreground while scanning. The scan pauses automatically for heat, memory pressure, or when you leave the app.")
+                Text("Keep SnapLoop in the foreground while scanning. The scan pauses automatically for heat, memory pressure, or when you leave the app.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
@@ -202,7 +202,7 @@ struct SyncView: View {
                     .multilineTextAlignment(.center)
 
                 Text(summary.alreadyCaughtUp
-                     ? "No new photos needed processing for this event."
+                     ? "No new photos needed processing for this Trip."
                      : "Your confident matches are ready in My Photos.")
                     .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
