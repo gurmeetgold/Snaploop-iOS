@@ -1,21 +1,22 @@
 import SwiftUI
 
-/// SnapLoop visual system inspired by a vivid social-photo palette.
-/// Warm orange/pink flows into magenta/violet, with adaptive light/dark surfaces.
+/// SnapLoop visual system: a crisp, saturated social-photo palette.
+/// The brand moves from warm coral/orange through hot pink into violet/blue.
 public enum Theme {
 
     // MARK: - Brand colors
-    public static let orange = Color(red: 1.00, green: 0.57, blue: 0.08)         // #FF9214
-    public static let coral = Color(red: 1.00, green: 0.25, blue: 0.34)          // #FF4057
-    public static let coralDeep = Color(red: 0.96, green: 0.10, blue: 0.31)      // #F51A4F
-    public static let coralSoft = Color(red: 1.00, green: 0.89, blue: 0.91)
-    public static let peach = Color(red: 1.00, green: 0.48, blue: 0.18)          // #FF7A2E
-    public static let hotPink = Color(red: 1.00, green: 0.03, blue: 0.47)        // #FF0878
-    public static let magenta = Color(red: 0.87, green: 0.02, blue: 0.73)        // #DE05BA
-    public static let lilac = Color(red: 0.55, green: 0.12, blue: 0.98)          // #8C1FFA
-    public static let lilacSoft = Color(red: 0.94, green: 0.89, blue: 1.00)
-    public static let blue = Color(red: 0.28, green: 0.31, blue: 1.00)           // #474FFF
-    public static let blueSoft = Color(red: 0.90, green: 0.91, blue: 1.00)
+    // Deliberately redder and more saturated than the prior golden/peach pass.
+    public static let orange = Color(red: 1.00, green: 0.34, blue: 0.10)         // #FF571A
+    public static let coral = Color(red: 1.00, green: 0.19, blue: 0.29)          // #FF304A
+    public static let coralDeep = Color(red: 0.96, green: 0.06, blue: 0.24)      // #F50F3D
+    public static let coralSoft = Color(red: 1.00, green: 0.90, blue: 0.93)
+    public static let peach = Color(red: 1.00, green: 0.43, blue: 0.14)          // #FF6E24
+    public static let hotPink = Color(red: 1.00, green: 0.00, blue: 0.44)        // #FF0070
+    public static let magenta = Color(red: 0.91, green: 0.00, blue: 0.72)        // #E800B8
+    public static let lilac = Color(red: 0.49, green: 0.08, blue: 1.00)          // #7D14FF
+    public static let lilacSoft = Color(red: 0.95, green: 0.91, blue: 1.00)
+    public static let blue = Color(red: 0.27, green: 0.23, blue: 1.00)           // #453BFF
+    public static let blueSoft = Color(red: 0.91, green: 0.91, blue: 1.00)
     public static let mint = Color(red: 0.05, green: 0.79, blue: 0.46)
     public static let amber = Color(red: 1.00, green: 0.63, blue: 0.08)
 
@@ -31,7 +32,7 @@ public enum Theme {
     public static let canvas = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.018, green: 0.025, blue: 0.070, alpha: 1)
-            : UIColor(red: 0.995, green: 0.992, blue: 0.998, alpha: 1)
+            : UIColor(red: 0.998, green: 0.996, blue: 1.000, alpha: 1)
     })
 
     public static let surface = Color(uiColor: UIColor { traits in
@@ -49,7 +50,7 @@ public enum Theme {
     public static let subtleSurface = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.075, green: 0.085, blue: 0.150, alpha: 1)
-            : UIColor(red: 0.978, green: 0.970, blue: 0.990, alpha: 1)
+            : UIColor(red: 0.982, green: 0.974, blue: 0.994, alpha: 1)
     })
 
     public static let divider = Color(uiColor: UIColor { traits in
@@ -64,15 +65,15 @@ public enum Theme {
     public static let pink = hotPink
     public static let aqua = mint
     public static let sky = blue
-    public static let skyDeep = Color(red: 0.21, green: 0.28, blue: 0.96)
+    public static let skyDeep = Color(red: 0.19, green: 0.19, blue: 0.96)
     public static let violet = lilac
-    public static let violetDeep = Color(red: 0.43, green: 0.08, blue: 0.88)
+    public static let violetDeep = Color(red: 0.38, green: 0.04, blue: 0.88)
     public static let separator = Color(uiColor: .separator)
 
     // MARK: - Gradients
-    /// Primary SnapLoop gradient: orange → coral → hot pink → violet.
+    /// Primary SnapLoop gradient: vivid coral/orange → hot pink → violet → blue.
     public static let brandGradient = LinearGradient(
-        colors: [orange, coral, hotPink, magenta, lilac],
+        colors: [peach, coral, hotPink, magenta, lilac, blue],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -86,7 +87,7 @@ public enum Theme {
     public static let sunsetGradient = coralGradient
 
     public static let socialGradient = LinearGradient(
-        colors: [hotPink, magenta, lilac, blue],
+        colors: [coral, hotPink, magenta, lilac, blue],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
@@ -98,29 +99,29 @@ public enum Theme {
     )
 
     public static let violetGradient = LinearGradient(
-        colors: [coral, hotPink, magenta, lilac],
+        colors: [coral, hotPink, magenta, lilac, blue],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
     public static let amberGradient = LinearGradient(
-        colors: [orange, peach, coral],
+        colors: [peach, coral, hotPink],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
 
     public static let galleryGradient = LinearGradient(
-        colors: [orange, coral, hotPink, magenta, lilac],
+        colors: [peach, coral, hotPink, magenta, lilac, blue],
         startPoint: .leading,
         endPoint: .trailing
     )
 
     public static let softWash = LinearGradient(
         colors: [
-            Color(red: 1.00, green: 0.93, blue: 0.86).opacity(0.78),
-            coralSoft.opacity(0.68),
-            lilacSoft.opacity(0.64),
-            blueSoft.opacity(0.48)
+            Color(red: 1.00, green: 0.95, blue: 0.97).opacity(0.76),
+            coralSoft.opacity(0.54),
+            lilacSoft.opacity(0.52),
+            blueSoft.opacity(0.42)
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
@@ -185,7 +186,7 @@ struct GradientTile: View {
         }
         .frame(height: height)
         .clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius, style: .continuous))
-        .shadow(color: Theme.hotPink.opacity(0.16), radius: 14, y: 8)
+        .shadow(color: Theme.hotPink.opacity(0.18), radius: 14, y: 8)
     }
 }
 
@@ -210,7 +211,7 @@ struct FilterChip: View {
             )
             .foregroundStyle(isSelected ? .white : Theme.ink)
             .overlay(Capsule().strokeBorder(isSelected ? .clear : Theme.divider))
-            .shadow(color: isSelected ? Theme.hotPink.opacity(0.20) : .clear, radius: 10, y: 4)
+            .shadow(color: isSelected ? Theme.hotPink.opacity(0.22) : .clear, radius: 10, y: 4)
         }
         .buttonStyle(.plain)
     }
@@ -238,6 +239,6 @@ struct InsightBanner: View {
         }
         .padding(20)
         .background(Theme.galleryGradient, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-        .shadow(color: Theme.hotPink.opacity(0.18), radius: 18, y: 8)
+        .shadow(color: Theme.hotPink.opacity(0.20), radius: 18, y: 8)
     }
 }
