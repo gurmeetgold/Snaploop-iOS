@@ -13,6 +13,54 @@ struct EventDashboardView: View {
     @State private var confirmDelete = false
     @State private var actionError: String?
     @State private var isChangingStatus = false
+    @State private var syncDisplayState: SyncDisplayState = .checking
+
+    private enum SyncDisplayState {
+        case checking
+        case ready
+        case sharingOff
+        case needsPhotoAccess
+        case paused
+
+        var title: String {
+            switch self {
+            case .checking: return "Checking"
+            case .ready: return "Ready"
+            case .sharingOff: return "Sharing off"
+            case .needsPhotoAccess: return "Needs access"
+            case .paused: return "Paused"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .checking: return "Checking this Event's sync status"
+            case .ready: return "SnapLoop can check this Event for new photos"
+            case .sharingOff: return "Photo sharing is turned off for this Event"
+            case .needsPhotoAccess: return "Allow Photos access to check this Event"
+            case .paused: return "Sync is unavailable for this Event right now"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .checking: return "clock"
+            case .ready: return "arrow.triangle.2.circlepath.circle.fill"
+            case .sharingOff: return "pause.circle.fill"
+            case .needsPhotoAccess: return "exclamationmark.triangle.fill"
+            case .paused: return "pause.circle.fill"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .checking, .paused: return .secondary
+            case .ready: return Theme.aqua
+            case .sharingOff: return .orange
+            case .needsPhotoAccess: return .red
+            }
+        }
+    }
 
     init(event: Event) {
         _currentEvent = State(initialValue: event)
@@ -83,6 +131,26 @@ struct EventDashboardView: View {
             let sharingEnabled = members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
             photosOfMe = matches.filter { sharingEnabled || $0.ownerUserId != userId }.count
         }
+
+        refreshSyncDisplayState()
+    }
+
+    @MainActor
+    private func refreshSyncDisplayState() {
+        guard EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) else {
+            syncDisplayState = .paused
+            return
+        }
+        guard env.photoLibrary.authorizationStatus().canRead else {
+            syncDisplayState = .needsPhotoAccess
+            return
+        }
+        guard let userId = session.user?.id else {
+            syncDisplayState = .paused
+            return
+        }
+        let sharingEnabled = members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
+        syncDisplayState = sharingEnabled ? .ready : .sharingOff
     }
 
     private var hero: some View {
@@ -171,18 +239,18 @@ struct EventDashboardView: View {
         PremiumCard {
             HStack(spacing: 12) {
                 ZStack {
-                    Circle().fill(Theme.aqua.opacity(0.14))
-                    Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.aqua)
+                    Circle().fill(syncDisplayState.tint.opacity(0.14))
+                    Image(systemName: syncDisplayState.systemImage).foregroundStyle(syncDisplayState.tint)
                 }
                 .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Event Sync").font(.headline).foregroundStyle(Theme.ink)
-                    Text("Scan this Event's date window for new matches").font(.caption).foregroundStyle(.secondary)
+                    Text(syncDisplayState.detail).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Text(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? "Available" : "Paused")
+                Text(syncDisplayState.title)
                     .font(.caption.bold())
-                    .foregroundStyle(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? Color.green : Color.secondary)
+                    .foregroundStyle(syncDisplayState.tint)
             }
         }
         .padding(.horizontal)
