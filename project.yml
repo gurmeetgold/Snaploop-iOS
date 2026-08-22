@@ -38,8 +38,11 @@ targets:
           - CFBundleURLName: SnapLoop Invite
             CFBundleURLSchemes:
               - snaploop
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.gurmeetchhiber.snaploop.app.event-photo-sync
         UIBackgroundModes:
           - remote-notification
+          - processing
 
     sources:
       - path: Sources
@@ -74,10 +77,10 @@ targets:
         INFOPLIST_KEY_CFBundleName: SnapLoop
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop checks photos on this iPhone that fall within your Trip's selected date range to find confident matches. Matching happens on-device; only matched optimized previews are shared with Trip members."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "SnapLoop checks photos on this iPhone that fall within your Event's selected date range to find confident matches. Matching happens on-device; only matched optimized previews are shared with Event members."
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "SnapLoop saves a shared photo preview to your Photos library only when you tap Save."
-        INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the front camera for guided Face Setup and can use the camera for Trip QR codes."
-        INFOPLIST_KEY_NSContactsUsageDescription: "SnapLoop lets a Trip organizer choose a contact to send that person an invitation. SnapLoop does not upload your address book."
+        INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the front camera for guided Face Setup and can use the camera for Event QR codes."
+        INFOPLIST_KEY_NSContactsUsageDescription: "SnapLoop lets an Event organizer choose a contact to invite. SnapLoop does not upload your address book."
       configs:
         Debug:
           APS_ENVIRONMENT: development
