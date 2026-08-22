@@ -10,6 +10,7 @@ const FieldValue = admin.firestore.FieldValue;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PREVIEW_RETENTION_DAYS = 10;
 const DELETED_TRIP_HARD_DELETE_AFTER_MS = (6 * DAY_MS) + (12 * 60 * 60 * 1000);
+const CONSENT_POLICY_VERSION = 2;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {
@@ -113,6 +114,33 @@ function callableTemplates(rawTemplates) {
     }));
 }
 
+exports.acceptBiometricConsent = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const data = request.data || {};
+  if (typeof data.userId === "string" && data.userId !== uid) {
+    throw new HttpsError("permission-denied", "Consent identity does not match the signed-in user.");
+  }
+  const requestedVersion = Number(data.policyVersion);
+  if (requestedVersion !== CONSENT_POLICY_VERSION) {
+    throw new HttpsError("failed-precondition", "Please review the current Face Match Consent before continuing.");
+  }
+
+  const acceptedAt = Timestamp.now();
+  await db.doc(`users/${uid}/privacy/biometricConsent`).set({
+    userId: uid,
+    policyVersion: CONSENT_POLICY_VERSION,
+    disclosureId: `biometric-consent-v${CONSENT_POLICY_VERSION}`,
+    acceptedAt,
+    withdrawnAt: null,
+  }, { merge: false });
+
+  return {
+    accepted: true,
+    policyVersion: CONSENT_POLICY_VERSION,
+    acceptedAtMillis: acceptedAt.toMillis(),
+  };
+});
+
 exports.listEventFaceProfiles = onCall(async (request) => {
   const uid = requireAuth(request);
   const eventId = requireString((request.data || {}).eventId, "eventId");
@@ -170,8 +198,6 @@ exports.scrubParticipantBiometrics = onDocumentWritten(
   }
 );
 
-// Migrates beta data that predates the participant-write scrubber. Firestore
-// Rules already deny participant reads; this removes the redundant stored copy.
 exports.scrubLegacyParticipantBiometrics = onSchedule("every 24 hours", async () => {
   const snap = await db.collectionGroup("participants").limit(500).get();
   const updates = [];
