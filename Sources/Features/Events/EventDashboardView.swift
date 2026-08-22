@@ -64,8 +64,6 @@ struct EventDashboardView: View {
         session.activeEvent = currentEvent
         if AppEnvironment.useLiveServices, currentEvent.status != .deletedByOrganizer { try? await syncRosterIdentities() }
         members = (try? await env.events.members(eventId: currentEvent.id)) ?? []
-        // Roster display metadata may remain available, but biometric matching
-        // data is loaded only by the private sync callable.
         participants = (try? await env.events.participants(eventId: currentEvent.id)) ?? []
         if let userId = session.user?.id { photosOfMe = ((try? await env.matches.myPhotos(eventId: currentEvent.id, userId: userId)) ?? []).count }
     }
@@ -117,7 +115,9 @@ struct EventDashboardView: View {
                 ZStack { Circle().fill(Theme.aqua.opacity(0.14)); Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.aqua) }.frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 2) { Text("Trip Sync").font(.headline).foregroundStyle(Theme.ink); Text("Scan this Trip's date window for new matches").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
-                Text(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? "Available" : "Paused").font(.caption.bold()).foregroundStyle(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? .green : .secondary)
+                Text(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? "Available" : "Paused")
+                    .font(.caption.bold())
+                    .foregroundStyle(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? Color.green : Color.secondary)
             }
         }.padding(.horizontal)
     }
@@ -177,7 +177,7 @@ struct EventDashboardView: View {
                         Button { Task { await changeStatus { try await env.events.reopenEvent(id: currentEvent.id) } } } label: { Label("Reopen Trip", systemImage: "arrow.counterclockwise.circle.fill") }.disabled(isChangingStatus)
                     }
                     if currentEvent.status == .deletedByOrganizer {
-                        Button { Task { await changeStatus { try await env.events.restoreEvent(id: currentEvent.id) } } label: { Label("Restore Trip", systemImage: "arrow.uturn.backward.circle.fill") }.disabled(isChangingStatus)
+                        Button { Task { await changeStatus { try await env.events.restoreEvent(id: currentEvent.id) } } } label: { Label("Restore Trip", systemImage: "arrow.uturn.backward.circle.fill") }.disabled(isChangingStatus)
                     } else {
                         Button(role: .destructive) { confirmDelete = true } label: { Label("Move to Deleted", systemImage: "trash.fill") }.disabled(isChangingStatus)
                     }
