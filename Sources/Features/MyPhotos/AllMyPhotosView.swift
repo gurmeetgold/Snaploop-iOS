@@ -94,15 +94,63 @@ struct AllMyPhotosView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @StateObject private var model = AllMyPhotosModel()
-    private let columns = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+    @State private var filter: PhotoFilter = .all
+    @State private var columnCount = 2
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: columnCount >= 6 ? 4 : 8, alignment: .top), count: columnCount)
+    }
+
+    private var filtered: [PhotoMatch] {
+        switch filter {
+        case .all: return model.photos
+        case .favorites: return model.photos.filter { model.favoriteIds.contains($0.id) }
+        }
+    }
 
     var body: some View {
         ZStack {
             BrandScreenBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    InsightBanner(value: "\(model.photos.count)", label: "photos found of you", systemImage: "sparkles").padding(.horizontal)
-                    Text("Across all your Events").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.horizontal)
+                    InsightBanner(value: "\(model.photos.count)", label: "photos found of you", systemImage: "sparkles")
+                        .padding(.horizontal)
+
+                    Text("Across all your Events")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal)
+
+                    HStack(spacing: 8) {
+                        ForEach(PhotoFilter.allCases) { item in
+                            FilterChip(
+                                title: item.title,
+                                systemImage: item.systemImage,
+                                isSelected: filter == item
+                            ) {
+                                filter = item
+                            }
+                        }
+                        Spacer()
+                        Menu {
+                            ForEach([2, 4, 6, 8], id: \.self) { count in
+                                Button {
+                                    withAnimation(.snappy) { columnCount = count }
+                                } label: {
+                                    Label("\(count) per row", systemImage: count == columnCount ? "checkmark" : "square.grid.3x3")
+                                }
+                            }
+                        } label: {
+                            Label("\(columnCount)", systemImage: "square.grid.3x3.fill")
+                                .font(.subheadline.bold())
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 9)
+                                .background(.white.opacity(0.9), in: Capsule())
+                                .foregroundStyle(Theme.sunset)
+                        }
+                    }
+                    .padding(.horizontal)
 
                     if let errorMessage = model.errorMessage {
                         Label("Some photos could not be refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill")
@@ -111,16 +159,24 @@ struct AllMyPhotosView: View {
                             .padding(.horizontal)
                     }
 
-                    if model.photos.isEmpty && !model.isLoading {
+                    if filtered.isEmpty && !model.isLoading {
                         ContentUnavailableViewCompat(
-                            title: "No photos of you yet",
-                            message: "When Event members sync photos containing you, they will appear here.",
-                            systemImage: "person.crop.square"
+                            title: model.errorMessage == nil
+                                ? (filter == .favorites ? "No favorites yet" : "No photos of you yet")
+                                : "Photos unavailable",
+                            message: model.errorMessage == nil
+                                ? (filter == .favorites
+                                    ? "Open a photo and tap Favorite to keep it here."
+                                    : "SnapLoop automatically checks eligible live Events for new matched photos. You can also use Sync Now from an Event at any time.")
+                                : "Pull to refresh and try again.",
+                            systemImage: model.errorMessage == nil
+                                ? (filter == .favorites ? "heart" : "person.crop.square")
+                                : "exclamationmark.triangle"
                         )
                         .frame(minHeight: 300)
                     } else {
-                        LazyVGrid(columns: columns, spacing: 8) {
-                            ForEach(model.photos) { match in
+                        LazyVGrid(columns: columns, spacing: columnCount >= 6 ? 4 : 8) {
+                            ForEach(filtered) { match in
                                 NavigationLink {
                                     PhotoDetailView(
                                         match: match,
@@ -130,12 +186,17 @@ struct AllMyPhotosView: View {
                                         onNotMe: { Task { await model.markNotMe(match) } }
                                     )
                                 } label: {
-                                    AllMyPhotosGridCell(match: match, isFavorite: model.isFavorite(match))
+                                    PhotoCard(
+                                        match: match,
+                                        ownerLabel: model.ownerLabel(for: match),
+                                        isFavorite: model.isFavorite(match),
+                                        compact: columnCount >= 6
+                                    )
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, columnCount >= 6 ? 8 : 16)
                     }
                 }
                 .padding(.vertical, 16)
@@ -143,32 +204,10 @@ struct AllMyPhotosView: View {
         }
         .navigationTitle("Gallery")
         .navigationBarTitleDisplayMode(.inline)
-        .task { model.configure(env: env, session: session); await model.reload() }
-        .refreshable { await model.reload() }
-    }
-}
-
-private struct AllMyPhotosGridCell: View {
-    let match: PhotoMatch
-    let isFavorite: Bool
-
-    var body: some View {
-        GeometryReader { geometry in
-            ThumbnailCell(path: match.thumbnailPath)
-                .frame(width: geometry.size.width, height: geometry.size.width)
-                .clipped()
-                .overlay(alignment: .topTrailing) {
-                    if isFavorite {
-                        Image(systemName: "heart.fill")
-                            .font(.caption)
-                            .foregroundStyle(Theme.pink)
-                            .padding(7)
-                    }
-                }
+        .onAppear {
+            model.configure(env: env, session: session)
+            Task { await model.reload() }
         }
-        .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .contentShape(Rectangle())
-        .shadow(color: Theme.ink.opacity(0.06), radius: 8, y: 4)
+        .refreshable { await model.reload() }
     }
 }
