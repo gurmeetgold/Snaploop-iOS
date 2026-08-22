@@ -119,7 +119,7 @@ struct RootView: View {
                 try? await environment.users.save(user)
             }
         } catch {
-            Log.face.error("Deferred face-profile hydration failed: \(String(describing: error), privacy: .public)")
+            Log.events.error("Deferred face-profile hydration failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -166,9 +166,6 @@ struct RootView: View {
 
         do {
             let user = try await environment.users.fetch(userId: uid)
-            // Show the authenticated Home UI as soon as the lightweight user record
-            // is restored. Face profile, Remote Config, invites, push registration and
-            // automatic sync hydrate afterward and must never hold the launch screen.
             session.beginAuthenticatedSession(user: user, faceProfile: nil)
         } catch {
             try? environment.auth.signOut()
@@ -178,29 +175,14 @@ struct RootView: View {
 }
 
 struct MainTabView: View {
-    @State private var selectedTab = Tab.home
-    enum Tab { case home, gallery, you }
-
     var body: some View {
-        TabView(selection: $selectedTab) {
-            NavigationStack { HomeView(showsGreeting: true) }
+        TabView {
+            NavigationStack { HomeView() }
                 .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(Tab.home)
-
             NavigationStack { AllMyPhotosView() }
-                .tabItem { Label("Gallery", systemImage: "photo.stack.fill") }
-                .tag(Tab.gallery)
-
+                .tabItem { Label("Gallery", systemImage: "photo.on.rectangle.angled") }
             NavigationStack { SettingsView() }
                 .tabItem { Label("You", systemImage: "person.crop.circle.fill") }
-                .tag(Tab.you)
         }
-        .tint(Theme.sunset)
     }
-}
-
-#Preview {
-    RootView()
-        .environmentObject(AppEnvironment.dev())
-        .environmentObject(AppSession.dev())
 }
