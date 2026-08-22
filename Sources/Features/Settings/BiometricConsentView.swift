@@ -16,45 +16,42 @@ struct BiometricConsentView: View {
                         HStack {
                             BrandMark(size: 54)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("Face Match Consent").font(.title2.bold()).foregroundStyle(Theme.ink)
-                                Text("Please review before setting up your face").font(.caption).foregroundStyle(.secondary)
+                                Text("Face Match Consent")
+                                    .font(.title2.bold())
+                                    .foregroundStyle(Theme.ink)
+                                Text("Review once before Face Setup")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
 
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
                                 consentPoint(
-                                    "What SnapLoop uses",
-                                    "SnapLoop creates face-template metadata from Face Setup only to find photos of you in Events you join. It is not used for advertising, surveillance, stranger identification, or account authentication.",
-                                    icon: "sparkles",
+                                    "Face matching only",
+                                    "SnapLoop uses face-template metadata only to find photos of you in Events you join. It is not used for advertising, surveillance, stranger identification, or account authentication.",
+                                    icon: "faceid",
                                     tint: Theme.sunset
                                 )
                                 Divider()
                                 consentPoint(
                                     "Your selfie stays on your iPhone",
-                                    "Your guided selfie and optional gallery reference image stay in SnapLoop's protected storage on this iPhone and are not uploaded. SnapLoop stores only face-template metadata - not your selfie photo.",
+                                    "Your selfie and optional gallery reference image are not uploaded. SnapLoop stores face-template metadata - not your selfie photo.",
                                     icon: "iphone.gen3",
                                     tint: Theme.aqua
                                 )
                                 Divider()
                                 consentPoint(
-                                    "How matching works",
-                                    "For an active Event, authorized participating devices may receive the face-template metadata needed to match photos on-device. SnapLoop scans only photos available within the Event's selected date range and never uploads your entire photo library.",
+                                    "On-device and under your control",
+                                    "Matching runs on participating devices and only within each Event's selected date range. You can remove Face Setup or withdraw consent at any time.",
                                     icon: "lock.shield.fill",
                                     tint: Theme.violet
-                                )
-                                Divider()
-                                consentPoint(
-                                    "Your control",
-                                    "You can remove Face Setup or withdraw consent later. Your stored face-template metadata is then deleted and future face matching stops.",
-                                    icon: "person.crop.circle.badge.xmark",
-                                    tint: Theme.sky
                                 )
                             }
                         }
 
                         Toggle(
-                            "I agree to SnapLoop creating, storing, using, and sharing my face-template metadata only to find photos of me in Events I join.",
+                            "I agree to SnapLoop using my face-template metadata only for photo matching in Events I join.",
                             isOn: $agreed
                         )
                         .tint(Theme.sunset)
