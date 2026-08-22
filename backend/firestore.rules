@@ -21,10 +21,12 @@ service cloud.firestore {
         get(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
     }
 
+    function isMatchedInPhoto() {
+      return resource.data.matchedUserIds is list
+        && resource.data.matchedUserIds.hasAny([request.auth.uid]);
+    }
+
     match /users/{userId} {
-      // Phone number, identity fields and account lifecycle are server-owned.
-      // Clients synchronize them through syncMyUserProfile/updateDisplayName/
-      // deleteMyAccount callables so a forged phone number cannot be persisted.
       allow read: if isSelf(userId);
       allow create, update, delete: if false;
 
@@ -32,14 +34,11 @@ service cloud.firestore {
         allow read: if isSelf(userId);
         allow create, update: if isSelf(userId)
           && request.resource.data.userId == userId;
-        // Deletion must also scrub event-scoped biometric copies and matches.
         allow delete: if false;
       }
 
       match /privacy/{doc} {
         allow read: if isSelf(userId);
-        // Consent acceptance may be persisted by the signed-in user. Withdrawal
-        // is callable-only because it must erase all biometric derivatives.
         allow create, update: if isSelf(userId)
           && request.resource.data.userId == userId
           && request.resource.data.get('withdrawnAt', null) == null;
@@ -77,9 +76,6 @@ service cloud.firestore {
       allow list: if false;
       allow create: if false;
 
-      // The existing end-event UI keeps a single tightly constrained direct
-      // transition: active -> endedByOrganizer. Reopen/delete/restore and all
-      // event detail/date edits go through trusted callables.
       allow update: if isOrganizer(eventId)
         && resource.data.status == 'active'
         && request.resource.data.status == 'endedByOrganizer'
@@ -100,13 +96,11 @@ service cloud.firestore {
 
       match /members/{userId} {
         allow read: if isMember(eventId);
-        // Roles and sharingEnabled are server-authoritative.
         allow create, update, delete: if false;
       }
 
       match /participants/{userId} {
-        allow read: if isMember(eventId);
-        allow write: if false;
+        allow read, write: if false;
       }
 
       match /invites/{inviteId} {
@@ -114,9 +108,7 @@ service cloud.firestore {
       }
 
       match /photos/{photoId} {
-        // Only trusted callables publish/update/delete match metadata. This
-        // prevents forged sourceUserId, matchedUserIds and confidence records.
-        allow read: if isMember(eventId);
+        allow read: if isMember(eventId) && isMatchedInPhoto();
         allow create, update, delete: if false;
       }
     }
