@@ -14,7 +14,6 @@ const memberCleanup = require("./memberCleanup");
 const notifications = require("./notifications");
 const privacy = require("./privacyHardening");
 
-// Event lifecycle + invite resolution.
 exports.createEvent = managed.createEventMVP;
 exports.joinEvent = managed.joinEventManaged;
 exports.resolveInvite = legacy.resolveInvite;
@@ -23,7 +22,6 @@ exports.setEventStatus = lifecycle.setEventStatusManaged;
 exports.manageEventMember = managed.manageEventMember;
 exports.leaveEvent = leave.leaveEventManaged;
 
-// Invitations.
 exports.inviteByPhone = managed.inviteByPhoneManaged;
 exports.listEventInvites = managed.listEventInvitesManaged;
 exports.nextPendingInvite = invites.nextPendingInvite;
@@ -34,12 +32,10 @@ exports.markInviteJoined = notifications.markInviteJoined;
 exports.hydrateDeferredInvites = notifications.hydrateDeferredInvites;
 exports.expirePendingInvites = notifications.expirePendingInvites;
 
-// Push notification token lifecycle + Firestore-triggered delivery.
 exports.registerPushToken = notifications.registerPushToken;
 exports.unregisterPushToken = notifications.unregisterPushToken;
 exports.deliverNotificationRecord = notifications.deliverNotificationRecord;
 
-// Server-owned identity/profile operations.
 exports.syncMyUserProfile = security.syncMyUserProfile;
 exports.updateDisplayName = security.updateDisplayNameTrusted;
 exports.refreshMyFaceProfile = profile.refreshMyFaceProfileManaged;
@@ -48,22 +44,15 @@ exports.withdrawBiometricConsent = security.withdrawBiometricConsent;
 exports.deleteMyAccount = security.deleteMyAccount;
 exports.listEventFaceProfiles = privacy.listEventFaceProfiles;
 exports.scrubParticipantBiometrics = privacy.scrubParticipantBiometrics;
+exports.scrubLegacyParticipantBiometrics = privacy.scrubLegacyParticipantBiometrics;
 
-// Server-owned sharing + photo metadata operations.
 exports.setSharing = security.setSharingManaged;
 exports.publishMatch = security.publishMatch;
 exports.dismissAppearance = security.dismissAppearanceTrusted;
 
-// Privacy retention and deletion lifecycle.
 exports.purgeDeletedTripPreviews = privacy.purgeDeletedTripPreviews;
 exports.purgeExpiredTripPreviews = privacy.purgeExpiredTripPreviews;
 exports.hardDeleteDeletedTrips = privacy.hardDeleteDeletedTrips;
 
-// Membership deletion is defense-in-depth: every removal path, including role
-// management and future trusted admin flows, scrubs that member's event photo
-// appearances and authored shared previews.
 exports.cleanupRemovedMemberPhotoData = memberCleanup.cleanupRemovedMemberPhotoData;
-
-// Roster snapshots are still read/rewritten by a trusted callable; no direct
-// client write permission is granted to participant documents.
 exports.syncEventRosterIdentities = legacy.syncEventRosterIdentities;
