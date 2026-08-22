@@ -45,20 +45,20 @@ struct HomeView: View {
                         createJoinRow
                         if let notification = model.notifications.first { eventNotificationCard(notification).padding(.horizontal) }
                     }
-                    sectionHeader(showsGreeting ? "Your Trips" : "All Trips")
+                    sectionHeader(showsGreeting ? "Your Events" : "All Events")
                     if visibleEvents.isEmpty { emptyState.padding(.horizontal) } else { eventList(visibleEvents) }
                     if !deletedEvents.isEmpty { sectionHeader("Deleted"); eventList(deletedEvents) }
                 }
                 .padding(.vertical, 12)
             }
         }
-        .navigationTitle(showsGreeting ? "" : "Trips")
+        .navigationTitle(showsGreeting ? "" : "Events")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !showsGreeting {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button { showCreate = true } label: { Label("Create Trip", systemImage: "plus") }
+                        Button { showCreate = true } label: { Label("Create Event", systemImage: "plus") }
                         Button { showJoin = true } label: { Label("Join with Code", systemImage: "qrcode.viewfinder") }
                     } label: { Image(systemName: "plus").font(.headline).foregroundStyle(.white).padding(10).background(Theme.brandGradient, in: Circle()) }
                 }
@@ -104,8 +104,8 @@ struct HomeView: View {
 
     private var createJoinRow: some View {
         HStack(spacing: 12) {
-            Button { showCreate = true } label: { actionCard(title: "Create Trip", subtitle: "Travel, party, family & more", icon: "plus", gradient: Theme.sunsetGradient) }
-            Button { showJoin = true } label: { actionCard(title: "Join Trip", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient) }
+            Button { showCreate = true } label: { actionCard(title: "Create Event", subtitle: "Travel, party, family & more", icon: "plus", gradient: Theme.sunsetGradient) }
+            Button { showJoin = true } label: { actionCard(title: "Join Event", subtitle: "Code, link or QR", icon: "person.2.fill", gradient: Theme.socialGradient) }
         }.buttonStyle(.plain).padding(.horizontal)
     }
 
@@ -120,8 +120,8 @@ struct HomeView: View {
         PremiumCard {
             VStack(spacing: 14) {
                 ZStack { Circle().fill(Theme.peach.opacity(0.25)); Image(systemName: "photo.on.rectangle.angled").font(.system(size: 34)).foregroundStyle(Theme.sunset) }.frame(width: 74, height: 74)
-                Text("No Trips yet").font(.headline)
-                Text("Create a Trip, or join one with a code, link or QR.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("No Events yet").font(.headline)
+                Text("Create an Event, or join one with a code, link or QR.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }.frame(maxWidth: .infinity).padding(.vertical, 8)
         }
     }
@@ -155,8 +155,8 @@ struct EnterCodeView: View {
     @State private var text = ""; @State private var error: String?
     var body: some View {
         NavigationStack {
-            ZStack { BrandScreenBackground(); VStack(spacing: 20) { BrandMark(size: 62); Text("Join a Trip").font(.title2.bold()); TextField("Trip code or invite link", text: $text).textInputAutocapitalization(.characters).autocorrectionDisabled().padding().background(.white, in: RoundedRectangle(cornerRadius: 16)); if let error { Text(error).foregroundStyle(.red).font(.footnote) }; Button { if let route = DeepLinkRouter.route(forManualEntry: text) { onResolved(route) } else { error = AppError.invalidJoinCode.userMessage } } label: { Label("Continue", systemImage: "arrow.right.circle.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 52) }.buttonStyle(.plain).foregroundStyle(.white).background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18)).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }.padding(24) }
-            .navigationTitle("Join Trip").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            ZStack { BrandScreenBackground(); VStack(spacing: 20) { BrandMark(size: 62); Text("Join an Event").font(.title2.bold()); TextField("Event code or invite link", text: $text).textInputAutocapitalization(.characters).autocorrectionDisabled().padding().background(.white, in: RoundedRectangle(cornerRadius: 16)); if let error { Text(error).foregroundStyle(.red).font(.footnote) }; Button { if let route = DeepLinkRouter.route(forManualEntry: text) { onResolved(route) } else { error = AppError.invalidJoinCode.userMessage } } label: { Label("Continue", systemImage: "arrow.right.circle.fill").font(.headline).frame(maxWidth: .infinity).frame(height: 52) }.buttonStyle(.plain).foregroundStyle(.white).background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18)).disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }.padding(24) }
+            .navigationTitle("Join Event").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }
 }
