@@ -57,12 +57,15 @@ targets:
         product: FirebaseStorage
       - package: Firebase
         product: FirebaseRemoteConfig
+      - package: Firebase
+        product: FirebaseMessaging
 
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gurmeetchhiber.snaploop.app
         PRODUCT_NAME: SnapLoop
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Sources/App/SnapLoop.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         GENERATE_INFOPLIST_FILE: YES
