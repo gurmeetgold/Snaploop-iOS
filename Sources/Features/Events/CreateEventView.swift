@@ -3,7 +3,7 @@ import SwiftUI
 @MainActor
 final class CreateEventModel: ObservableObject {
     @Published var name = ""
-    @Published var category: EventCategory = .other
+    @Published var category: EventCategory = .trip
     @Published var startsAt = Date()
     @Published var endsAt = Calendar.current.date(byAdding: .day, value: 3, to: Date()) ?? Date().addingTimeInterval(3 * 86_400)
     @Published var locationName = ""
@@ -85,7 +85,7 @@ struct CreateEventView: View {
                         Text("Create an Event")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.ink)
-                        Text("Travel, party, family celebration, wedding — bring everyone's photos together.")
+                        Text("Trip, party, family celebration, wedding — bring everyone's photos together.")
                             .font(.subheadline).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
 
@@ -127,7 +127,7 @@ struct CreateEventView: View {
                                     }
                                 Divider()
                                 DatePicker("Ends", selection: $model.endsAt, in: allowedEndDates, displayedComponents: [.date])
-                                Text("SnapLoop only considers photos taken within this Event's selected date range. For this MVP, dates must stay within 15 days before or after today, and an Event can span at most 15 calendar days.")
+                                Text("SnapLoop only considers photos taken within this Event's selected date range. Dates must stay within 15 days before or after today, and an Event can span at most 15 calendar days.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
