@@ -219,7 +219,7 @@ struct PhotoCard: View {
         .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 14, style: .continuous))
         .shadow(color: Theme.ink.opacity(compact ? 0 : 0.06), radius: 8, y: 4)
         .contentShape(Rectangle())
-        .accessibilityLabel("Photo shared by \(ownerLabel)")
+        .accessibilityLabel("Photo taken by \(ownerLabel)")
     }
 }
 
@@ -230,9 +230,6 @@ final class StorageThumbnailLoader: ObservableObject {
 
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        // High-quality MVP images decode much larger than the previous 1024px
-        // previews. Keep only a small working set to avoid turning fast swiping
-        // into an unbounded memory cost.
         cache.countLimit = 18
         cache.totalCostLimit = 128 * 1024 * 1024
         return cache
@@ -255,8 +252,6 @@ final class StorageThumbnailLoader: ObservableObject {
     }
 
     static func prefetch(paths: [String]) async {
-        // Only warm the immediate neighbors. This removes most swipe spinners
-        // without downloading an entire large Gallery or inflating memory use.
         for path in Array(paths.prefix(2)) where cache.object(forKey: path as NSString) == nil {
             do {
                 let image = try await fetchImage(path: path)
@@ -421,7 +416,7 @@ private struct SinglePhotoPage: View {
                         }
                         .frame(width: 42, height: 42)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("Shared by \(ownerLabel)").font(.subheadline.bold())
+                            Text("Taken by \(ownerLabel)").font(.subheadline.bold())
                             Text(DateFormatting.longDate(match.capturedAt)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
