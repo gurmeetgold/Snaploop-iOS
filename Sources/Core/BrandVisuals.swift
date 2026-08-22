@@ -1,14 +1,13 @@
 import SwiftUI
 
-/// MyPicsRoom visual identity used throughout the MVP.
-/// Camera-first, light and compact: inspired by the simple camera + wordmark
-/// treatment the product team selected, while remaining an original mark.
+/// SnapLoop visual identity used throughout the app.
+/// Camera-first, light and compact, with one shared wordmark so branding stays
+/// consistent across onboarding, authentication, settings, and Trip screens.
 struct BrandMark: View {
     var size: CGFloat = 72
 
     var body: some View {
         ZStack {
-            // Camera body: deliberately simple so it still reads at tab/icon size.
             RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
                 .strokeBorder(Theme.coral, lineWidth: max(2, size * 0.075))
                 .frame(width: size * 0.92, height: size * 0.68)
@@ -44,15 +43,15 @@ struct BrandWordmark: View {
         HStack(spacing: compact ? 6 : 9) {
             BrandMark(size: compact ? 30 : 48)
             HStack(spacing: 0) {
-                Text("MyPics")
+                Text("Snap")
                     .foregroundStyle(Theme.coral)
-                Text("Room")
+                Text("Loop")
                     .foregroundStyle(Theme.blue)
             }
             .font(compact ? .system(.headline, design: .rounded, weight: .bold) : .system(size: 34, weight: .bold, design: .rounded))
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("MyPicsRoom")
+        .accessibilityLabel("SnapLoop")
     }
 }
 
