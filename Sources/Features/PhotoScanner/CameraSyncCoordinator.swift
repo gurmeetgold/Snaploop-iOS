@@ -43,6 +43,8 @@ public struct CameraSyncCoordinator {
         event: Event,
         participants: [EventParticipant],
         currentUserId: String,
+        includeOwnMatches: Bool = false,
+        preferenceRevision: String = "default",
         onProgress: (@Sendable (SyncProgress) -> Void)? = nil
     ) async throws -> Summary {
         try Task.checkCancellation()
@@ -60,10 +62,16 @@ public struct CameraSyncCoordinator {
 
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
-        // sharing-v2 intentionally forces one clean re-scan after own-camera
-        // sharing semantics changed. Old scan state may otherwise suppress photos
-        // that were processed before the user could be a recipient.
-        let scanStateKey = [event.id, currentUserId, FaceModelPolicy.scanGeneration, "sharing-v2"].joined(separator: "::")
+        // Preference revision is part of the local scan-state key so turning
+        // sharing back on or changing own-photo visibility causes a clean pass.
+        let scanStateKey = [
+            event.id,
+            currentUserId,
+            FaceModelPolicy.scanGeneration,
+            "sharing-v3",
+            includeOwnMatches ? "own-on" : "own-off",
+            preferenceRevision,
+        ].joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
         state.retainScannedAssetIds(Set(assets.map(\.id)))
 
@@ -97,6 +105,7 @@ public struct CameraSyncCoordinator {
                     event: event,
                     participants: participants,
                     currentUserId: currentUserId,
+                    includeOwnMatches: includeOwnMatches,
                     matcher: matcher,
                     values: values
                 )
@@ -143,6 +152,7 @@ public struct CameraSyncCoordinator {
         event: Event,
         participants: [EventParticipant],
         currentUserId: String,
+        includeOwnMatches: Bool,
         matcher: FaceMatcher,
         values: RemoteConfigValues
     ) async throws -> Bool {
@@ -155,9 +165,10 @@ public struct CameraSyncCoordinator {
         try Task.checkCancellation()
 
         let faces = try await faceDetection.detectFaces(in: working)
-        // When this member has sharing enabled, matches from this phone are
-        // published for every matched Event member, including the phone owner.
-        let appearances = matcher.appearances(in: faces, participants: participants)
+        var appearances = matcher.appearances(in: faces, participants: participants)
+        if !includeOwnMatches {
+            appearances.removeAll { $0.participantUserId == currentUserId }
+        }
         guard !appearances.isEmpty else { return false }
 
         try Task.checkCancellation()
