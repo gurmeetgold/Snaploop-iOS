@@ -16,6 +16,7 @@ const privacy = require("./privacyHardening");
 const memberDirectory = require("./memberDirectory");
 const memberPreferences = require("./memberPreferences");
 const matchRead = require("./matchRead");
+const invitePreview = require("./invitePreview");
 
 exports.createEvent = managed.createEventMVP;
 exports.joinEvent = managed.joinEventManaged;
@@ -34,6 +35,7 @@ exports.notifyPendingInvite = notifications.notifyPendingInvite;
 exports.markInviteJoined = notifications.markInviteJoined;
 exports.hydrateDeferredInvites = notifications.hydrateDeferredInvites;
 exports.expirePendingInvites = notifications.expirePendingInvites;
+exports.invitePreview = invitePreview.invitePreview;
 
 exports.registerPushToken = notifications.registerPushToken;
 exports.unregisterPushToken = notifications.unregisterPushToken;
