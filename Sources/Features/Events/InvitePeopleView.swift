@@ -71,7 +71,7 @@ struct InvitePeopleView: View {
                     Text("Invite by Phone")
                         .font(.system(size: 27, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("Invite someone directly, or pick a number from your contacts.")
+                    Text("Invite someone directly, or choose a number from your contacts.")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
                     PremiumCard {
@@ -194,9 +194,9 @@ struct InvitePeopleView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("How it works", systemImage: "sparkles")
                     .font(.headline).foregroundStyle(Theme.ink)
-                Text("MyPicsRoom checks the phone number on the server. Existing users receive an in-app event invitation, so no SMS is needed. If the person does not have MyPicsRoom yet, you can send the prepared SMS invite link.")
+                Text("Enter a phone number or select a contact. If that person already uses MyPicsRoom, the invitation is delivered in the app. Otherwise, MyPicsRoom prepares an SMS invitation link for you to send.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("Nobody is silently added. The recipient accepts the invitation before membership and face matching begin.")
+                Text("The person joins only after accepting the invitation. Face matching starts only after they join the Event and complete Face Setup.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
@@ -205,7 +205,7 @@ struct InvitePeopleView: View {
     @MainActor
     private func sendInvite() async {
         guard event.status == .active else {
-            errorMessage = "This event is not accepting new invitations. Reopen it first if you're the organizer."
+            errorMessage = "This Event is not accepting new invitations. Reopen it first if you're the organizer."
             return
         }
         guard let normalized = PhoneNumberNormalizer.e164(localInput: phone, country: country) else {
@@ -222,11 +222,11 @@ struct InvitePeopleView: View {
             phone = normalized
             switch delivery.kind {
             case .inApp:
-                message = "Invitation delivered inside MyPicsRoom. No SMS was sent."
+                message = "Invitation delivered in MyPicsRoom. No SMS was sent."
             case .sms:
                 smsRecipient = normalized
                 guard MFMessageComposeViewController.canSendText() else {
-                    message = "This person does not have MyPicsRoom yet. Use Share Invite to send the event link."
+                    message = "This person does not have MyPicsRoom yet. Use Share Invite to send the Event link."
                     await refreshStatuses()
                     return
                 }
