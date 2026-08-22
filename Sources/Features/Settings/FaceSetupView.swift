@@ -412,7 +412,7 @@ struct FaceSetupView: View {
                     .font(.caption.bold())
                     .foregroundStyle(model.hasGalleryReference ? .green : .secondary)
             }
-            Text("MVP allows one gallery face only. If the photo has several people, SnapLoop asks you to choose your face.")
+            Text("One optional gallery reference is supported. If the photo has several people, SnapLoop asks you to choose your face.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }
