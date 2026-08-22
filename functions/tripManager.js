@@ -27,7 +27,7 @@ function millis(value, field) {
 }
 function validateDates(start, end) {
   if (end <= start || end - start > 15 * DAY_MS + 2 * 60 * 60 * 1000) {
-    throw new HttpsError("invalid-argument", "Trip dates are invalid or longer than 15 days.");
+    throw new HttpsError("invalid-argument", "Event dates are invalid or longer than 15 days.");
   }
 }
 function managerRole(snap) {
@@ -38,26 +38,26 @@ function managerRole(snap) {
 exports.updateTripManaged = onCall(async (request) => {
   const uid = requireAuth(request);
   const data = request.data || {};
-  const eventId = cleanString(data.eventId, "Trip", 200);
+  const eventId = cleanString(data.eventId, "Event", 200);
   const eventRef = db.doc(`events/${eventId}`);
   const memberRef = db.doc(`events/${eventId}/members/${uid}`);
 
   await db.runTransaction(async (tx) => {
     const [eventSnap, memberSnap] = await Promise.all([tx.get(eventRef), tx.get(memberRef)]);
-    if (!eventSnap.exists) throw new HttpsError("not-found", "This Trip does not exist.");
-    if (!managerRole(memberSnap)) throw new HttpsError("permission-denied", "Only the organizer or an Admin can edit this Trip.");
+    if (!eventSnap.exists) throw new HttpsError("not-found", "This Event does not exist.");
+    if (!managerRole(memberSnap)) throw new HttpsError("permission-denied", "Only the organizer or an Admin can edit this Event.");
     const current = eventSnap.data() || {};
-    if (current.status !== "active") throw new HttpsError("failed-precondition", "Only an active Trip can be edited.");
+    if (current.status !== "active") throw new HttpsError("failed-precondition", "Only an active Event can be edited.");
 
     const expected = data.expectedUpdatedAtMillis == null ? null : millis(data.expectedUpdatedAtMillis, "expectedUpdatedAt");
     if (expected !== null && current.updatedAt instanceof Timestamp && Math.abs(current.updatedAt.toMillis() - expected) > 1) {
-      throw new HttpsError("aborted", "This Trip changed on another device. Refresh before saving.");
+      throw new HttpsError("aborted", "This Event changed on another device. Refresh before saving.");
     }
 
     const update = { updatedAt: Timestamp.now() };
-    if (data.name !== undefined) update.name = cleanString(data.name, "Trip name", 80);
+    if (data.name !== undefined) update.name = cleanString(data.name, "Event name", 80);
     if (data.category !== undefined) {
-      if (!ALLOWED_CATEGORIES.has(data.category)) throw new HttpsError("invalid-argument", "Trip category is invalid.");
+      if (!ALLOWED_CATEGORIES.has(data.category)) throw new HttpsError("invalid-argument", "Event category is invalid.");
       update.category = data.category;
     }
     if (Object.prototype.hasOwnProperty.call(data, "locationName")) update.locationName = optionalLocation(data.locationName);
@@ -78,26 +78,26 @@ exports.updateTripManaged = onCall(async (request) => {
 exports.setTripStatusManaged = onCall(async (request) => {
   const uid = requireAuth(request);
   const data = request.data || {};
-  const eventId = cleanString(data.eventId, "Trip", 200);
+  const eventId = cleanString(data.eventId, "Event", 200);
   const requested = cleanString(data.status, "status", 40);
   const eventRef = db.doc(`events/${eventId}`);
   const memberRef = db.doc(`events/${eventId}/members/${uid}`);
 
   await db.runTransaction(async (tx) => {
     const [eventSnap, memberSnap] = await Promise.all([tx.get(eventRef), tx.get(memberRef)]);
-    if (!eventSnap.exists) throw new HttpsError("not-found", "This Trip does not exist.");
+    if (!eventSnap.exists) throw new HttpsError("not-found", "This Event does not exist.");
     const role = memberSnap.exists ? memberSnap.data().role : null;
     const current = eventSnap.data() || {};
 
     if (requested === "endedByOrganizer") {
-      if (role !== "organizer" && role !== "admin") throw new HttpsError("permission-denied", "Only the organizer or an Admin can end this Trip.");
-      if (current.status !== "active") throw new HttpsError("failed-precondition", "Only an active Trip can be ended.");
+      if (role !== "organizer" && role !== "admin") throw new HttpsError("permission-denied", "Only the organizer or an Admin can end this Event.");
+      if (current.status !== "active") throw new HttpsError("failed-precondition", "Only an active Event can be ended.");
     } else {
-      if (role !== "organizer") throw new HttpsError("permission-denied", "Only the organizer can delete, restore, or reopen this Trip.");
+      if (role !== "organizer") throw new HttpsError("permission-denied", "Only the organizer can delete, restore, or reopen this Event.");
       const allowed = (current.status === "endedByOrganizer" && requested === "active")
         || (current.status === "deletedByOrganizer" && requested === "active")
         || ((current.status === "active" || current.status === "endedByOrganizer") && requested === "deletedByOrganizer");
-      if (!allowed) throw new HttpsError("failed-precondition", "This Trip status change is not allowed.");
+      if (!allowed) throw new HttpsError("failed-precondition", "This Event status change is not allowed.");
     }
     tx.update(eventRef, { status: requested, updatedAt: Timestamp.now() });
   });
