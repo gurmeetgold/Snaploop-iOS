@@ -14,6 +14,7 @@ const memberCleanup = require("./memberCleanup");
 const notifications = require("./notifications");
 const privacy = require("./privacyHardening");
 const memberDirectory = require("./memberDirectory");
+const matchRead = require("./matchRead");
 
 exports.createEvent = managed.createEventMVP;
 exports.joinEvent = managed.joinEventManaged;
@@ -46,6 +47,7 @@ exports.withdrawBiometricConsent = security.withdrawBiometricConsent;
 exports.deleteMyAccount = security.deleteMyAccount;
 exports.listEventFaceProfiles = privacy.listEventFaceProfiles;
 exports.listEventMembers = memberDirectory.listEventMembers;
+exports.listMyMatchedPhotos = matchRead.listMyMatchedPhotos;
 exports.scrubParticipantBiometrics = privacy.scrubParticipantBiometrics;
 exports.scrubLegacyParticipantBiometrics = privacy.scrubLegacyParticipantBiometrics;
 
