@@ -4,6 +4,7 @@ import SwiftUI
 final class ParticipantsModel: ObservableObject {
     @Published var members: [EventMember] = []
     @Published var sharingEnabled = true
+    @Published var includeOwnMatches = false
     @Published var errorMessage: String?
 
     private var env: AppEnvironment?
@@ -28,6 +29,11 @@ final class ParticipantsModel: ObservableObject {
             members = try await env.events.members(eventId: event.id)
             if let me = members.first(where: { $0.userId == session?.user?.id }) {
                 sharingEnabled = me.sharingEnabled
+            }
+            if AppEnvironment.useLiveServices {
+                let preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
+                sharingEnabled = preferences.sharingEnabled
+                includeOwnMatches = preferences.includeOwnMatches
             }
             errorMessage = nil
         } catch {
@@ -77,6 +83,19 @@ final class ParticipantsModel: ObservableObject {
         do {
             try await service?.setSharing(eventId: event.id, userId: userId, enabled: enabled)
             sharingEnabled = enabled
+            await reload()
+        } catch {
+            errorMessage = EventManagementClient.userMessage(for: error)
+        }
+    }
+
+    func setIncludeOwnMatches(_ enabled: Bool) async {
+        errorMessage = nil
+        do {
+            if AppEnvironment.useLiveServices {
+                try await MemberPhotoPreferencesClient.setIncludeOwnMatches(eventId: event.id, enabled: enabled)
+            }
+            includeOwnMatches = enabled
             await reload()
         } catch {
             errorMessage = EventManagementClient.userMessage(for: error)
@@ -145,13 +164,32 @@ struct ParticipantsView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             Label("Your sharing", systemImage: "photo.stack.fill")
                                 .font(.headline).foregroundStyle(Theme.ink)
-                            Toggle("Show matched pictures from my phone in this Event", isOn: Binding(
+
+                            Toggle("Share matched pictures from my phone in this Event", isOn: Binding(
                                 get: { model.sharingEnabled },
                                 set: { value in Task { await model.setSharing(value) } }
                             ))
                             .tint(Theme.sunset)
 
-                            Text("When this is on, SnapLoop can share matched Event previews found on your phone with the people they match.")
+                            if model.sharingEnabled {
+                                Text("Photos found on your phone can be shared with the Event members they match.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Label("You have turned off photo sharing for this Event. Photos from your phone will not be shared until you turn it back on.", systemImage: "hand.raised.fill")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Theme.sunset)
+                            }
+
+                            Divider()
+
+                            Toggle("Show my own matched pictures from this phone in my Gallery", isOn: Binding(
+                                get: { model.includeOwnMatches },
+                                set: { value in Task { await model.setIncludeOwnMatches(value) } }
+                            ))
+                            .tint(Theme.violet)
+
+                            Text("When on, photos from this phone that also contain you can appear in your Gallery. This applies when photo sharing is on.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
