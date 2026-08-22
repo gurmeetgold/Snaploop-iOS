@@ -60,7 +60,10 @@ public struct CameraSyncCoordinator {
 
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
-        let scanStateKey = [event.id, currentUserId, FaceModelPolicy.scanGeneration].joined(separator: "::")
+        // sharing-v2 intentionally forces one clean re-scan after own-camera
+        // sharing semantics changed. Old scan state may otherwise suppress photos
+        // that were processed before the user could be a recipient.
+        let scanStateKey = [event.id, currentUserId, FaceModelPolicy.scanGeneration, "sharing-v2"].joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
         state.retainScannedAssetIds(Set(assets.map(\.id)))
 
@@ -152,10 +155,9 @@ public struct CameraSyncCoordinator {
         try Task.checkCancellation()
 
         let faces = try await faceDetection.detectFaces(in: working)
-        // The user already owns photos on this device. Only publish this camera's
-        // matches for OTHER Event members; the user's own face is not a recipient.
+        // When this member has sharing enabled, matches from this phone are
+        // published for every matched Event member, including the phone owner.
         let appearances = matcher.appearances(in: faces, participants: participants)
-            .filter { $0.participantUserId != currentUserId }
         guard !appearances.isEmpty else { return false }
 
         try Task.checkCancellation()
