@@ -9,12 +9,8 @@ final class CameraSyncReliabilityTests: XCTestCase {
         let asset: PhotoAsset
         func authorizationStatus() -> PhotoAuthorization { .authorized }
         func requestAuthorization() async -> PhotoAuthorization { .authorized }
-        func assets(in range: ClosedRange<Date>) async throws -> [PhotoAsset] {
-            range.contains(asset.creationDate) ? [asset] : []
-        }
-        func imageData(for assetId: String, maxPixelSize: Int) async throws -> Data {
-            Data(assetId.utf8)
-        }
+        func assets(in range: ClosedRange<Date>) async throws -> [PhotoAsset] { range.contains(asset.creationDate) ? [asset] : [] }
+        func imageData(for assetId: String, maxPixelSize: Int) async throws -> Data { Data(assetId.utf8) }
         func originalImageData(for assetId: String) async throws -> Data { Data(assetId.utf8) }
     }
 
@@ -22,21 +18,15 @@ final class CameraSyncReliabilityTests: XCTestCase {
         func detectFaces(in imageData: Data) async throws -> [DetectedFace] {
             [DetectedFace(embedding: FaceEmbedding(normalized: [1, 0, 0]), sizeFraction: 0.5)]
         }
-        func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding {
-            FaceEmbedding(normalized: [1, 0, 0])
-        }
+        func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding { FaceEmbedding(normalized: [1, 0, 0]) }
     }
 
     private struct FailingMatchRepository: MatchRepository {
-        func upload(match: PhotoMatch, thumbnailJPEG: Data) async throws {
-            throw AppError.network(underlying: "transient")
-        }
+        func upload(match: PhotoMatch, thumbnailJPEG: Data) async throws { throw AppError.network(underlying: "transient") }
         func dismissAppearance(matchId: String, participantUserId: String) async throws {}
         func myPhotos(eventId: String, userId: String) async throws -> [PhotoMatch] { [] }
         func sharedAlbum(eventId: String) async throws -> [PhotoMatch] { [] }
-        func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL {
-            throw AppError.originalUnavailable
-        }
+        func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL { throw AppError.originalUnavailable }
     }
 
     func testFailedUploadRemainsRetryableAndCountsAsRemaining() async throws {
@@ -45,15 +35,15 @@ final class CameraSyncReliabilityTests: XCTestCase {
             id: "e1",
             joinCode: "ABC234",
             creatorUserId: "alice",
-            name: "Trip",
+            name: "Event",
             startsAt: now - day,
             endsAt: now + day,
             createdAt: now - day
         )
         let asset = PhotoAsset(id: "a1", creationDate: now)
         let participant = EventParticipant(
-            userId: "alice",
-            displayName: "Alice",
+            userId: "bob",
+            displayName: "Bob",
             faceEmbedding: FaceEmbedding(normalized: [1, 0, 0]),
             faceProfileVersion: FaceModelPolicy.currentVersion,
             joinedAt: now
@@ -91,7 +81,6 @@ final class CameraSyncReliabilityTests: XCTestCase {
         )
 
         state.retainScannedAssetIds(["still-here", "new-unscanned"])
-
         XCTAssertEqual(state.scannedAssetIds, ["still-here"])
     }
 }
