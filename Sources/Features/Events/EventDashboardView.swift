@@ -65,7 +65,10 @@ struct EventDashboardView: View {
         if AppEnvironment.useLiveServices, currentEvent.status != .deletedByOrganizer { try? await syncRosterIdentities() }
         members = (try? await env.events.members(eventId: currentEvent.id)) ?? []
         participants = (try? await env.events.participants(eventId: currentEvent.id)) ?? []
-        if let userId = session.user?.id { photosOfMe = ((try? await env.matches.myPhotos(eventId: currentEvent.id, userId: userId)) ?? []).count }
+        if let userId = session.user?.id {
+            let matches = (try? await env.matches.myPhotos(eventId: currentEvent.id, userId: userId)) ?? []
+            photosOfMe = matches.filter { $0.ownerUserId != userId }.count
+        }
     }
 
     private func syncRosterIdentities() async throws {
