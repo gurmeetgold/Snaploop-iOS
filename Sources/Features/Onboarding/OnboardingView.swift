@@ -156,46 +156,110 @@ struct OnboardingView: View {
 
     private var resultFlow: some View {
         HStack(spacing: 10) {
-            VStack { Image(systemName: "person.2.crop.square.stack.fill").font(.system(size: 48)).foregroundStyle(Theme.violet); Text("Trip phones").font(.caption.bold()) }
+            VStack {
+                Image(systemName: "person.2.crop.square.stack.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(Theme.violet)
+                Text("Event phones").font(.caption.bold())
+            }
             Image(systemName: "arrow.right").font(.title.bold()).foregroundStyle(Theme.sunset)
-            VStack { Image(systemName: "person.crop.square.fill").font(.system(size: 54)).foregroundStyle(Theme.sky); Text("Photos of you").font(.caption.bold()) }
+            VStack {
+                Image(systemName: "person.crop.square.fill")
+                    .font(.system(size: 54))
+                    .foregroundStyle(Theme.sky)
+                Text("Photos of you").font(.caption.bold())
+            }
         }
     }
 
     private var privacySummary: some View {
         VStack(spacing: 9) {
             Image(systemName: "lock.shield.fill").font(.system(size: 58)).foregroundStyle(Theme.sky)
-            HStack { permissionChip(icon: "calendar", text: "Trip dates only"); permissionChip(icon: "iphone", text: "On-device match") }
-            HStack { permissionChip(icon: "photo.on.rectangle.angled", text: "No full upload"); permissionChip(icon: "trash", text: "15-day deletion") }
+            HStack {
+                permissionChip(icon: "calendar", text: "Event dates only")
+                permissionChip(icon: "iphone", text: "On-device match")
+            }
+            HStack {
+                permissionChip(icon: "photo.on.rectangle.angled", text: "No full upload")
+                permissionChip(icon: "trash", text: "15-day deletion")
+            }
         }
     }
 
     private func symbolCard(_ icon: String, tint: Color, rotation: Double, x: CGFloat, y: CGFloat) -> some View {
-        ZStack { RoundedRectangle(cornerRadius: 22).fill(.white); Image(systemName: icon).font(.system(size: 37)).foregroundStyle(tint) }
-            .frame(width: 86, height: 98).rotationEffect(.degrees(rotation)).offset(x: x, y: y)
+        ZStack {
+            RoundedRectangle(cornerRadius: 22).fill(.white)
+            Image(systemName: icon).font(.system(size: 37)).foregroundStyle(tint)
+        }
+        .frame(width: 86, height: 98)
+        .rotationEffect(.degrees(rotation))
+        .offset(x: x, y: y)
     }
 
     private func featureBubble(icon: String, label: String) -> some View {
-        VStack(spacing: 9) { Image(systemName: icon).font(.system(size: 42)).foregroundStyle(Theme.sunset); Text(label).font(.caption.bold()) }
-            .frame(width: 98, height: 104).background(.white, in: RoundedRectangle(cornerRadius: 24))
+        VStack(spacing: 9) {
+            Image(systemName: icon).font(.system(size: 42)).foregroundStyle(Theme.sunset)
+            Text(label).font(.caption.bold())
+        }
+        .frame(width: 98, height: 104)
+        .background(.white, in: RoundedRectangle(cornerRadius: 24))
     }
 
     private func permissionChip(icon: String, text: String) -> some View {
-        Label(text, systemImage: icon).font(.caption.bold()).padding(.horizontal, 11).padding(.vertical, 9).background(.white, in: Capsule())
+        Label(text, systemImage: icon)
+            .font(.caption.bold())
+            .padding(.horizontal, 11)
+            .padding(.vertical, 9)
+            .background(.white, in: Capsule())
     }
 }
 
 private struct OnboardingPage {
     enum Kind { case find, face, trip, result, privacy }
     struct Note { let icon: String; let text: String }
-    let kind: Kind; let title: String; let body: String; let primaryCTA: String; let note: Note?
+
+    let kind: Kind
+    let title: String
+    let body: String
+    let primaryCTA: String
+    let note: Note?
 
     static let all: [OnboardingPage] = [
-        .init(kind: .find, title: "Find every photo you're in", body: "After a Trip, your best photos may be sitting on everyone else's phones. SnapLoop automatically finds the photos you're in and brings them to your phone.", primaryCTA: "See How It Works", note: .init(icon: "sparkles", text: "No more asking everyone to send you their photos.")),
-        .init(kind: .face, title: "Set up your face once", body: "Take a quick guided selfie so SnapLoop can recognize you in Trip photos. Your selfie and reference images stay only on this iPhone and are not uploaded to SnapLoop.", primaryCTA: "Continue", note: .init(icon: "lock.shield.fill", text: "To enable matching, SnapLoop stores only face-template metadata - not your selfie photo.")),
-        .init(kind: .trip, title: "Create a Trip or join one", body: "Create a Trip for your group or join a friend's Trip with an invite. Everyone chooses whether to participate, and each Trip has its own people and date range.", primaryCTA: "Continue", note: .init(icon: "person.2.fill", text: "Nobody is added silently — each person chooses to join.")),
-        .init(kind: .result, title: "Your photos come to you", body: "SnapLoop finds photos of you from participating Trip members' phones and shares those matches with you automatically. Photos where you are not matched are not shared with you.", primaryCTA: "Continue", note: .init(icon: "square.and.arrow.down.fill", text: "Save the photos you like to your own photo library.")),
-        .init(kind: .privacy, title: "Private by design", body: "SnapLoop never uploads your entire photo library. It checks only photos within your Trip's selected date range, and face matching happens on your iPhone.", primaryCTA: "Start Using SnapLoop", note: .init(icon: "trash.fill", text: "All Trip-related cloud data, including matched photo previews, is deleted within 15 days after the Trip ends."))
+        .init(
+            kind: .find,
+            title: "Find every photo you're in",
+            body: "After an Event (e.g. trip), your best photos may be sitting on everyone else's phones. SnapLoop automatically finds the photos you're in and brings them to your phone.",
+            primaryCTA: "See How It Works",
+            note: .init(icon: "sparkles", text: "No more asking everyone to send you their photos.")
+        ),
+        .init(
+            kind: .face,
+            title: "Set up your face once",
+            body: "Take a quick guided selfie so SnapLoop can recognize you in Event photos. Your selfie and reference images stay only on this iPhone and are not uploaded to SnapLoop.",
+            primaryCTA: "Continue",
+            note: .init(icon: "lock.shield.fill", text: "To enable matching, SnapLoop stores only face-template metadata - not your selfie photo.")
+        ),
+        .init(
+            kind: .trip,
+            title: "Create an Event or join one",
+            body: "Create an Event (e.g. trip, party or family gathering) for your group, or join a friend's Event with an invite. Everyone chooses whether to participate, and each Event has its own people and date range.",
+            primaryCTA: "Continue",
+            note: .init(icon: "person.2.fill", text: "Nobody is added silently — each person chooses to join.")
+        ),
+        .init(
+            kind: .result,
+            title: "Your photos come to you",
+            body: "SnapLoop finds photos of you from participating Event members' phones and shares those matches with you automatically. Photos where you are not matched are not shared with you.",
+            primaryCTA: "Continue",
+            note: .init(icon: "square.and.arrow.down.fill", text: "Save the photos you like to your own photo library.")
+        ),
+        .init(
+            kind: .privacy,
+            title: "Private by design",
+            body: "SnapLoop never uploads your entire photo library. It checks only photos within your Event's selected date range, and face matching happens on your iPhone.",
+            primaryCTA: "Start Using SnapLoop",
+            note: .init(icon: "trash.fill", text: "All Event-related cloud data, including matched photo previews, is deleted within 15 days after the Event ends.")
+        )
     ]
 }
 
