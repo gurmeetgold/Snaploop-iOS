@@ -1,20 +1,82 @@
 import SwiftUI
 import UIKit
 
-/// SnapLoop visual identity used throughout the app.
-/// Uses the approved production brand asset so the in-app mark and installed icon stay identical.
+/// SnapLoop production brand mark: vivid social-photo gradient + white S + aperture.
+/// Built from scalable vector primitives so it stays crisp and never clips at small sizes.
 struct BrandMark: View {
     var size: CGFloat = 72
 
     var body: some View {
-        Image("SnapLoopBrandMark")
-            .resizable()
-            .renderingMode(.original)
-            .interpolation(.high)
-            .antialiased(true)
-            .scaledToFit()
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                .fill(Theme.brandGradient)
+                .overlay {
+                    LinearGradient(
+                        colors: [.white.opacity(0.20), .clear, .black.opacity(0.06)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+                        .strokeBorder(.white.opacity(0.28), lineWidth: max(1, size * 0.012))
+                }
+
+            Text("S")
+                .font(.system(size: size * 0.74, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .minimumScaleFactor(1)
+                .shadow(color: .black.opacity(0.16), radius: size * 0.025, y: size * 0.018)
+                .offset(y: -size * 0.006)
+
+            ApertureMark(size: size * 0.31)
+                .shadow(color: .black.opacity(0.18), radius: size * 0.026, y: size * 0.012)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: Theme.hotPink.opacity(0.22), radius: size * 0.10, y: size * 0.035)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ApertureMark: View {
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Theme.coralDeep, Theme.hotPink, Theme.magenta, Theme.violetDeep],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            ForEach(0..<6, id: \.self) { index in
+                ApertureBlade()
+                    .fill(.white.opacity(0.98))
+                    .rotationEffect(.degrees(Double(index) * 60))
+            }
+
+            Circle()
+                .fill(Theme.magenta)
+                .frame(width: size * 0.18, height: size * 0.18)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+private struct ApertureBlade: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let c = CGPoint(x: rect.midX, y: rect.midY)
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.08))
+        path.addLine(to: CGPoint(x: rect.maxX * 0.83, y: rect.minY + rect.height * 0.28))
+        path.addLine(to: CGPoint(x: rect.maxX * 0.64, y: rect.midY))
+        path.addLine(to: c)
+        path.closeSubpath()
+        return path
     }
 }
 
