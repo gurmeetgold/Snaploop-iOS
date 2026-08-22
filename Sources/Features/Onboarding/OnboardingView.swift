@@ -293,7 +293,12 @@ struct OnboardingView: View {
             .foregroundStyle(active ? Theme.sunset : .secondary)
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
-            .background((active ? Theme.peach : Theme.softWash).opacity(0.55), in: Capsule())
+            .background(
+                active
+                    ? AnyShapeStyle(Theme.peach.opacity(0.55))
+                    : AnyShapeStyle(Theme.softWash.opacity(0.55)),
+                in: Capsule()
+            )
     }
 
     private func permissionChip(icon: String, text: String) -> some View {
