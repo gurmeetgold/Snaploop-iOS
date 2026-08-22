@@ -21,7 +21,7 @@ final class CreateEventModel: ObservableObject {
     func create() async -> Event? {
         guard let env, let session else { return nil }
         guard let user = session.user, let profile = session.faceProfile else {
-            errorMessage = "Complete Face Setup before creating an event so MyPicsRoom can find your photos."
+            errorMessage = "Complete Face Setup before creating a Trip so SnapLoop can find your photos."
             return nil
         }
         isSaving = true
@@ -85,17 +85,17 @@ struct CreateEventView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         BrandMark(size: 58)
-                        Text("Create an Event")
+                        Text("Create a Trip")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.ink)
-                        Text("Party, family celebration, wedding, trip — give the moment a home.")
+                        Text("Travel, party, family celebration, wedding — give the shared memories a home.")
                             .font(.subheadline).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
 
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                fieldLabel("Event name", icon: "textformat")
-                                TextField("e.g. Riya's Birthday", text: $model.name)
+                                fieldLabel("Trip name", icon: "textformat")
+                                TextField("e.g. Banff Weekend", text: $model.name)
                                     .textInputAutocapitalization(.words)
                                     .padding(14)
                                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
@@ -121,7 +121,7 @@ struct CreateEventView: View {
 
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
-                                fieldLabel("Event dates", icon: "calendar")
+                                fieldLabel("Trip dates", icon: "calendar")
                                 DatePicker("Starts", selection: $model.startsAt, in: allowedDates, displayedComponents: [.date])
                                     .onChange(of: model.startsAt) { _, newStart in
                                         if model.endsAt < newStart || !allowedEndDates.contains(model.endsAt) {
@@ -130,7 +130,7 @@ struct CreateEventView: View {
                                     }
                                 Divider()
                                 DatePicker("Ends", selection: $model.endsAt, in: allowedEndDates, displayedComponents: [.date])
-                                Text("For this MVP, dates must stay within 15 days before or after today, and an event can span at most 15 calendar days.")
+                                Text("SnapLoop only considers photos taken within this Trip's selected date range. For this MVP, dates must stay within 15 days before or after today, and a Trip can span at most 15 calendar days.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -153,7 +153,7 @@ struct CreateEventView: View {
                             HStack {
                                 if model.isSaving { ProgressView().tint(.white) }
                                 else { Image(systemName: "sparkles") }
-                                Text("Create Event")
+                                Text("Create Trip")
                             }
                         }
                         .buttonStyle(MyPicsTubePrimaryButtonStyle())
@@ -163,7 +163,7 @@ struct CreateEventView: View {
                     .padding(20)
                 }
             }
-            .navigationTitle("New Event")
+            .navigationTitle("New Trip")
             .navigationBarTitleDisplayMode(.inline)
             .task { model.configure(env: env, session: session) }
             .toolbar {
