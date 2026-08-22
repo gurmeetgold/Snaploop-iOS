@@ -1,11 +1,16 @@
 import BackgroundTasks
 import Foundation
 
-/// Best-effort automatic photo discovery for live Events.
+/// Resource-conscious, best-effort automatic photo discovery for live Events.
 ///
-/// iOS does not guarantee when background work runs. SnapLoop therefore runs a
-/// lightweight incremental pass whenever the signed-in app becomes active and
-/// also requests BGProcessing time for additional opportunistic passes.
+/// Automatic work is intentionally conservative:
+/// - no live Event -> no photo scan and no background task is kept scheduled
+/// - sharing off -> that Event is skipped
+/// - each Event has a persistent one-hour automatic-sync cooldown
+/// - only one bounded coordinator batch is processed per automatic pass
+/// - Low Power Mode skips automatic scanning entirely
+///
+/// Manual "Sync My Camera" is separate and is never blocked by this cooldown.
 @MainActor
 final class AutomaticEventSync {
     static let shared = AutomaticEventSync()
@@ -14,35 +19,43 @@ final class AutomaticEventSync {
     private weak var environment: AppEnvironment?
     private weak var session: AppSession?
     private var activeRun: Task<Void, Never>?
-    private var lastForegroundRun: Date?
-    private let foregroundThrottle: TimeInterval = 5 * 60
+
+    private let automaticCooldown: TimeInterval = 60 * 60
+    private let backgroundEarliestDelay: TimeInterval = 60 * 60
+    private let defaults = UserDefaults.standard
+    private let lastRunKeyPrefix = "snaploop.autoSync.lastAttempt."
 
     private init() {}
 
     func configure(environment: AppEnvironment, session: AppSession) {
         self.environment = environment
         self.session = session
-        scheduleBackgroundProcessing()
+        // Do not schedule background work blindly. The first foreground eligibility
+        // check decides whether there is a live, sharing-enabled Event worth scanning.
     }
 
     func runWhenAppBecomesActive() {
         guard activeRun == nil else { return }
-        if let lastForegroundRun, Date().timeIntervalSince(lastForegroundRun) < foregroundThrottle {
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
+            cancelBackgroundProcessing()
             return
         }
-        lastForegroundRun = Date()
+
         activeRun = Task { [weak self] in
             guard let self else { return }
-            await self.runIncrementalPasses(maxBatchesPerEvent: 2)
+            let hasEligibleEvent = await self.runIncrementalPasses()
             self.activeRun = nil
-            self.scheduleBackgroundProcessing()
+            self.updateBackgroundSchedule(hasEligibleEvent: hasEligibleEvent)
         }
     }
 
     func handleBackgroundProcessing(_ task: BGProcessingTask) {
-        scheduleBackgroundProcessing()
-
-        guard environment != nil, session?.user != nil else {
+        guard
+            environment != nil,
+            session?.user != nil,
+            !ProcessInfo.processInfo.isLowPowerModeEnabled
+        else {
+            cancelBackgroundProcessing()
             task.setTaskCompleted(success: true)
             return
         }
@@ -52,18 +65,29 @@ final class AutomaticEventSync {
                 task.setTaskCompleted(success: false)
                 return
             }
-            await self.runIncrementalPasses(maxBatchesPerEvent: 2)
+            let hasEligibleEvent = await self.runIncrementalPasses()
+            self.updateBackgroundSchedule(hasEligibleEvent: hasEligibleEvent)
             task.setTaskCompleted(success: !Task.isCancelled)
         }
         task.expirationHandler = { work.cancel() }
     }
 
-    func scheduleBackgroundProcessing() {
+    private func updateBackgroundSchedule(hasEligibleEvent: Bool) {
+        guard hasEligibleEvent else {
+            cancelBackgroundProcessing()
+            return
+        }
+        scheduleBackgroundProcessing()
+    }
+
+    private func scheduleBackgroundProcessing() {
         guard AppEnvironment.useLiveServices else { return }
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
+
         let request = BGProcessingTaskRequest(identifier: Self.backgroundTaskIdentifier)
         request.requiresNetworkConnectivity = true
         request.requiresExternalPower = false
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: backgroundEarliestDelay)
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
@@ -71,50 +95,81 @@ final class AutomaticEventSync {
         }
     }
 
-    private func runIncrementalPasses(maxBatchesPerEvent: Int) async {
+    private func cancelBackgroundProcessing() {
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
+    }
+
+    /// Returns true only when at least one currently-live Event has sharing enabled.
+    /// That result controls whether another background task should be scheduled.
+    private func runIncrementalPasses() async -> Bool {
         guard
             AppEnvironment.useLiveServices,
             let environment,
             let session,
             let userId = session.user?.id,
-            session.faceProfile != nil
-        else { return }
+            session.faceProfile != nil,
+            !ProcessInfo.processInfo.isLowPowerModeEnabled
+        else { return false }
 
         do {
             let now = Date()
-            let events = try await environment.events.events(forUserId: userId)
+            let liveEvents = try await environment.events.events(forUserId: userId)
                 .filter { event in
                     event.status == .active && event.startsAt <= now && event.endsAt >= now
                 }
 
-            for event in events {
+            guard !liveEvents.isEmpty else { return false }
+
+            var hasEligibleSharingEvent = false
+
+            for event in liveEvents {
                 try Task.checkCancellation()
                 do {
                     let preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
                     guard preferences.sharingEnabled else { continue }
-                    let participants = try await EventFaceProfileClient.list(eventId: event.id)
+                    hasEligibleSharingEvent = true
 
-                    for _ in 0..<maxBatchesPerEvent {
-                        try Task.checkCancellation()
-                        let summary = try await environment.makeSyncCoordinator().sync(
-                            event: event,
-                            participants: participants,
-                            currentUserId: userId,
-                            includeOwnMatches: preferences.includeOwnMatches,
-                            preferenceRevision: preferences.revisionToken
-                        )
-                        if !summary.hasMore { break }
-                    }
+                    // Persist the cooldown so relaunching the app does not repeatedly
+                    // trigger PhotoKit enumeration / face matching for the same Event.
+                    guard automaticCooldownElapsed(for: event.id, now: now) else { continue }
+                    markAutomaticAttempt(for: event.id, at: now)
+
+                    let participants = try await EventFaceProfileClient.list(eventId: event.id)
+                    try Task.checkCancellation()
+
+                    // Exactly one coordinator batch per automatic pass. The coordinator
+                    // itself caps work to 25 assets normally / 10 in Low Power Mode.
+                    _ = try await environment.makeSyncCoordinator().sync(
+                        event: event,
+                        participants: participants,
+                        currentUserId: userId,
+                        includeOwnMatches: preferences.includeOwnMatches,
+                        preferenceRevision: preferences.revisionToken
+                    )
                 } catch is CancellationError {
-                    return
+                    return hasEligibleSharingEvent
                 } catch {
                     // Automatic discovery must never block the app. Manual
                     // "Sync My Camera" remains available for visible recovery.
                     Log.scanner.error("Automatic sync skipped Event \(event.id, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
+
+            return hasEligibleSharingEvent
         } catch {
             Log.scanner.error("Automatic Event sync could not load Events: \(String(describing: error), privacy: .public)")
+            return false
         }
+    }
+
+    private func automaticCooldownElapsed(for eventId: String, now: Date) -> Bool {
+        let key = lastRunKeyPrefix + eventId
+        let last = defaults.double(forKey: key)
+        guard last > 0 else { return true }
+        return now.timeIntervalSince1970 - last >= automaticCooldown
+    }
+
+    private func markAutomaticAttempt(for eventId: String, at date: Date) {
+        defaults.set(date.timeIntervalSince1970, forKey: lastRunKeyPrefix + eventId)
     }
 }
