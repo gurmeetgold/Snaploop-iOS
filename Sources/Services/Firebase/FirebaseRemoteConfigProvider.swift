@@ -62,13 +62,19 @@ public final class FirebaseRemoteConfigProvider: ConfigProviding, @unchecked Sen
     }
 
     private static func read(from remote: RemoteConfig) -> RemoteConfigValues {
-        RemoteConfigValues(
+        // Until original-quality transfer ships, keep a hard floor for the
+        // downloadable matched image so an older Remote Config value cannot
+        // silently downgrade the MVP back to low-resolution previews.
+        let requestedPixels = remote.configValue(forKey: RemoteConfigValues.Key.thumbnailMaxPixelSize.rawValue).numberValue.intValue
+        let requestedQuality = remote.configValue(forKey: RemoteConfigValues.Key.thumbnailJPEGQuality.rawValue).numberValue.doubleValue
+
+        return RemoteConfigValues(
             matchConfidenceThreshold: remote.configValue(forKey: RemoteConfigValues.Key.matchConfidenceThreshold.rawValue).numberValue.doubleValue,
             matchAmbiguityMargin: remote.configValue(forKey: RemoteConfigValues.Key.matchAmbiguityMargin.rawValue).numberValue.doubleValue,
             minFaceSizeFraction: remote.configValue(forKey: RemoteConfigValues.Key.minFaceSizeFraction.rawValue).numberValue.doubleValue,
             maxAssetsPerSyncBatch: remote.configValue(forKey: RemoteConfigValues.Key.maxAssetsPerSyncBatch.rawValue).numberValue.intValue,
-            thumbnailMaxPixelSize: remote.configValue(forKey: RemoteConfigValues.Key.thumbnailMaxPixelSize.rawValue).numberValue.intValue,
-            thumbnailJPEGQuality: remote.configValue(forKey: RemoteConfigValues.Key.thumbnailJPEGQuality.rawValue).numberValue.doubleValue,
+            thumbnailMaxPixelSize: max(2560, requestedPixels),
+            thumbnailJPEGQuality: min(1.0, max(0.92, requestedQuality)),
             signedURLTTLHours: remote.configValue(forKey: RemoteConfigValues.Key.signedURLTTLHours.rawValue).numberValue.intValue,
             defaultEventDurationDays: remote.configValue(forKey: RemoteConfigValues.Key.defaultEventDurationDays.rawValue).numberValue.intValue,
             maxEventDurationDays: remote.configValue(forKey: RemoteConfigValues.Key.maxEventDurationDays.rawValue).numberValue.intValue,
