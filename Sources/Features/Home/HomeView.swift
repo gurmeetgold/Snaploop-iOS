@@ -2,7 +2,6 @@ import SwiftUI
 
 private enum CachedEventList {
     private static func key(userId: String) -> String { "snaploop.events.cache.\(userId)" }
-    private static func countKey(userId: String) -> String { "snaploop.event.photoCounts.\(userId)" }
 
     static func load(userId: String) -> [Event] {
         guard let data = UserDefaults.standard.data(forKey: key(userId: userId)),
@@ -14,24 +13,12 @@ private enum CachedEventList {
         guard let data = try? JSONEncoder().encode(events) else { return }
         UserDefaults.standard.set(data, forKey: key(userId: userId))
     }
-
-    static func loadPhotoCounts(userId: String) -> [String: Int] {
-        guard let data = UserDefaults.standard.data(forKey: countKey(userId: userId)),
-              let counts = try? JSONDecoder().decode([String: Int].self, from: data) else { return [:] }
-        return counts
-    }
-
-    static func savePhotoCounts(_ counts: [String: Int], userId: String) {
-        guard let data = try? JSONEncoder().encode(counts) else { return }
-        UserDefaults.standard.set(data, forKey: countKey(userId: userId))
-    }
 }
 
 @MainActor
 final class HomeModel: ObservableObject {
     @Published var events: [Event] = []
     @Published var notifications: [EventNotification] = []
-    @Published var photoCounts: [String: Int] = [:]
     @Published var isLoading = false
     @Published var errorMessage: String?
     private var env: AppEnvironment?
@@ -42,7 +29,6 @@ final class HomeModel: ObservableObject {
         self.session = session
         if let userId = session.user?.id, events.isEmpty {
             events = CachedEventList.load(userId: userId)
-            photoCounts = CachedEventList.loadPhotoCounts(userId: userId)
         }
     }
 
@@ -55,26 +41,12 @@ final class HomeModel: ObservableObject {
             let refreshed = try await env.events.events(forUserId: userId)
             events = refreshed
             CachedEventList.save(refreshed, userId: userId)
-            Task { await refreshPhotoCounts(events: refreshed, userId: userId) }
         } catch {
             errorMessage = (error as NSError).localizedDescription
         }
 
         notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? notifications
         isLoading = false
-    }
-
-    private func refreshPhotoCounts(events: [Event], userId: String) async {
-        guard let env else { return }
-        var refreshedCounts = photoCounts
-        for event in events where event.status != .deletedByOrganizer {
-            guard !Task.isCancelled else { return }
-            if let matches = try? await env.matches.myPhotos(eventId: event.id, userId: userId) {
-                refreshedCounts[event.id] = matches.count
-                photoCounts = refreshedCounts
-            }
-        }
-        CachedEventList.savePhotoCounts(refreshedCounts, userId: userId)
     }
 
     func dismissNotification(_ notification: EventNotification) async {
@@ -124,7 +96,10 @@ struct HomeView: View {
                     } else {
                         eventList(visibleEvents)
                     }
-                    if !deletedEvents.isEmpty { sectionHeader("Deleted"); eventList(deletedEvents) }
+                    if !deletedEvents.isEmpty {
+                        sectionHeader("Deleted")
+                        eventList(deletedEvents)
+                    }
                 }
                 .padding(.vertical, 12)
             }
@@ -152,9 +127,27 @@ struct HomeView: View {
             await model.reload()
         }
         .refreshable { await model.reload() }
-        .sheet(isPresented: $showCreate) { CreateEventView { event in session.activeEvent = event; Task { await model.reload() } } }
-        .sheet(isPresented: $showJoin) { EnterCodeView { route in showJoin = false; joinRoute = route } }
-        .sheet(item: $joinRoute) { route in NavigationStack { JoinEventView(route: route) { event in joinRoute = nil; session.activeEvent = event; Task { await model.reload() } } } }
+        .sheet(isPresented: $showCreate) {
+            CreateEventView { event in
+                session.activeEvent = event
+                Task { await model.reload() }
+            }
+        }
+        .sheet(isPresented: $showJoin) {
+            EnterCodeView { route in
+                showJoin = false
+                joinRoute = route
+            }
+        }
+        .sheet(item: $joinRoute) { route in
+            NavigationStack {
+                JoinEventView(route: route) { event in
+                    joinRoute = nil
+                    session.activeEvent = event
+                    Task { await model.reload() }
+                }
+            }
+        }
     }
 
     private func eventNotificationCard(_ notification: EventNotification) -> some View {
@@ -190,7 +183,7 @@ struct HomeView: View {
         VStack(spacing: 12) {
             ForEach(events) { event in
                 NavigationLink { EventDashboardView(event: event) } label: {
-                    EventCard(event: event, currentUserId: session.user?.id, photoCount: model.photoCounts[event.id])
+                    EventCard(event: event, currentUserId: session.user?.id)
                 }
                 .buttonStyle(.plain)
                 .simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
@@ -270,11 +263,16 @@ struct HomeView: View {
 private struct EventCard: View {
     let event: Event
     let currentUserId: String?
-    let photoCount: Int?
     @EnvironmentObject private var env: AppEnvironment
 
-    private var lifecycle: EventLifecycle.Status { EventLifecycle.status(for: event, clock: env.clock, config: env.config.current) }
-    private var roleLabel: String { event.creatorUserId == currentUserId ? "ORGANIZER" : "MEMBER" }
+    private var lifecycle: EventLifecycle.Status {
+        EventLifecycle.status(for: event, clock: env.clock, config: env.config.current)
+    }
+
+    private var roleLabel: String {
+        event.creatorUserId == currentUserId ? "ORGANIZER" : "MEMBER"
+    }
+
     private var statusLabel: String {
         switch event.status {
         case .endedByOrganizer: return "ENDED"
@@ -289,6 +287,7 @@ private struct EventCard: View {
             }
         }
     }
+
     private var statusTint: Color {
         switch event.status {
         case .endedByOrganizer, .deletedByOrganizer, .expired: return .gray
@@ -327,24 +326,9 @@ private struct EventCard: View {
 
             Spacer(minLength: 8)
 
-            VStack(spacing: 10) {
-                if let photoCount {
-                    HStack(spacing: 5) {
-                        Image(systemName: "photo.fill")
-                        Text("\(photoCount)")
-                            .monospacedDigit()
-                    }
-                    .font(.caption.bold())
-                    .foregroundStyle(Theme.lilac)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Theme.lilac.opacity(0.12), in: Capsule())
-                }
-
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(.tertiary)
-                    .font(.caption)
-            }
+            Image(systemName: "chevron.right")
+                .foregroundStyle(.tertiary)
+                .font(.caption)
         }
         .padding(14)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
@@ -376,8 +360,11 @@ struct EnterCodeView: View {
                         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
                     if let error { Text(error).foregroundStyle(.red).font(.footnote) }
                     Button {
-                        if let route = DeepLinkRouter.route(forManualEntry: text) { onResolved(route) }
-                        else { error = AppError.invalidJoinCode.userMessage }
+                        if let route = DeepLinkRouter.route(forManualEntry: text) {
+                            onResolved(route)
+                        } else {
+                            error = AppError.invalidJoinCode.userMessage
+                        }
                     } label: {
                         Label("Continue", systemImage: "arrow.right.circle.fill")
                             .font(.headline)
@@ -393,9 +380,17 @@ struct EnterCodeView: View {
                 .padding(24)
             }
             .navigationTitle("Join Event")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }
 
-#Preview { RootView().environmentObject(AppEnvironment.dev()).environmentObject(AppSession.dev()) }
+#Preview {
+    RootView()
+        .environmentObject(AppEnvironment.dev())
+        .environmentObject(AppSession.dev())
+}
