@@ -230,8 +230,11 @@ final class StorageThumbnailLoader: ObservableObject {
 
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 120
-        cache.totalCostLimit = 64 * 1024 * 1024
+        // High-quality MVP images decode much larger than the previous 1024px
+        // previews. Keep only a small working set to avoid turning fast swiping
+        // into an unbounded memory cost.
+        cache.countLimit = 18
+        cache.totalCostLimit = 128 * 1024 * 1024
         return cache
     }()
 
@@ -240,25 +243,47 @@ final class StorageThumbnailLoader: ObservableObject {
         guard let path, !path.isEmpty else { failed = true; return }
         if let cached = Self.cache.object(forKey: path as NSString) { image = cached; return }
         do {
-            let data: Data = try await withCheckedThrowingContinuation { continuation in
-                Storage.storage().reference(withPath: path).getData(maxSize: 8 * 1024 * 1024) { data, error in
-                    if let error { continuation.resume(throwing: error); return }
-                    guard let data else { continuation.resume(throwing: AppError.originalUnavailable); return }
-                    continuation.resume(returning: data)
-                }
-            }
+            let decoded = try await Self.fetchImage(path: path)
             try Task.checkCancellation()
-            guard let decoded = UIImage(data: data) else { failed = true; return }
-            let decodedCost: Int
-            if let cgImage = decoded.cgImage { decodedCost = cgImage.bytesPerRow * cgImage.height }
-            else { decodedCost = data.count }
-            Self.cache.setObject(decoded, forKey: path as NSString, cost: decodedCost)
+            Self.store(decoded, path: path)
             image = decoded
         } catch is CancellationError {
             return
         } catch {
             failed = true
         }
+    }
+
+    static func prefetch(paths: [String]) async {
+        // Only warm the immediate neighbors. This removes most swipe spinners
+        // without downloading an entire large Gallery or inflating memory use.
+        for path in Array(paths.prefix(2)) where cache.object(forKey: path as NSString) == nil {
+            do {
+                let image = try await fetchImage(path: path)
+                store(image, path: path)
+            } catch {
+                continue
+            }
+        }
+    }
+
+    private static func fetchImage(path: String) async throws -> UIImage {
+        let data: Data = try await withCheckedThrowingContinuation { continuation in
+            Storage.storage().reference(withPath: path).getData(maxSize: 12 * 1024 * 1024) { data, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let data else { continuation.resume(throwing: AppError.originalUnavailable); return }
+                continuation.resume(returning: data)
+            }
+        }
+        guard let decoded = UIImage(data: data) else { throw AppError.originalUnavailable }
+        return decoded
+    }
+
+    private static func store(_ image: UIImage, path: String) {
+        let decodedCost: Int
+        if let cgImage = image.cgImage { decodedCost = cgImage.bytesPerRow * cgImage.height }
+        else { decodedCost = 4 * Int(image.size.width * image.size.height) }
+        cache.setObject(image, forKey: path as NSString, cost: decodedCost)
     }
 }
 
@@ -327,6 +352,18 @@ struct PhotoDetailView: View {
         }
         .navigationTitle("Photo")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await prefetchAdjacent(to: selectedMatchID) }
+        .onChange(of: selectedMatchID) { _, newValue in
+            Task { await prefetchAdjacent(to: newValue) }
+        }
+    }
+
+    private func prefetchAdjacent(to matchID: String) async {
+        guard let index = matches.firstIndex(where: { $0.id == matchID }) else { return }
+        var paths: [String] = []
+        if index + 1 < matches.count, let path = matches[index + 1].thumbnailPath { paths.append(path) }
+        if index > 0, let path = matches[index - 1].thumbnailPath { paths.append(path) }
+        await StorageThumbnailLoader.prefetch(paths: paths)
     }
 }
 
@@ -388,13 +425,12 @@ private struct SinglePhotoPage: View {
                             Text(DateFormatting.longDate(match.capturedAt)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Label("Preview", systemImage: "photo").font(.caption2.bold()).foregroundStyle(Theme.sunset)
                     }
                 }
 
                 HStack(spacing: 24) {
-                    actionButton("Save", "square.and.arrow.down.fill") { Task { await savePreview() } }
-                    actionButton("Share", "square.and.arrow.up.fill") { sharePreview() }
+                    actionButton("Save", "square.and.arrow.down.fill") { Task { await saveImage() } }
+                    actionButton("Share", "square.and.arrow.up.fill") { shareImageAction() }
                     actionButton(favorite ? "Favorited" : "Favorite", favorite ? "heart.fill" : "heart") {
                         favorite.toggle()
                         onFavoriteChanged(favorite)
@@ -433,20 +469,20 @@ private struct SinglePhotoPage: View {
         if let image = loader.image {
             Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity)
         } else if loader.failed {
-            ContentUnavailableViewCompat(title: "Preview unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
+            ContentUnavailableViewCompat(title: "Photo unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
         } else {
             ProgressView().frame(maxWidth: .infinity, minHeight: 280)
         }
     }
 
-    private func sharePreview() {
-        guard let image = loader.image else { statusMessage = "The preview is still loading."; return }
+    private func shareImageAction() {
+        guard let image = loader.image else { statusMessage = "The photo is still loading."; return }
         shareImage = image
         showShareSheet = true
     }
 
-    @MainActor private func savePreview() async {
-        guard let image = loader.image else { statusMessage = "The preview is still loading."; return }
+    @MainActor private func saveImage() async {
+        guard let image = loader.image else { statusMessage = "The photo is still loading."; return }
         let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard authorization == .authorized || authorization == .limited else {
             statusMessage = "Allow SnapLoop to add photos in iPhone Settings, then try Save again."
@@ -462,7 +498,7 @@ private struct SinglePhotoPage: View {
             }
             statusMessage = "Saved to Photos."
         } catch {
-            statusMessage = "Couldn't save this preview."
+            statusMessage = "Couldn't save this photo."
         }
     }
 
