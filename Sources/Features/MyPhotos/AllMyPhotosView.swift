@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Keeps the same underlying camera-library photo from appearing twice when it
-/// is eligible in more than one Trip.
+/// is eligible in more than one Event.
 enum PhotoMatchDeduplication {
     static func unique(_ matches: [PhotoMatch]) -> [PhotoMatch] {
         var seen = Set<String>()
@@ -53,7 +53,7 @@ final class AllMyPhotosModel: ObservableObject {
     func ownerLabel(for match: PhotoMatch) -> String {
         if match.ownerUserId == session?.user?.id,
            let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
-        return "Trip member"
+        return "Event member"
     }
     func isFavorite(_ match: PhotoMatch) -> Bool { favoriteIds.contains(match.id) }
     func setFavorite(_ favorite: Bool, match: PhotoMatch) {
@@ -82,12 +82,12 @@ struct AllMyPhotosView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     InsightBanner(value: "\(model.photos.count)", label: "photos found of you", systemImage: "sparkles").padding(.horizontal)
-                    Text("Across all your Trips").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.horizontal)
+                    Text("Across all your Events").font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity).padding(.horizontal)
                     if let errorMessage = model.errorMessage {
-                        Label("Some Trip photos could not be refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red).padding(.horizontal)
+                        Label("Some Event photos could not be refreshed. \(errorMessage)", systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red).padding(.horizontal)
                     }
                     if model.photos.isEmpty && !model.isLoading {
-                        ContentUnavailableViewCompat(title: "No photos of you yet", message: "As you and your Trip members sync, photos matched to you will appear here.", systemImage: "person.crop.square").frame(minHeight: 300)
+                        ContentUnavailableViewCompat(title: "No photos of you yet", message: "As you and your Event members sync, photos matched to you will appear here.", systemImage: "person.crop.square").frame(minHeight: 300)
                     } else {
                         LazyVGrid(columns: columns, spacing: 8) {
                             ForEach(model.photos) { match in
