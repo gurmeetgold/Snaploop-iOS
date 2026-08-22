@@ -12,6 +12,7 @@ const leave = require("./leaveManaged");
 const security = require("./security");
 const memberCleanup = require("./memberCleanup");
 const notifications = require("./notifications");
+const privacy = require("./privacyHardening");
 
 // Event lifecycle + invite resolution.
 exports.createEvent = managed.createEventMVP;
@@ -45,11 +46,18 @@ exports.refreshMyFaceProfile = profile.refreshMyFaceProfileManaged;
 exports.eraseMyFaceProfile = security.eraseMyFaceProfile;
 exports.withdrawBiometricConsent = security.withdrawBiometricConsent;
 exports.deleteMyAccount = security.deleteMyAccount;
+exports.listEventFaceProfiles = privacy.listEventFaceProfiles;
+exports.scrubParticipantBiometrics = privacy.scrubParticipantBiometrics;
 
 // Server-owned sharing + photo metadata operations.
 exports.setSharing = security.setSharingManaged;
 exports.publishMatch = security.publishMatch;
 exports.dismissAppearance = security.dismissAppearanceTrusted;
+
+// Privacy retention and deletion lifecycle.
+exports.purgeDeletedTripPreviews = privacy.purgeDeletedTripPreviews;
+exports.purgeExpiredTripPreviews = privacy.purgeExpiredTripPreviews;
+exports.hardDeleteDeletedTrips = privacy.hardDeleteDeletedTrips;
 
 // Membership deletion is defense-in-depth: every removal path, including role
 // management and future trusted admin flows, scrubs that member's event photo
