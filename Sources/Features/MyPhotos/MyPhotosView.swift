@@ -434,7 +434,7 @@ private struct SinglePhotoPage: View {
                 }
                 .disabled(loader.image == nil)
 
-                Text("Swipe left or right for more photos")
+                Text("Swipe left or right for more photos · Pinch or double-tap to zoom")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -462,7 +462,8 @@ private struct SinglePhotoPage: View {
 
     @ViewBuilder private var preview: some View {
         if let image = loader.image {
-            Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity)
+            ZoomablePhotoView(image: image)
+                .frame(maxWidth: .infinity, minHeight: 300)
         } else if loader.failed {
             ContentUnavailableViewCompat(title: "Photo unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
         } else {
