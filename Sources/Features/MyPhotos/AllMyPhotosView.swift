@@ -5,7 +5,9 @@ import SwiftUI
 enum PhotoMatchDeduplication {
     static func unique(_ matches: [PhotoMatch]) -> [PhotoMatch] {
         var seen = Set<String>()
-        return matches.filter { seen.insert("\(match.ownerUserId)|\(match.assetLocalId)").inserted }
+        return matches.filter { match in
+            seen.insert("\(match.ownerUserId)|\(match.assetLocalId)").inserted
+        }
     }
 }
 
