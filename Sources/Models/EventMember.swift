@@ -8,6 +8,7 @@ public struct EventMember: Identifiable, Equatable, Codable, Sendable {
     public var id: String { userId }
 
     public let userId: String
+    public var displayName: String?
     public var role: Role
     public let joinedAt: Date
     public var sharingEnabled: Bool
@@ -16,6 +17,7 @@ public struct EventMember: Identifiable, Equatable, Codable, Sendable {
 
     public init(
         userId: String,
+        displayName: String? = nil,
         role: Role,
         joinedAt: Date,
         sharingEnabled: Bool = true,
@@ -23,6 +25,7 @@ public struct EventMember: Identifiable, Equatable, Codable, Sendable {
         faceTemplateVersion: Int
     ) {
         self.userId = userId
+        self.displayName = displayName
         self.role = role
         self.joinedAt = joinedAt
         self.sharingEnabled = sharingEnabled
