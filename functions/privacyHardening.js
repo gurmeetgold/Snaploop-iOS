@@ -8,10 +8,10 @@ const Timestamp = admin.firestore.Timestamp;
 const FieldValue = admin.firestore.FieldValue;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Cleanup runs hourly. Starting at 9d23h provides scheduling/retry margin so
-// Trip-related cloud data is removed within the public 10-day commitment.
-const ENDED_TRIP_HARD_DELETE_AFTER_MS = (9 * DAY_MS) + (23 * 60 * 60 * 1000);
-const DELETED_TRIP_HARD_DELETE_AFTER_MS = (6 * DAY_MS) + (12 * 60 * 60 * 1000);
+// Cleanup runs hourly. Starting at 14d23h provides scheduling/retry margin so
+// Trip-related cloud data is removed within the public 15-day commitment.
+const ENDED_TRIP_HARD_DELETE_AFTER_MS = (14 * DAY_MS) + (23 * 60 * 60 * 1000);
+const DELETED_TRIP_HARD_DELETE_AFTER_MS = (14 * DAY_MS) + (23 * 60 * 60 * 1000);
 const CONSENT_POLICY_VERSION = 2;
 
 function requireAuth(request) {
@@ -240,8 +240,8 @@ exports.purgeDeletedTripPreviews = onDocumentWritten(
 );
 
 // The selected Trip end time is the retention anchor. Cleanup runs hourly and
-// begins at 9d23h so all Trip-related cloud records and Storage objects are
-// removed within the public maximum of 10 days after the Trip ends.
+// begins at 14d23h so all Trip-related cloud records and Storage objects are
+// removed within the public maximum of 15 days after the Trip ends.
 exports.purgeExpiredTripPreviews = onSchedule("every 60 minutes", async () => {
   const cutoff = Timestamp.fromMillis(Date.now() - ENDED_TRIP_HARD_DELETE_AFTER_MS);
   const snap = await db.collection("events").where("endsAt", "<=", cutoff).limit(250).get();
@@ -252,6 +252,7 @@ exports.purgeExpiredTripPreviews = onSchedule("every 60 minutes", async () => {
   }
 });
 
+// Explicitly deleted Trips use the same 15-day maximum retention policy.
 exports.hardDeleteDeletedTrips = onSchedule("every 60 minutes", async () => {
   const snap = await db.collection("events")
     .where("status", "==", "deletedByOrganizer")
