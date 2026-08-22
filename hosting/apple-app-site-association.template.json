@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["__TEAM_ID__.com.gurmeetchhiber.snaploop.app"],
+        "components": [
+          { "/": "/e/*", "comment": "Event invite token links" },
+          { "/": "/c/*", "comment": "Short event code links" }
+        ]
+      }
+    ]
+  }
+}
