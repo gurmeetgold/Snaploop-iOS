@@ -191,8 +191,6 @@ exports.notifyPendingInvite = onDocumentWritten(
   }
 );
 
-// Joining is authoritative: immediately close any pending invite on both the
-// user's inbox and the organizer-visible event invite row.
 exports.markInviteJoined = onDocumentCreated(
   "events/{eventId}/members/{userId}",
   async (event) => {
@@ -217,8 +215,46 @@ exports.markInviteJoined = onDocumentCreated(
   }
 );
 
-// Time-based expiry must not depend on the recipient reopening the app. Hourly
-// cleanup keeps invite state accurate for organizer status views and users.
+// A phone invite sent before the recipient installs/signs up is recovered as
+// soon as the trusted user profile exists. This is the deferred-invite path and
+// does not depend on Safari/App Store preserving arbitrary query parameters.
+exports.hydrateDeferredInvites = onDocumentWritten(
+  "users/{userId}",
+  async (event) => {
+    const after = event.data && event.data.after;
+    if (!after || !after.exists) return;
+    const user = after.data() || {};
+    const phone = typeof user.phoneNumber === "string" ? user.phoneNumber : null;
+    if (!phone) return;
+
+    const previousPhone = event.data.before && event.data.before.exists
+      ? (event.data.before.data() || {}).phoneNumber
+      : null;
+    if (previousPhone === phone && event.data.before && event.data.before.exists) return;
+
+    const invites = await db.collectionGroup("invites")
+      .where("phoneNumber", "==", phone)
+      .limit(50)
+      .get();
+
+    for (const inviteDoc of invites.docs) {
+      const invite = inviteDoc.data() || {};
+      if (invite.status !== "invited" || !invite.eventId) continue;
+      const member = await db.doc(`events/${invite.eventId}/members/${event.params.userId}`).get();
+      const status = member.exists ? "joined" : "invited";
+      const now = Timestamp.now();
+      const batch = db.batch();
+      batch.set(
+        db.doc(`users/${event.params.userId}/pendingInvites/${invite.eventId}`),
+        { ...invite, targetUserId: event.params.userId, status, updatedAt: now },
+        { merge: true }
+      );
+      batch.set(inviteDoc.ref, { targetUserId: event.params.userId, status, updatedAt: now }, { merge: true });
+      await batch.commit();
+    }
+  }
+);
+
 exports.expirePendingInvites = onSchedule("every 60 minutes", async () => {
   const now = Timestamp.now();
   const snap = await db.collectionGroup("pendingInvites")
