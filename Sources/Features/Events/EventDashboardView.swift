@@ -269,7 +269,7 @@ struct EventDashboardView: View {
             NavigationLink { SyncView(event: currentEvent) } label: {
                 GradientTile(
                     title: "Sync Camera",
-                    subtitle: "Find new photos manually",
+                    subtitle: "Scan for new photos",
                     systemImage: "arrow.triangle.2.circlepath",
                     gradient: Theme.socialGradient
                 )
