@@ -39,12 +39,13 @@ func color(_ hex: UInt32) -> NSColor {
     )
 }
 
-let orange = color(0xFF5A2B)
-let hotPink = color(0xFF147D)
-let magenta = color(0xE20BCE)
-let violet = color(0x8D19FF)
-let electricBlue = color(0x2450FF)
-let deepMagenta = color(0x7A0878)
+let orange = color(0xFF5C28)
+let coral = color(0xFF3858)
+let hotPink = color(0xFF0879)
+let magenta = color(0xF000E2)
+let violet = color(0x870AFF)
+let electricBlue = color(0x1446FF)
+let deepMagenta = color(0xA000A0)
 
 func makeIcon(pixels: Int) throws -> Data {
     let side = CGFloat(pixels)
@@ -55,17 +56,22 @@ func makeIcon(pixels: Int) throws -> Data {
     NSGraphicsContext.current?.imageInterpolation = .high
 
     let bounds = NSRect(x: 0, y: 0, width: side, height: side)
-    let background = NSGradient(colors: [orange, hotPink, magenta, violet, electricBlue])!
+    let background = NSGradient(colors: [orange, coral, hotPink, magenta, violet, electricBlue])!
     background.draw(in: bounds, angle: -45)
 
-    // Large S loop, inspired by the selected SnapLoop mark.
+    // Gloss highlight: keeps the icon vivid without washing out the gradient.
+    let glossRect = NSRect(x: 0, y: side * 0.48, width: side, height: side * 0.52)
+    let gloss = NSGradient(colors: [NSColor.white.withAlphaComponent(0.22), NSColor.white.withAlphaComponent(0.0)])!
+    gloss.draw(in: glossRect, angle: 90)
+
+    // Bright white S loop.
     let sPath = NSBezierPath()
-    sPath.move(to: CGPoint(x: side * 0.73, y: side * 0.73))
-    sPath.line(to: CGPoint(x: side * 0.42, y: side * 0.73))
+    sPath.move(to: CGPoint(x: side * 0.74, y: side * 0.74))
+    sPath.line(to: CGPoint(x: side * 0.42, y: side * 0.74))
     sPath.curve(
         to: CGPoint(x: side * 0.39, y: side * 0.50),
-        controlPoint1: CGPoint(x: side * 0.22, y: side * 0.73),
-        controlPoint2: CGPoint(x: side * 0.22, y: side * 0.55)
+        controlPoint1: CGPoint(x: side * 0.21, y: side * 0.74),
+        controlPoint2: CGPoint(x: side * 0.21, y: side * 0.55)
     )
     sPath.curve(
         to: CGPoint(x: side * 0.61, y: side * 0.50),
@@ -73,25 +79,33 @@ func makeIcon(pixels: Int) throws -> Data {
         controlPoint2: CGPoint(x: side * 0.56, y: side * 0.49)
     )
     sPath.curve(
-        to: CGPoint(x: side * 0.27, y: side * 0.27),
-        controlPoint1: CGPoint(x: side * 0.78, y: side * 0.51),
-        controlPoint2: CGPoint(x: side * 0.78, y: side * 0.27)
+        to: CGPoint(x: side * 0.26, y: side * 0.26),
+        controlPoint1: CGPoint(x: side * 0.79, y: side * 0.51),
+        controlPoint2: CGPoint(x: side * 0.79, y: side * 0.26)
     )
-    sPath.line(to: CGPoint(x: side * 0.58, y: side * 0.27))
-    sPath.lineWidth = max(3, side * 0.135)
+    sPath.line(to: CGPoint(x: side * 0.59, y: side * 0.26))
+    sPath.lineWidth = max(3, side * 0.145)
     sPath.lineCapStyle = .round
     sPath.lineJoinStyle = .round
     NSColor.white.setStroke()
-    sPath.stroke()
 
-    // Central shutter.
-    let shutterRect = NSRect(x: side * 0.345, y: side * 0.345, width: side * 0.31, height: side * 0.31)
+    NSGraphicsContext.saveGraphicsState()
+    let shadow = NSShadow()
+    shadow.shadowColor = NSColor.black.withAlphaComponent(0.20)
+    shadow.shadowBlurRadius = side * 0.025
+    shadow.shadowOffset = NSSize(width: 0, height: -side * 0.012)
+    shadow.set()
+    sPath.stroke()
+    NSGraphicsContext.restoreGraphicsState()
+
+    // Central photographic shutter.
+    let shutterRect = NSRect(x: side * 0.34, y: side * 0.34, width: side * 0.32, height: side * 0.32)
     let shutterCircle = NSBezierPath(ovalIn: shutterRect)
-    deepMagenta.setFill()
-    shutterCircle.fill()
+    let shutterGradient = NSGradient(colors: [hotPink, deepMagenta, violet])!
+    shutterGradient.draw(in: shutterCircle, angle: -45)
 
     let center = CGPoint(x: side * 0.50, y: side * 0.50)
-    let outer = side * 0.145
+    let outer = side * 0.150
     let inner = side * 0.045
 
     for i in 0..<6 {
@@ -108,15 +122,15 @@ func makeIcon(pixels: Int) throws -> Data {
         blade.line(to: p2)
         blade.line(to: p3)
         blade.close()
-        NSColor(calibratedWhite: 1.0, alpha: 0.94).setFill()
+        NSColor.white.withAlphaComponent(0.98).setFill()
         blade.fill()
     }
 
     let centerCircle = NSBezierPath(ovalIn: NSRect(
-        x: center.x - side * 0.034,
-        y: center.y - side * 0.034,
-        width: side * 0.068,
-        height: side * 0.068
+        x: center.x - side * 0.032,
+        y: center.y - side * 0.032,
+        width: side * 0.064,
+        height: side * 0.064
     ))
     violet.setFill()
     centerCircle.fill()
@@ -135,4 +149,4 @@ for spec in specs {
     print("Generated \(spec.filename)")
 }
 
-print("SnapLoop S-shutter icons generated in \(output.path)")
+print("Vibrant SnapLoop S-shutter icons generated in \(output.path)")
