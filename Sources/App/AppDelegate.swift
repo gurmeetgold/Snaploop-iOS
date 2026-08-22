@@ -1,5 +1,6 @@
 import UIKit
 import FirebaseAuth
+import BackgroundTasks
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
 
@@ -8,20 +9,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
 
-        // Only initialize/use Firebase when SnapLoop is running in LIVE mode.
-        //
-        // FirebaseBootstrap.configureIfNeeded() is safe to call here because
-        // it already guarantees FirebaseApp.configure() happens only once.
         if AppEnvironment.useLiveServices {
             FirebaseBootstrap.configureIfNeeded()
-
-            // Firebase Phone Auth uses silent APNs verification when available.
-            // No user notification-permission prompt is required for silent
-            // Phone Auth verification.
             application.registerForRemoteNotifications()
+
+            BGTaskScheduler.shared.register(
+                forTaskWithIdentifier: AutomaticEventSync.backgroundTaskIdentifier,
+                using: nil
+            ) { task in
+                guard let processingTask = task as? BGProcessingTask else {
+                    task.setTaskCompleted(success: false)
+                    return
+                }
+                Task { @MainActor in
+                    AutomaticEventSync.shared.handleBackgroundProcessing(processingTask)
+                }
+            }
         }
 
         return true
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        guard AppEnvironment.useLiveServices else { return }
+        Task { @MainActor in AutomaticEventSync.shared.scheduleBackgroundProcessing() }
     }
 
     func application(
@@ -29,7 +40,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         guard AppEnvironment.useLiveServices else { return }
-
         Auth.auth().setAPNSToken(deviceToken, type: .unknown)
     }
 
@@ -37,8 +47,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        // On Simulator, APNs registration may not behave like a physical
-        // device. Firebase Phone Auth can fall back to reCAPTCHA.
         print("APNs registration failed: \(error.localizedDescription)")
     }
 
@@ -52,14 +60,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
 
-        // Give Firebase Auth the first opportunity to consume the silent
-        // notification used for phone-number authentication.
         if Auth.auth().canHandleNotification(userInfo) {
             completionHandler(.noData)
             return
         }
 
-        // SnapLoop currently has no other remote-notification processing here.
         completionHandler(.noData)
     }
 
@@ -68,21 +73,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         open url: URL,
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
-        guard AppEnvironment.useLiveServices else {
-            return false
-        }
-
-        // Handles Firebase Auth callback URLs, including reCAPTCHA fallback.
-        if Auth.auth().canHandle(url) {
-            return true
-        }
-
+        guard AppEnvironment.useLiveServices else { return false }
+        if Auth.auth().canHandle(url) { return true }
         return false
     }
-}//
-//  AppDelegate.swift
-//  SnapLoop
-//
-//  Created by GC Macbook Air 15 on 2026-08-15.
-//
-
+}
