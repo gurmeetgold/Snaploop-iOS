@@ -312,12 +312,11 @@ private struct EventCard: View {
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
 
-                HStack(spacing: 7) {
-                    Label(roleLabel, systemImage: event.creatorUserId == currentUserId ? "crown.fill" : "person.fill")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.secondary)
-                    StatusPill(text: statusLabel, tint: statusTint)
-                }
+                Label(roleLabel, systemImage: event.creatorUserId == currentUserId ? "crown.fill" : "person.fill")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.80)
 
                 Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
                     .font(.caption)
@@ -326,9 +325,16 @@ private struct EventCard: View {
 
             Spacer(minLength: 8)
 
-            Image(systemName: "chevron.right")
-                .foregroundStyle(.tertiary)
-                .font(.caption)
+            VStack(alignment: .trailing, spacing: 10) {
+                StatusPill(text: statusLabel, tint: statusTint)
+                    .fixedSize(horizontal: true, vertical: true)
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+            }
         }
         .padding(14)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
