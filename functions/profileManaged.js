@@ -19,7 +19,7 @@ exports.refreshMyFaceProfileManaged = onCall(async (request) => {
   ]);
 
   if (!userSnap.exists) {
-    throw new HttpsError("failed-precondition", "Your MyPicsRoom user profile is missing.");
+    throw new HttpsError("failed-precondition", "Your SnapLoop user profile is missing.");
   }
   if (!profileSnap.exists) {
     throw new HttpsError("failed-precondition", "Face Setup is missing.");
@@ -46,12 +46,9 @@ exports.refreshMyFaceProfileManaged = onCall(async (request) => {
     writer.set(participantRef, {
       userId: uid,
       displayName: user.displayName || null,
-      // Phone number is private account identity and must never be copied into
-      // the event-readable participant roster. Delete the legacy field during
-      // every profile refresh so existing events self-heal over time.
       phoneNumber: FieldValue.delete(),
-      faceEmbedding: profile.embedding,
-      faceTemplates: Array.isArray(profile.templates) ? profile.templates : [],
+      faceEmbedding: FieldValue.delete(),
+      faceTemplates: FieldValue.delete(),
       faceProfileVersion: version,
       joinedAt: member.joinedAt instanceof Timestamp ? member.joinedAt : Timestamp.now(),
     }, { merge: true });
