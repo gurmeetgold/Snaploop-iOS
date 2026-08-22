@@ -39,9 +39,6 @@ struct SettingsView: View {
                     privacyCard
                     onboardingCard
                     signOutCard
-                    Text("SnapLoop finds confident photo matches from your Trips on-device. Only matched optimized previews are shared with Trip members in the current MVP.")
-                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity).padding(.horizontal, 14).padding(.top, 4)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20).padding(.vertical, 16)
@@ -58,7 +55,7 @@ struct SettingsView: View {
             Button("Replay Onboarding") { hasCompletedOnboarding = false }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("You'll see the SnapLoop introduction again. Your account, Trips, photos, and Face Setup will not be changed.")
+            Text("You'll see the SnapLoop introduction again. Your account, Events, photos, and Face Setup will not be changed.")
         }
     }
 
@@ -137,7 +134,7 @@ struct SettingsView: View {
                     iconBadge("sparkles.rectangle.stack.fill", tint: Theme.violet)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Replay Onboarding").font(.headline).foregroundStyle(Theme.ink)
-                        Text("Review how Trips, matching and permissions work").font(.caption).foregroundStyle(.secondary)
+                        Text("Review how Events, matching and permissions work").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 }
