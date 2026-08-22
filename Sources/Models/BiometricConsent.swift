@@ -5,7 +5,10 @@ import Foundation
 /// This record does not contain biometric data. It records only that the user
 /// explicitly agreed to the described purpose/version at a specific time.
 public struct BiometricConsentRecord: Equatable, Codable, Sendable {
-    public static let currentPolicyVersion = 1
+    /// v2 adds explicit disclosures for private face-template storage,
+    /// Trip-scoped descriptor delivery, matched-only photo access, retention,
+    /// and deletion controls. Existing v1 consent must not silently cover it.
+    public static let currentPolicyVersion = 2
 
     public let userId: String
     public let policyVersion: Int
