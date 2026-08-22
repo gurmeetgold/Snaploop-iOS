@@ -8,7 +8,6 @@ struct EventDashboardView: View {
 
     @State private var currentEvent: Event
     @State private var members: [EventMember] = []
-    @State private var participants: [EventParticipant] = []
     @State private var photosOfMe = 0
     @State private var confirmEnd = false
     @State private var confirmDelete = false
@@ -25,18 +24,9 @@ struct EventDashboardView: View {
         return members.first(where: { $0.userId == userId })?.role
     }
 
-    private var isOrganizer: Bool {
-        currentUserRole == .organizer
-    }
-
-    private var canManageMembers: Bool {
-        currentUserRole?.canManageMembers == true
-    }
-
-    private var canManageEvent: Bool {
-        currentUserRole == .organizer || currentUserRole == .admin
-    }
-
+    private var isOrganizer: Bool { currentUserRole == .organizer }
+    private var canManageMembers: Bool { currentUserRole?.canManageMembers == true }
+    private var canManageEvent: Bool { currentUserRole == .organizer || currentUserRole == .admin }
     private var lifecycle: EventLifecycle.Status {
         EventLifecycle.status(for: currentEvent, clock: env.clock, config: env.config.current)
     }
@@ -44,30 +34,19 @@ struct EventDashboardView: View {
     var body: some View {
         ZStack {
             BrandScreenBackground()
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     hero
-
                     if currentEvent.status == .deletedByOrganizer {
                         deletedNotice
-                        if isOrganizer {
-                            managerControls
-                        }
+                        if isOrganizer { managerControls }
                     } else {
                         syncStatusRow
                         featureGrid
                         membersRow
-
-                        if currentEvent.status == .active && canManageMembers {
-                            invitePeopleRow
-                        }
-
-                        if canManageEvent {
-                            managerControls
-                        }
+                        if currentEvent.status == .active && canManageMembers { invitePeopleRow }
+                        if canManageEvent { managerControls }
                     }
-
                     if let actionError {
                         Label(actionError, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
@@ -79,91 +58,37 @@ struct EventDashboardView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await loadDashboard()
-        }
-        .confirmationDialog(
-            "End this Event?",
-            isPresented: $confirmEnd,
-            titleVisibility: .visible
-        ) {
+        .task { await loadDashboard() }
+        .confirmationDialog("End this Event?", isPresented: $confirmEnd, titleVisibility: .visible) {
             Button("End Event", role: .destructive) {
-                Task {
-                    await changeStatus {
-                        try await env.events.endEvent(id: currentEvent.id)
-                    }
-                }
+                Task { await changeStatus { try await env.events.endEvent(id: currentEvent.id) } }
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("New joins and camera syncs will stop.")
-        }
-        .confirmationDialog(
-            "Move this Event to Deleted?",
-            isPresented: $confirmDelete,
-            titleVisibility: .visible
-        ) {
+        } message: { Text("New joins and camera syncs will stop.") }
+        .confirmationDialog("Move this Event to Deleted?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Move to Deleted", role: .destructive) {
-                Task {
-                    await changeStatus {
-                        try await env.events.moveEventToDeleted(id: currentEvent.id)
-                    }
-                }
+                Task { await changeStatus { try await env.events.moveEventToDeleted(id: currentEvent.id) } }
             }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Only the organizer can delete an Event.")
-        }
+        } message: { Text("Only the organizer can delete an Event.") }
     }
 
     @MainActor
     private func loadDashboard() async {
         session.activeEvent = currentEvent
-
-        if AppEnvironment.useLiveServices,
-           currentEvent.status != .deletedByOrganizer {
-            try? await syncRosterIdentities()
-        }
-
         members = (try? await env.events.members(eventId: currentEvent.id)) ?? []
-        participants = (try? await env.events.participants(eventId: currentEvent.id)) ?? []
 
         if let userId = session.user?.id {
-            let matches = (try? await env.matches.myPhotos(
-                eventId: currentEvent.id,
-                userId: userId
-            )) ?? []
-            photosOfMe = matches.filter { $0.ownerUserId != userId }.count
-        }
-    }
-
-    private func syncRosterIdentities() async throws {
-        let _: Any = try await withCheckedThrowingContinuation { continuation in
-            Functions.functions()
-                .httpsCallable("syncEventRosterIdentities")
-                .call(["eventId": currentEvent.id]) { result, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-                    continuation.resume(returning: result?.data as Any)
-                }
+            let matches = (try? await env.matches.myPhotos(eventId: currentEvent.id, userId: userId)) ?? []
+            let sharingEnabled = members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
+            photosOfMe = matches.filter { sharingEnabled || $0.ownerUserId != userId }.count
         }
     }
 
     private var hero: some View {
         ZStack(alignment: .bottomLeading) {
-            LinearGradient(
-                colors: [Theme.sunset, Theme.pink, Theme.violet],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            Circle()
-                .fill(.white.opacity(0.11))
-                .frame(width: 180, height: 180)
-                .offset(x: 200, y: -70)
-
+            LinearGradient(colors: [Theme.sunset, Theme.pink, Theme.violet], startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle().fill(.white.opacity(0.11)).frame(width: 180, height: 180).offset(x: 200, y: -70)
             Image(systemName: currentEvent.category.systemImage)
                 .font(.system(size: 92, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.13))
@@ -172,41 +97,26 @@ struct EventDashboardView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(.white.opacity(0.18))
-                        Image(systemName: currentEvent.category.systemImage)
-                            .font(.title2)
-                            .foregroundStyle(.white)
+                        RoundedRectangle(cornerRadius: 16).fill(.white.opacity(0.18))
+                        Image(systemName: currentEvent.category.systemImage).font(.title2).foregroundStyle(.white)
                     }
                     .frame(width: 52, height: 52)
-
                     Spacer()
                     lifecyclePill
                 }
-
                 Spacer()
-
                 Text(currentEvent.name)
                     .font(.system(size: 30, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .lineLimit(2)
-
                 HStack(spacing: 8) {
-                    Label(
-                        DateFormatting.range(currentEvent.startsAt, currentEvent.endsAt),
-                        systemImage: "calendar"
-                    )
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.92))
-
+                    Label(DateFormatting.range(currentEvent.startsAt, currentEvent.endsAt), systemImage: "calendar")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.92))
                     if let role = currentUserRole {
                         Label(
                             role.displayName.uppercased(),
-                            systemImage: role == .organizer
-                                ? "crown.fill"
-                                : role == .admin
-                                    ? "shield.fill"
-                                    : "person.fill"
+                            systemImage: role == .organizer ? "crown.fill" : role == .admin ? "shield.fill" : "person.fill"
                         )
                         .font(.caption2.bold())
                         .padding(.horizontal, 9)
@@ -235,12 +145,9 @@ struct EventDashboardView: View {
 
     private var statusText: String {
         switch currentEvent.status {
-        case .endedByOrganizer:
-            return "ENDED"
-        case .deletedByOrganizer:
-            return "DELETED"
-        case .expired:
-            return "COMPLETED"
+        case .endedByOrganizer: return "ENDED"
+        case .deletedByOrganizer: return "DELETED"
+        case .expired: return "COMPLETED"
         case .active:
             switch lifecycle {
             case .upcoming: return "UPCOMING"
@@ -265,50 +172,25 @@ struct EventDashboardView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle().fill(Theme.aqua.opacity(0.14))
-                    Image(systemName: "checkmark.icloud.fill")
-                        .foregroundStyle(Theme.aqua)
+                    Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.aqua)
                 }
                 .frame(width: 40, height: 40)
-
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Event Sync")
-                        .font(.headline)
-                        .foregroundStyle(Theme.ink)
-                    Text("Scan this Event's date window for new matches")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("Event Sync").font(.headline).foregroundStyle(Theme.ink)
+                    Text("Scan this Event's date window for new matches").font(.caption).foregroundStyle(.secondary)
                 }
-
                 Spacer()
-
-                Text(
-                    EventLifecycle.canSync(
-                        currentEvent,
-                        clock: env.clock,
-                        config: env.config.current
-                    ) ? "Available" : "Paused"
-                )
-                .font(.caption.bold())
-                .foregroundStyle(
-                    EventLifecycle.canSync(
-                        currentEvent,
-                        clock: env.clock,
-                        config: env.config.current
-                    ) ? Color.green : Color.secondary
-                )
+                Text(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? "Available" : "Paused")
+                    .font(.caption.bold())
+                    .foregroundStyle(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? Color.green : Color.secondary)
             }
         }
         .padding(.horizontal)
     }
 
     private var featureGrid: some View {
-        LazyVGrid(
-            columns: [GridItem(.flexible()), GridItem(.flexible())],
-            spacing: 12
-        ) {
-            NavigationLink {
-                MyPhotosView(event: currentEvent)
-            } label: {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            NavigationLink { MyPhotosView(event: currentEvent) } label: {
                 GradientTile(
                     title: "My Photos",
                     subtitle: "\(photosOfMe) found of you",
@@ -316,10 +198,7 @@ struct EventDashboardView: View {
                     gradient: Theme.brandGradient
                 )
             }
-
-            NavigationLink {
-                SyncView(event: currentEvent)
-            } label: {
+            NavigationLink { SyncView(event: currentEvent) } label: {
                 GradientTile(
                     title: "Sync Camera",
                     subtitle: "Find new photos",
@@ -327,13 +206,7 @@ struct EventDashboardView: View {
                     gradient: Theme.socialGradient
                 )
             }
-            .disabled(
-                !EventLifecycle.canSync(
-                    currentEvent,
-                    clock: env.clock,
-                    config: env.config.current
-                )
-            )
+            .disabled(!EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current))
         }
         .buttonStyle(.plain)
         .padding(.horizontal)
@@ -347,17 +220,12 @@ struct EventDashboardView: View {
                         .font(.headline)
                         .foregroundStyle(Theme.ink)
                     Spacer()
-                    NavigationLink("View all") {
-                        ParticipantsView(event: currentEvent)
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.sunset)
+                    NavigationLink("View all") { ParticipantsView(event: currentEvent) }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.sunset)
                 }
-
                 HStack(spacing: -8) {
-                    ForEach(members.prefix(6)) { member in
-                        memberAvatar(member)
-                    }
+                    ForEach(members.prefix(6)) { member in memberAvatar(member) }
                 }
             }
         }
@@ -366,49 +234,28 @@ struct EventDashboardView: View {
 
     private func memberAvatar(_ member: EventMember) -> some View {
         ZStack {
-            Circle().fill(
-                member.role == .organizer
-                    ? Theme.brandGradient
-                    : member.role == .admin
-                        ? Theme.violetGradient
-                        : Theme.socialGradient
-            )
-            Text(initial(for: member))
-                .font(.caption.bold())
-                .foregroundStyle(.white)
+            Circle().fill(member.role == .organizer ? Theme.brandGradient : member.role == .admin ? Theme.violetGradient : Theme.socialGradient)
+            Text(initial(for: member)).font(.caption.bold()).foregroundStyle(.white)
         }
         .frame(width: 42, height: 42)
         .overlay(Circle().strokeBorder(.white, lineWidth: 2))
     }
 
     private var invitePeopleRow: some View {
-        NavigationLink {
-            ShareEventView(event: currentEvent)
-        } label: {
+        NavigationLink { ShareEventView(event: currentEvent) } label: {
             PremiumCard {
                 HStack(spacing: 12) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Theme.sunset.opacity(0.12))
-                        Image(systemName: "person.badge.plus")
-                            .font(.title3)
-                            .foregroundStyle(Theme.sunset)
+                        RoundedRectangle(cornerRadius: 12).fill(Theme.sunset.opacity(0.12))
+                        Image(systemName: "person.badge.plus").font(.title3).foregroundStyle(Theme.sunset)
                     }
                     .frame(width: 42, height: 42)
-
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Invite People")
-                            .font(.headline)
-                            .foregroundStyle(Theme.ink)
-                        Text("Share code, link, QR or phone invite")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        Text("Invite People").font(.headline).foregroundStyle(Theme.ink)
+                        Text("Share code, link, QR or phone invite").font(.caption).foregroundStyle(.secondary)
                     }
-
                     Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                 }
             }
         }
@@ -417,23 +264,16 @@ struct EventDashboardView: View {
     }
 
     private func initial(for member: EventMember) -> String {
-        if member.userId == session.user?.id {
-            if let name = session.user?.displayName,
-               let first = name.first {
-                return String(first).uppercased()
-            }
-            if let phone = session.user?.phoneNumber {
-                return String(phone.suffix(2))
-            }
-        }
-
-        if let participant = participants.first(where: { $0.userId == member.userId }),
-           let name = participant.displayName,
+        if member.userId == session.user?.id,
+           let name = session.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
            let first = name.first {
             return String(first).uppercased()
         }
-
-        return "?"
+        if let name = member.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let first = name.first {
+            return String(first).uppercased()
+        }
+        return "•"
     }
 
     private var managerControls: some View {
@@ -451,17 +291,11 @@ struct EventDashboardView: View {
                         EditEventView(event: currentEvent) { updated in
                             currentEvent = updated
                             session.activeEvent = updated
-                            Task {
-                                await loadDashboard()
-                            }
+                            Task { await loadDashboard() }
                         }
-                    } label: {
-                        Label("Edit Event", systemImage: "pencil.circle.fill")
-                    }
+                    } label: { Label("Edit Event", systemImage: "pencil.circle.fill") }
 
-                    Button(role: .destructive) {
-                        confirmEnd = true
-                    } label: {
+                    Button(role: .destructive) { confirmEnd = true } label: {
                         Label("End Event", systemImage: "stop.circle.fill")
                     }
                     .disabled(isChangingStatus)
@@ -470,32 +304,18 @@ struct EventDashboardView: View {
                 if isOrganizer {
                     if currentEvent.status == .endedByOrganizer {
                         Button {
-                            Task {
-                                await changeStatus {
-                                    try await env.events.reopenEvent(id: currentEvent.id)
-                                }
-                            }
-                        } label: {
-                            Label("Reopen Event", systemImage: "arrow.counterclockwise.circle.fill")
-                        }
+                            Task { await changeStatus { try await env.events.reopenEvent(id: currentEvent.id) } }
+                        } label: { Label("Reopen Event", systemImage: "arrow.counterclockwise.circle.fill") }
                         .disabled(isChangingStatus)
                     }
 
                     if currentEvent.status == .deletedByOrganizer {
                         Button {
-                            Task {
-                                await changeStatus {
-                                    try await env.events.restoreEvent(id: currentEvent.id)
-                                }
-                            }
-                        } label: {
-                            Label("Restore Event", systemImage: "arrow.uturn.backward.circle.fill")
-                        }
+                            Task { await changeStatus { try await env.events.restoreEvent(id: currentEvent.id) } }
+                        } label: { Label("Restore Event", systemImage: "arrow.uturn.backward.circle.fill") }
                         .disabled(isChangingStatus)
                     } else {
-                        Button(role: .destructive) {
-                            confirmDelete = true
-                        } label: {
+                        Button(role: .destructive) { confirmDelete = true } label: {
                             Label("Move to Deleted", systemImage: "trash.fill")
                         }
                         .disabled(isChangingStatus)
@@ -508,13 +328,10 @@ struct EventDashboardView: View {
     }
 
     @MainActor
-    private func changeStatus(
-        _ operation: @escaping () async throws -> Void
-    ) async {
+    private func changeStatus(_ operation: @escaping () async throws -> Void) async {
         isChangingStatus = true
         actionError = nil
         defer { isChangingStatus = false }
-
         do {
             try await operation()
             session.activeEvent = nil
