@@ -24,7 +24,7 @@ struct EventDashboardView: View {
     }
     private var isOrganizer: Bool { currentUserRole == .organizer }
     private var canManageMembers: Bool { currentUserRole?.canManageMembers == true }
-    private var canManageTrip: Bool { currentUserRole == .organizer || currentUserRole == .admin }
+    private var canManageEvent: Bool { currentUserRole == .organizer || currentUserRole == .admin }
     private var lifecycle: EventLifecycle.Status { EventLifecycle.status(for: currentEvent, clock: env.clock, config: env.config.current) }
 
     var body: some View {
@@ -41,7 +41,7 @@ struct EventDashboardView: View {
                         featureGrid
                         membersRow
                         if currentEvent.status == .active && canManageMembers { invitePeopleRow }
-                        if canManageTrip { managerControls }
+                        if canManageEvent { managerControls }
                     }
                     if let actionError { Label(actionError, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.red).padding(.horizontal) }
                 }.padding(.vertical, 12)
@@ -49,14 +49,14 @@ struct EventDashboardView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadDashboard() }
-        .confirmationDialog("End this Trip?", isPresented: $confirmEnd, titleVisibility: .visible) {
-            Button("End Trip", role: .destructive) { Task { await changeStatus { try await env.events.endEvent(id: currentEvent.id) } } }
+        .confirmationDialog("End this Event?", isPresented: $confirmEnd, titleVisibility: .visible) {
+            Button("End Event", role: .destructive) { Task { await changeStatus { try await env.events.endEvent(id: currentEvent.id) } } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("New joins and camera syncs will stop.") }
-        .confirmationDialog("Move this Trip to Deleted?", isPresented: $confirmDelete, titleVisibility: .visible) {
+        .confirmationDialog("Move this Event to Deleted?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Move to Deleted", role: .destructive) { Task { await changeStatus { try await env.events.moveEventToDeleted(id: currentEvent.id) } } }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("Only the organizer can delete a Trip.") }
+        } message: { Text("Only the organizer can delete an Event.") }
     }
 
     @MainActor
@@ -107,13 +107,13 @@ struct EventDashboardView: View {
         }
     }
 
-    private var deletedNotice: some View { PremiumCard { Label("This Trip is in Deleted.", systemImage: "trash.fill").font(.subheadline).foregroundStyle(.secondary) }.padding(.horizontal) }
+    private var deletedNotice: some View { PremiumCard { Label("This Event is in Deleted.", systemImage: "trash.fill").font(.subheadline).foregroundStyle(.secondary) }.padding(.horizontal) }
 
     private var syncStatusRow: some View {
         PremiumCard {
             HStack(spacing: 12) {
                 ZStack { Circle().fill(Theme.aqua.opacity(0.14)); Image(systemName: "checkmark.icloud.fill").foregroundStyle(Theme.aqua) }.frame(width: 40, height: 40)
-                VStack(alignment: .leading, spacing: 2) { Text("Trip Sync").font(.headline).foregroundStyle(Theme.ink); Text("Scan this Trip's date window for new matches").font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 2) { Text("Event Sync").font(.headline).foregroundStyle(Theme.ink); Text("Scan this Event's date window for new matches").font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 Text(EventLifecycle.canSync(currentEvent, clock: env.clock, config: env.config.current) ? "Available" : "Paused")
                     .font(.caption.bold())
@@ -133,7 +133,7 @@ struct EventDashboardView: View {
     private var membersRow: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 12) {
-                HStack { Label("Trip Members", systemImage: "person.3.fill").font(.headline).foregroundStyle(Theme.ink); Spacer(); NavigationLink("View all") { ParticipantsView(event: currentEvent) }.font(.subheadline.weight(.semibold)).foregroundStyle(Theme.sunset) }
+                HStack { Label("Event Members", systemImage: "person.3.fill").font(.headline).foregroundStyle(Theme.ink); Spacer(); NavigationLink("View all") { ParticipantsView(event: currentEvent) }.font(.subheadline.weight(.semibold)).foregroundStyle(Theme.sunset) }
                 HStack(spacing: -8) { ForEach(members.prefix(6)) { member in memberAvatar(member) } }
             }
         }.padding(.horizontal)
@@ -169,15 +169,15 @@ struct EventDashboardView: View {
                 if currentEvent.status == .active {
                     NavigationLink {
                         EditEventView(event: currentEvent) { updated in currentEvent = updated; session.activeEvent = updated; Task { await loadDashboard() } }
-                    } label: { Label("Edit Trip", systemImage: "pencil.circle.fill") }
-                    Button(role: .destructive) { confirmEnd = true } label: { Label("End Trip", systemImage: "stop.circle.fill") }.disabled(isChangingStatus)
+                    } label: { Label("Edit Event", systemImage: "pencil.circle.fill") }
+                    Button(role: .destructive) { confirmEnd = true } label: { Label("End Event", systemImage: "stop.circle.fill") }.disabled(isChangingStatus)
                 }
                 if isOrganizer {
                     if currentEvent.status == .endedByOrganizer {
-                        Button { Task { await changeStatus { try await env.events.reopenEvent(id: currentEvent.id) } } } label: { Label("Reopen Trip", systemImage: "arrow.counterclockwise.circle.fill") }.disabled(isChangingStatus)
+                        Button { Task { await changeStatus { try await env.events.reopenEvent(id: currentEvent.id) } } } label: { Label("Reopen Event", systemImage: "arrow.counterclockwise.circle.fill") }.disabled(isChangingStatus)
                     }
                     if currentEvent.status == .deletedByOrganizer {
-                        Button { Task { await changeStatus { try await env.events.restoreEvent(id: currentEvent.id) } } } label: { Label("Restore Trip", systemImage: "arrow.uturn.backward.circle.fill") }.disabled(isChangingStatus)
+                        Button { Task { await changeStatus { try await env.events.restoreEvent(id: currentEvent.id) } } label: { Label("Restore Event", systemImage: "arrow.uturn.backward.circle.fill") }.disabled(isChangingStatus)
                     } else {
                         Button(role: .destructive) { confirmDelete = true } label: { Label("Move to Deleted", systemImage: "trash.fill") }.disabled(isChangingStatus)
                     }
