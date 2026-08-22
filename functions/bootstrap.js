@@ -39,6 +39,7 @@ exports.deliverNotificationRecord = notifications.deliverNotificationRecord;
 exports.syncMyUserProfile = security.syncMyUserProfile;
 exports.updateDisplayName = security.updateDisplayNameTrusted;
 exports.refreshMyFaceProfile = profile.refreshMyFaceProfileManaged;
+exports.acceptBiometricConsent = privacy.acceptBiometricConsent;
 exports.eraseMyFaceProfile = security.eraseMyFaceProfile;
 exports.withdrawBiometricConsent = security.withdrawBiometricConsent;
 exports.deleteMyAccount = security.deleteMyAccount;
