@@ -27,7 +27,7 @@ final class PrivacyModel: ObservableObject {
             LocalFaceReferenceStore.delete(userId: userId)
             session?.user = nil
             session?.faceProfile = nil
-            message = "Your SnapLoop account, face data, memberships, and shared previews were deleted."
+            message = "Your SnapLoop account, face data, memberships, and photo previews were deleted."
         } catch { message = AppError.unknown("\(error)").userMessage }
     }
 }
@@ -45,25 +45,15 @@ struct PrivacyView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Label("Privacy & Data", systemImage: "lock.shield.fill")
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.ink)
-                        .padding(.horizontal)
-
+                        .font(.system(size: 30, weight: .bold, design: .rounded)).foregroundStyle(Theme.ink).padding(.horizontal)
                     privacyIntro
                     retentionCard
                     deleteFaceCard
                     deleteAccountCard
-
                     if let message = model.message {
-                        PremiumCard {
-                            Label(message, systemImage: "info.circle.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal)
+                        PremiumCard { Label(message, systemImage: "info.circle.fill").font(.footnote).foregroundStyle(.secondary) }.padding(.horizontal)
                     }
-                }
-                .padding(.vertical, 16)
+                }.padding(.vertical, 16)
             }
         }
         .navigationTitle("Privacy")
@@ -72,76 +62,52 @@ struct PrivacyView: View {
         .confirmationDialog("Delete your Face Setup?", isPresented: $confirmProfile, titleVisibility: .visible) {
             Button("Delete Face Setup", role: .destructive) { Task { await model.deleteFaceProfile() } }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes the local Face Setup images, stored mathematical face profile, and matching derivatives. Automatic face matching stops until you set it up again.")
-        }
+        } message: { Text("This removes the local Face Setup images, stored face-template metadata, and matching derivatives. Automatic face matching stops until you set it up again.") }
         .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
             Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently removes your account, face data, Trip memberships, and previews you shared. It cannot be undone.")
-        }
+        } message: { Text("This permanently removes your account, face data, Trip memberships, and photo previews sourced from your account. It cannot be undone.") }
     }
 
     private var privacyIntro: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("You stay in control", systemImage: "hand.raised.fill")
-                    .font(.headline)
-                    .foregroundStyle(Theme.ink)
-                Text("SnapLoop never uploads your entire photo library. Photo matching runs on your iPhone and is limited to the selected Trip date range. Your Face Setup selfie/reference images stay only on this iPhone; SnapLoop stores a mathematical face profile for Trip matching.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Label("You stay in control", systemImage: "hand.raised.fill").font(.headline).foregroundStyle(Theme.ink)
+                Text("SnapLoop never uploads your entire photo library. Photo matching runs on your iPhone and is limited to the selected Trip date range. Your Face Setup selfie/reference images stay only on this iPhone; SnapLoop stores only face-template metadata for matching.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-        }
-        .padding(.horizontal)
+        }.padding(.horizontal)
     }
 
     private var retentionCard: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("Data retention", systemImage: "clock.badge.checkmark")
-                    .font(.headline)
-                    .foregroundStyle(Theme.ink)
-                Text("Matched cloud previews and their photo-match records are automatically removed 10 days after a Trip ends. If an organizer deletes a Trip, its Trip-related cloud data is permanently removed within 7 days.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Label("Data retention", systemImage: "clock.badge.checkmark").font(.headline).foregroundStyle(Theme.ink)
+                Text("All Trip-related cloud data, including matched photo previews, is deleted within 15 days after a Trip ends. If a Trip is manually deleted, its Trip-related cloud data is also deleted within 15 days of deletion.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-        }
-        .padding(.horizontal)
+        }.padding(.horizontal)
     }
 
     private var deleteFaceCard: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("Delete Face Setup", systemImage: "faceid")
-                    .font(.headline).foregroundStyle(.red)
-                Text("Removes your local Face Setup reference images, private mathematical face profile, and your face matches from Trip metadata. You can set it up again later.")
+                Label("Delete Face Setup", systemImage: "faceid").font(.headline).foregroundStyle(.red)
+                Text("Removes your local Face Setup reference images, private face-template metadata, and your face matches from Trip metadata. You can set it up again later.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Button(role: .destructive) { confirmProfile = true } label: {
-                    Label("Delete Face Setup", systemImage: "trash.fill")
-                }
-                .disabled(model.busy)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal)
+                Button(role: .destructive) { confirmProfile = true } label: { Label("Delete Face Setup", systemImage: "trash.fill") }.disabled(model.busy)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(.horizontal)
     }
 
     private var deleteAccountCard: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("Delete Account", systemImage: "person.crop.circle.badge.xmark")
-                    .font(.headline).foregroundStyle(.red)
-                Text("Deletes your account, face data, Trip memberships, and shared preview photos sourced from this account.")
+                Label("Delete Account", systemImage: "person.crop.circle.badge.xmark").font(.headline).foregroundStyle(.red)
+                Text("Deletes your account, face data, Trip memberships, and photo previews sourced from this account.")
                     .font(.footnote).foregroundStyle(.secondary)
-                Button(role: .destructive) { confirmAccount = true } label: {
-                    Label("Delete SnapLoop Account", systemImage: "trash.fill")
-                }
-                .disabled(model.busy)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal)
+                Button(role: .destructive) { confirmAccount = true } label: { Label("Delete SnapLoop Account", systemImage: "trash.fill") }.disabled(model.busy)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.padding(.horizontal)
     }
 }
