@@ -7,42 +7,61 @@ struct RootView: View {
     @AppStorage("snaploop.onboarding.completed") private var hasCompletedOnboarding = false
     @State private var didBootstrapSession = false
     @State private var isBootstrappingSession = false
+    @State private var postAuthUserId: String?
 
     var body: some View {
         Group {
-            if !hasCompletedOnboarding { OnboardingView(isCompleted: $hasCompletedOnboarding) }
-            else if isBootstrappingSession {
-                ZStack { BrandScreenBackground(); VStack(spacing: 18) { BrandMark(size: 68); ProgressView().tint(Theme.sunset); Text("Opening SnapLoop…").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary) } }
+            if !hasCompletedOnboarding {
+                OnboardingView(isCompleted: $hasCompletedOnboarding)
+            } else if isBootstrappingSession {
+                ZStack {
+                    BrandScreenBackground()
+                    VStack(spacing: 18) {
+                        BrandMark(size: 68)
+                        ProgressView().tint(Theme.sunset)
+                        Text("Opening SnapLoop…")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
             } else if session.user != nil {
-                MainTabView().sheet(item: $session.pendingRoute) { route in NavigationStack { JoinEventView(route: route) { event in PendingInviteStore.clear(); session.pendingRoute = nil; session.activeEvent = event } } }
-            } else { PhoneAuthFlowView() }
+                MainTabView()
+                    .sheet(item: $session.pendingRoute) { route in
+                        NavigationStack {
+                            JoinEventView(route: route) { event in
+                                PendingInviteStore.clear()
+                                session.pendingRoute = nil
+                                session.activeEvent = event
+                            }
+                        }
+                    }
+            } else {
+                PhoneAuthFlowView()
+            }
         }
         .task {
             guard hasCompletedOnboarding else { return }
-            await environment.config.refresh()
             await bootstrapPersistedSessionIfNeeded()
-            await loadPendingInviteIfNeeded()
-            if session.user != nil {
-                await PushNotificationClient.requestAuthorizationAndRegister()
-                configureAutomaticSyncAndRun()
-            }
+            kickOffDeferredStartupWork()
         }
         .onChange(of: hasCompletedOnboarding) { _, completed in
             guard completed else { return }
             Task {
-                await environment.config.refresh()
                 await bootstrapPersistedSessionIfNeeded()
-                await loadPendingInviteIfNeeded()
-                if session.user != nil { configureAutomaticSyncAndRun() }
+                kickOffDeferredStartupWork()
             }
         }
         .onChange(of: session.user?.id) { _, userId in
-            guard userId != nil else { return }
-            Task {
-                await loadPendingInviteIfNeeded()
-                await PushNotificationClient.requestAuthorizationAndRegister()
-                configureAutomaticSyncAndRun()
+            guard let userId else {
+                postAuthUserId = nil
+                return
             }
+            guard postAuthUserId != userId else { return }
+            kickOffDeferredStartupWork()
+        }
+        .onChange(of: session.hasFaceProfile) { _, hasFaceProfile in
+            guard hasFaceProfile, session.user != nil else { return }
+            configureAutomaticSyncAndRun()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, hasCompletedOnboarding else { return }
@@ -56,47 +75,122 @@ struct RootView: View {
             Task { await loadPendingInviteIfNeeded() }
         }
         .onOpenURL { url in captureInvite(url) }
-        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in if let url = activity.webpageURL { captureInvite(url) } }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { captureInvite(url) }
+        }
     }
 
-    @MainActor private func configureAutomaticSyncAndRun() {
+    @MainActor
+    private func kickOffDeferredStartupWork() {
+        guard let userId = session.user?.id else {
+            Task { await environment.config.refresh() }
+            return
+        }
+        guard postAuthUserId != userId else { return }
+        postAuthUserId = userId
+
+        Task {
+            async let configRefresh: Void = environment.config.refresh()
+            async let inviteLoad: Void = loadPendingInviteIfNeeded()
+            async let pushRegistration: Void = PushNotificationClient.requestAuthorizationAndRegister()
+
+            await hydrateFaceProfileIfNeeded(userId: userId)
+            _ = await (configRefresh, inviteLoad, pushRegistration)
+
+            if session.user?.id == userId {
+                configureAutomaticSyncAndRun()
+            }
+        }
+    }
+
+    @MainActor
+    private func hydrateFaceProfileIfNeeded(userId: String) async {
+        guard session.user?.id == userId else { return }
+        do {
+            let stored = try await environment.faceProfiles.load(userId: userId)
+            guard session.user?.id == userId else { return }
+
+            let faceProfile = stored?.version == FaceModelPolicy.currentVersion ? stored : nil
+            session.faceProfile = faceProfile
+
+            if var user = session.user, (faceProfile != nil) != user.hasFaceProfile {
+                user.hasFaceProfile = faceProfile != nil
+                session.user = user
+                try? await environment.users.save(user)
+            }
+        } catch {
+            Log.face.error("Deferred face-profile hydration failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    @MainActor
+    private func configureAutomaticSyncAndRun() {
         AutomaticEventSync.shared.configure(environment: environment, session: session)
         AutomaticEventSync.shared.runWhenAppBecomesActive()
     }
 
-    @MainActor private func captureInvite(_ url: URL) { if let route = DeepLinkRouter.route(for: url) { PendingInviteStore.save(route); session.pendingRoute = route } }
-    @MainActor private func loadPendingInviteIfNeeded() async {
-        guard session.user != nil, session.pendingRoute == nil else { return }
-        if let stored = PendingInviteStore.load() { session.pendingRoute = stored; return }
-        guard AppEnvironment.useLiveServices else { return }
-        do { if let route = try await EventInviteClient.nextPendingRoute() { PendingInviteStore.save(route); session.pendingRoute = route } }
-        catch { Log.events.error("Pending invite lookup failed: \(String(describing: error), privacy: .public)") }
+    @MainActor
+    private func captureInvite(_ url: URL) {
+        if let route = DeepLinkRouter.route(for: url) {
+            PendingInviteStore.save(route)
+            session.pendingRoute = route
+        }
     }
-    @MainActor private func bootstrapPersistedSessionIfNeeded() async {
-        guard !didBootstrapSession else { return }; didBootstrapSession = true
-        guard session.user == nil, let uid = environment.auth.currentUserId else { return }
-        isBootstrappingSession = true; defer { isBootstrappingSession = false }
+
+    @MainActor
+    private func loadPendingInviteIfNeeded() async {
+        guard session.user != nil, session.pendingRoute == nil else { return }
+        if let stored = PendingInviteStore.load() {
+            session.pendingRoute = stored
+            return
+        }
+        guard AppEnvironment.useLiveServices else { return }
         do {
-            var user = try await environment.users.fetch(userId: uid)
-            let stored = try await environment.faceProfiles.load(userId: uid)
-            let faceProfile = stored?.version == FaceModelPolicy.currentVersion ? stored : nil
-            if (faceProfile != nil) != user.hasFaceProfile { user.hasFaceProfile = faceProfile != nil; try await environment.users.save(user) }
-            session.beginAuthenticatedSession(user: user, faceProfile: faceProfile)
-        } catch { try? environment.auth.signOut(); session.clearAuthenticatedSession(preservePendingRoute: true) }
+            if let route = try await EventInviteClient.nextPendingRoute() {
+                PendingInviteStore.save(route)
+                session.pendingRoute = route
+            }
+        } catch {
+            Log.events.error("Pending invite lookup failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    @MainActor
+    private func bootstrapPersistedSessionIfNeeded() async {
+        guard !didBootstrapSession else { return }
+        didBootstrapSession = true
+        guard session.user == nil, let uid = environment.auth.currentUserId else { return }
+
+        isBootstrappingSession = true
+        defer { isBootstrappingSession = false }
+
+        do {
+            let user = try await environment.users.fetch(userId: uid)
+            // Show the authenticated Home UI as soon as the lightweight user record
+            // is restored. Face profile, Remote Config, invites, push registration and
+            // automatic sync hydrate afterward and must never hold the launch screen.
+            session.beginAuthenticatedSession(user: user, faceProfile: nil)
+        } catch {
+            try? environment.auth.signOut()
+            session.clearAuthenticatedSession(preservePendingRoute: true)
+        }
     }
 }
 
 struct MainTabView: View {
     @State private var selectedTab = Tab.home
     enum Tab { case home, gallery, you }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack { HomeView(showsGreeting: true) }
                 .tabItem { Label("Home", systemImage: "house.fill") }
                 .tag(Tab.home)
+
             NavigationStack { AllMyPhotosView() }
                 .tabItem { Label("Gallery", systemImage: "photo.stack.fill") }
                 .tag(Tab.gallery)
+
             NavigationStack { SettingsView() }
                 .tabItem { Label("You", systemImage: "person.crop.circle.fill") }
                 .tag(Tab.you)
@@ -105,4 +199,8 @@ struct MainTabView: View {
     }
 }
 
-#Preview { RootView().environmentObject(AppEnvironment.dev()).environmentObject(AppSession.dev()) }
+#Preview {
+    RootView()
+        .environmentObject(AppEnvironment.dev())
+        .environmentObject(AppSession.dev())
+}
