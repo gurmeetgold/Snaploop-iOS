@@ -13,11 +13,13 @@ public enum DateFormatting {
     }
 
     /// "Aug 15 – Aug 18, 2026" style range (collapses shared year/month sensibly
-    /// via the OS interval formatter).
+    /// via the OS interval formatter). Non-breaking spaces keep event-card dates
+    /// on one line instead of wrapping the year onto a second line.
     public static func range(_ start: Date, _ end: Date) -> String {
         let f = DateIntervalFormatter()
         f.dateStyle = .medium; f.timeStyle = .none
         return f.string(from: start, to: end)
+            .replacingOccurrences(of: " ", with: "\u{00A0}")
     }
 
     /// Absolute date for "available until" messaging, e.g. "August 18, 2026".
