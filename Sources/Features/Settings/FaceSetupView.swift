@@ -44,12 +44,18 @@ final class FaceSetupModel: ObservableObject {
         catch { consentActive = false }
     }
 
-    func acceptConsent() async {
-        guard let env, let userId = session?.user?.id else { return }
+    func acceptConsent() async -> Bool {
+        guard let env, let userId = session?.user?.id else { return false }
+        message = nil
         do {
             try await env.biometricConsent.save(BiometricConsentRecord(userId: userId, acceptedAt: env.clock.now()))
             consentActive = true
-        } catch { message = (error as NSError).localizedDescription }
+            return true
+        } catch {
+            consentActive = false
+            message = (error as NSError).localizedDescription
+            return false
+        }
     }
 
     func useGuidedFrames(_ frames: [GuidedEnrollmentFrame]) async {
@@ -188,7 +194,7 @@ final class FaceSetupModel: ObservableObject {
             pendingGalleryReferenceData = nil
             hasChanges = false
             didSave = true
-            message = "Face Setup saved. Guided: \(guidedTemplateCount)/\(FaceModelPolicy.targetTemplateCount)\(hasGalleryReference ? ", plus 1 gallery reference" : "")."
+            message = "Face Setup saved."
         } catch let error as AppError { message = error.userMessage }
         catch { message = (error as NSError).localizedDescription }
     }
@@ -205,6 +211,8 @@ final class FaceSetupModel: ObservableObject {
 }
 
 struct FaceSetupView: View {
+    private enum PendingAction { case guided, gallery }
+
     var onSaved: (() -> Void)? = nil
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
@@ -213,6 +221,7 @@ struct FaceSetupView: View {
     @State private var showGuidedEnrollment = false
     @State private var showGalleryPicker = false
     @State private var showConsent = false
+    @State private var pendingAction: PendingAction?
 
     private var saveDisabled: Bool {
         !model.consentActive || model.templates.isEmpty || model.isBusy || (session.hasFaceProfile && !model.hasChanges)
@@ -227,7 +236,7 @@ struct FaceSetupView: View {
                     Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("A guided selfie scan gives MyPicsRoom the most reliable reference. You can also add one optional gallery photo.")
+                    Text("A guided selfie gives SnapLoop the most reliable reference. You can also add one optional gallery photo.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -240,16 +249,27 @@ struct FaceSetupView: View {
 
                     if !model.consentActive {
                         actionButton("Review Face Match Consent", icon: "checkmark.shield.fill", gradient: Theme.socialGradient) {
+                            pendingAction = nil
                             showConsent = true
                         }
                     }
 
                     actionButton("Guided Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.brandGradient) {
-                        if model.consentActive { showGuidedEnrollment = true } else { showConsent = true }
+                        if model.consentActive {
+                            showGuidedEnrollment = true
+                        } else {
+                            pendingAction = .guided
+                            showConsent = true
+                        }
                     }
 
                     Button {
-                        if model.consentActive { showGalleryPicker = true } else { showConsent = true }
+                        if model.consentActive {
+                            showGalleryPicker = true
+                        } else {
+                            pendingAction = .gallery
+                            showConsent = true
+                        }
                     } label: {
                         Label(model.hasGalleryReference ? "Edit / Replace Gallery Photo" : "Add One Gallery Photo", systemImage: "photo.badge.plus")
                             .font(.headline)
@@ -282,9 +302,7 @@ struct FaceSetupView: View {
                     .opacity(saveDisabled ? 0.5 : 1)
 
                     if session.hasFaceProfile {
-                        NavigationLink {
-                            FaceMatchingTestView()
-                        } label: {
+                        NavigationLink { FaceMatchingTestView() } label: {
                             Label("Test My Face Setup", systemImage: "checkmark.viewfinder")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
@@ -313,7 +331,21 @@ struct FaceSetupView: View {
             GuidedFaceEnrollmentView { frames in Task { await model.useGuidedFrames(frames) } }
         }
         .sheet(isPresented: $showConsent) {
-            BiometricConsentView { Task { await model.acceptConsent() } }
+            BiometricConsentView {
+                let saved = await model.acceptConsent()
+                guard saved else { return false }
+                let action = pendingAction
+                pendingAction = nil
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    switch action {
+                    case .guided: showGuidedEnrollment = true
+                    case .gallery: showGalleryPicker = true
+                    case nil: break
+                    }
+                }
+                return true
+            }
         }
         .sheet(isPresented: $showGalleryPicker) {
             ProfileImagePicker(source: .photoLibrary) { image in
@@ -379,7 +411,7 @@ struct FaceSetupView: View {
                     .font(.caption.bold())
                     .foregroundStyle(model.hasGalleryReference ? .green : .secondary)
             }
-            Text("MVP allows one gallery face only. If the photo has several people, MyPicsRoom asks you to choose your face.")
+            Text("MVP allows one gallery face only. If the photo has several people, SnapLoop asks you to choose your face.")
                 .font(.caption2).foregroundStyle(.secondary)
         }
     }
