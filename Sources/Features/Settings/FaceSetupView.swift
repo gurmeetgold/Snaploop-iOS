@@ -194,6 +194,35 @@ struct FaceSetupView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 6)
 
+                    if !session.hasFaceProfile {
+                        Button {
+                            session.deferFaceSetup()
+                            dismiss()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Set up later")
+                                        .font(.headline)
+                                    Text("You can start using SnapLoop now and add Face Setup anytime from You.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .foregroundStyle(Theme.ink)
+                            .padding(.horizontal, 18)
+                            .frame(maxWidth: .infinity, minHeight: 64)
+                        }
+                        .buttonStyle(.plain)
+                        .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.violet.opacity(0.2), lineWidth: 1))
+                        .disabled(model.isBusy)
+                    }
+
                     PremiumCard { preview }
                     PremiumCard { templateStatus }
 
@@ -214,17 +243,6 @@ struct FaceSetupView: View {
                     }
                     .disabled(model.isBusy)
                     .opacity(model.isBusy ? 0.62 : 1)
-
-                    if !session.hasFaceProfile {
-                        Button("Set up later") {
-                            session.deferFaceSetup()
-                            dismiss()
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .disabled(model.isBusy)
-                    }
 
                     if session.hasFaceProfile {
                         NavigationLink { FaceMatchingTestView() } label: {
