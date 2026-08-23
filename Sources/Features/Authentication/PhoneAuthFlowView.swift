@@ -28,7 +28,6 @@ final class PhoneAuthModel: ObservableObject {
             let uid = try await env.auth.confirmVerification(verificationId: verificationId, code: code)
             let canonicalPhone = normalizedPhoneNumber ?? PhoneNumberNormalizer.e164(localInput: phoneNumber, country: selectedCountry) ?? phoneNumber
             let user: User
-            var isNewAccount = false
             do {
                 user = try await env.users.fetch(userId: uid)
             } catch let error as AppError {
@@ -36,7 +35,6 @@ final class PhoneAuthModel: ObservableObject {
                     let created = User(id: uid, phoneNumber: canonicalPhone, displayName: nil, hasFaceProfile: false, createdAt: env.clock.now())
                     try await env.users.save(created)
                     user = created
-                    isNewAccount = true
                 } else {
                     throw error
                 }
@@ -58,13 +56,9 @@ final class PhoneAuthModel: ObservableObject {
                 try? await env.users.save(resolvedUser)
             }
 
-            if isNewAccount {
-                // Onboarding was historically device-wide. Reset it when a genuinely
-                // new account is created so every new user sees the product explanation,
-                // even on an iPhone where another account already completed it.
-                UserDefaults.standard.set(false, forKey: "snaploop.onboarding.completed")
-            }
-
+            // Onboarding is shown before authentication. Do not reset the device's
+            // completed onboarding flag here, otherwise a brand-new account sees the
+            // same five-page deck a second time immediately after OTP verification.
             session.beginAuthenticatedSession(
                 user: resolvedUser,
                 faceProfile: currentProfile,
