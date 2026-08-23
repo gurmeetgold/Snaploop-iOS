@@ -110,8 +110,10 @@ targets:
       configs:
         Debug:
           APS_ENVIRONMENT: development
+          SNAPLOOP_ASSOCIATED_DOMAIN: snaploop-dev.web.app
         Release:
           APS_ENVIRONMENT: production
+          SNAPLOOP_ASSOCIATED_DOMAIN: getsnaploop.web.app
 
   SnapLoopTests:
     type: bundle.unit-test

@@ -6,7 +6,7 @@
 	<string>$(APS_ENVIRONMENT)</string>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:snaploop-dev.web.app</string>
+		<string>applinks:$(SNAPLOOP_ASSOCIATED_DOMAIN)</string>
 	</array>
 </dict>
 </plist>
