@@ -36,10 +36,31 @@ final class PhoneAuthModel: ObservableObject {
                 } else { throw error }
             }
 
-            // Enter the authenticated UI immediately after identity is resolved.
-            // Face-profile hydration is deliberately deferred by RootView so it
-            // never holds the user on the login screen.
-            session.beginAuthenticatedSession(user: user, faceProfile: nil)
+            // Resolve the authenticated UID's face profile before entering the app.
+            // This prevents a previous account's in-memory enrollment from ever being
+            // rendered for the newly authenticated account and gives RootView a reliable
+            // new-user vs returning-user setup decision.
+            let storedProfile = try await env.faceProfiles.load(userId: uid)
+            let currentProfile: FaceProfile?
+            if let storedProfile,
+               storedProfile.userId == uid,
+               storedProfile.version == FaceModelPolicy.currentVersion {
+                currentProfile = storedProfile
+            } else {
+                currentProfile = nil
+            }
+
+            var resolvedUser = user
+            if resolvedUser.hasFaceProfile != (currentProfile != nil) {
+                resolvedUser.hasFaceProfile = currentProfile != nil
+                try? await env.users.save(resolvedUser)
+            }
+
+            session.beginAuthenticatedSession(
+                user: resolvedUser,
+                faceProfile: currentProfile,
+                faceProfileResolved: true
+            )
         } catch let error as AppError { errorMessage = error.userMessage }
         catch { errorMessage = AppError.unknown("\(error)").userMessage }
     }
