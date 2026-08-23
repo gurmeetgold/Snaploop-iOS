@@ -77,7 +77,6 @@ final class FaceSetupModel: ObservableObject {
 
         do {
             var newGuidedTemplates: [FaceTemplate] = []
-            var bestReference: (data: Data, quality: Double)?
 
             for frame in frames {
                 let embedding = try await env.faceDetection.embeddingForSelfie(frame.jpegData)
@@ -87,18 +86,26 @@ final class FaceSetupModel: ObservableObject {
                     quality: frame.quality,
                     createdAt: env.clock.now()
                 ))
-
-                if bestReference == nil || frame.quality > bestReference!.quality {
-                    let candidates = try? await VisionFaceCropper.candidates(in: frame.jpegData)
-                    bestReference = (candidates?.first?.jpegData ?? frame.jpegData, frame.quality)
-                }
             }
 
             guard newGuidedTemplates.count >= 3 else { throw AppError.faceEmbeddingFailed }
             let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }.prefix(FaceModelPolicy.targetTemplateCount))
             templates = guided
-            pendingGuidedReferenceData = bestReference?.data
-            previewData = bestReference?.data ?? previewData
+
+            // The old code chose the highest-quality frame across every pose, which
+            // could make a LEFT/RIGHT/TILT image become the saved Face Setup preview.
+            // Prefer the final straight-on capture, then the opening straight-on frame.
+            let straightReferenceFrame = frames.first(where: { $0.pose == .alternate })
+                ?? frames.first(where: { $0.pose == .center })
+                ?? frames.max(by: { $0.quality < $1.quality })
+
+            if let straightReferenceFrame {
+                let candidates = try? await VisionFaceCropper.candidates(in: straightReferenceFrame.jpegData)
+                let straightReferenceData = candidates?.first?.jpegData ?? straightReferenceFrame.jpegData
+                pendingGuidedReferenceData = straightReferenceData
+                previewData = straightReferenceData
+            }
+
             hasChanges = true
             message = "Saving Face Setup…"
             isBusy = false
@@ -171,6 +178,7 @@ struct FaceSetupView: View {
     private enum PendingAction { case selfie }
 
     var onSaved: (() -> Void)? = nil
+    var allowsDeferral = false
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
@@ -228,7 +236,7 @@ struct FaceSetupView: View {
                             .padding(.horizontal)
                     }
 
-                    if !session.hasFaceProfile {
+                    if allowsDeferral && !session.hasFaceProfile {
                         Button("Skip for now") {
                             session.deferFaceSetup()
                             dismiss()
