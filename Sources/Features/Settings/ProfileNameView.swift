@@ -60,7 +60,7 @@ struct ProfileNameView: View {
                         .font(.system(size: 27, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
-                    Text("People in your events will see this name. Your private account identifier is never used as your display name.")
+                    Text("Add a display name now, or skip this for later. People in your events will see this name.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -102,6 +102,15 @@ struct ProfileNameView: View {
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
                     .disabled(model.isSaving || model.name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
+
+                    Button("Skip for now") {
+                        session.deferNameSetup()
+                        dismiss()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .disabled(model.isSaving)
                 }
                 .padding(22)
             }
