@@ -35,17 +35,43 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - app-1-254317517474-ios-c62155e2316187ee1f95fb
+              - app-1-486574969744-ios-cee6aae8882dd483dc9915
           - CFBundleURLName: SnapLoop Invite
             CFBundleURLSchemes:
               - snaploop
         BGTaskSchedulerPermittedIdentifiers:
           - com.gurmeetchhiber.snaploop.app.event-photo-sync
         UIBackgroundModes:
+          - fetch
           - remote-notification
           - processing
 
     sources:
       - path: Sources
+        excludes:
+          - App/GoogleService-Info.plist
+          - App/GoogleService-Info-Dev.plist
+          - App/GoogleService-Info-Prod.plist
+
+    postBuildScripts:
+      - name: Select Firebase configuration
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          if [ "$CONFIGURATION" = "Release" ]; then
+            SOURCE_PLIST="${SRCROOT}/Sources/App/GoogleService-Info-Prod.plist"
+          else
+            SOURCE_PLIST="${SRCROOT}/Sources/App/GoogleService-Info-Dev.plist"
+          fi
+
+          if [ ! -f "$SOURCE_PLIST" ]; then
+            echo "error: Missing Firebase configuration: $SOURCE_PLIST"
+            exit 1
+          fi
+
+          DESTINATION="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleService-Info.plist"
+          mkdir -p "$(dirname "$DESTINATION")"
+          cp "$SOURCE_PLIST" "$DESTINATION"
 
     dependencies:
       - package: Firebase
