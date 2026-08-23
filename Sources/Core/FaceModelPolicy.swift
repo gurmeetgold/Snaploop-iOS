@@ -15,10 +15,10 @@ public enum FaceModelPolicy {
     public static let modelIdentifier = "auraface-v1-coreml-fp16"
 
     /// Scan behavior can change without changing the neural embedding space.
-    /// v5.1 uses higher-resolution source images and revised pre-model gates, so
-    /// incrementing this key intentionally causes eligible camera assets to be
-    /// rescanned during this evaluation cycle while v5 embeddings remain valid.
-    public static let scanGeneration = "face-v5.1"
+    /// v5.2 keeps the v5 embedding format but intentionally causes eligible
+    /// camera assets to be rescanned so the multi-pose corroboration policy and
+    /// revised pre-model gates apply to photos already seen by older beta builds.
+    public static let scanGeneration = "face-v5.2"
 
     public static let targetTemplateCount = 5
 
