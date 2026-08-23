@@ -168,14 +168,14 @@ final class FaceSetupModel: ObservableObject {
 }
 
 struct FaceSetupView: View {
-    private enum PendingAction { case guided }
+    private enum PendingAction { case selfie }
 
     var onSaved: (() -> Void)? = nil
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = FaceSetupModel()
-    @State private var showGuidedEnrollment = false
+    @State private var showSelfieEnrollment = false
     @State private var showConsent = false
     @State private var pendingAction: PendingAction?
 
@@ -188,56 +188,20 @@ struct FaceSetupView: View {
                     Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("Complete one guided selfie scan now, or do it later. Face Setup enables SnapLoop to find photos of you on participating Event members’ phones.")
+                    Text("Face Setup enables SnapLoop to find photos of you on participating Event members’ phones.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 6)
 
-                    if !session.hasFaceProfile {
-                        Button {
-                            session.deferFaceSetup()
-                            dismiss()
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "clock.arrow.circlepath")
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("Set up later")
-                                        .font(.headline)
-                                    Text("You can start using SnapLoop now and add Face Setup anytime from You.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.bold())
-                                    .foregroundStyle(.secondary)
-                            }
-                            .foregroundStyle(Theme.ink)
-                            .padding(.horizontal, 18)
-                            .frame(maxWidth: .infinity, minHeight: 64)
-                        }
-                        .buttonStyle(.plain)
-                        .background(.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.violet.opacity(0.2), lineWidth: 1))
-                        .disabled(model.isBusy)
-                    }
-
                     PremiumCard { preview }
                     PremiumCard { templateStatus }
 
-                    if !model.consentActive {
-                        actionButton("Review Face Match Consent", icon: "checkmark.shield.fill", gradient: Theme.socialGradient) {
-                            pendingAction = nil
-                            showConsent = true
-                        }
-                    }
-
-                    actionButton("Guided Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.brandGradient) {
+                    actionButton("Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.brandGradient) {
                         if model.consentActive {
-                            showGuidedEnrollment = true
+                            showSelfieEnrollment = true
                         } else {
-                            pendingAction = .guided
+                            pendingAction = .selfie
                             showConsent = true
                         }
                     }
@@ -263,6 +227,18 @@ struct FaceSetupView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal)
                     }
+
+                    if !session.hasFaceProfile {
+                        Button("Skip for now") {
+                            session.deferFaceSetup()
+                            dismiss()
+                        }
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Theme.ink.opacity(0.75))
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .disabled(model.isBusy)
+                        .padding(.top, 4)
+                    }
                 }
                 .padding(20)
             }
@@ -270,7 +246,7 @@ struct FaceSetupView: View {
         .navigationTitle("Face Setup")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.configure(env: env, session: session) }
-        .fullScreenCover(isPresented: $showGuidedEnrollment) {
+        .fullScreenCover(isPresented: $showSelfieEnrollment) {
             GuidedFaceEnrollmentView { frames in
                 Task {
                     await model.useGuidedFrames(frames)
@@ -294,7 +270,7 @@ struct FaceSetupView: View {
         }
         let action = pendingAction
         pendingAction = nil
-        if action == .guided { showGuidedEnrollment = true }
+        if action == .selfie { showSelfieEnrollment = true }
     }
 
     private var preview: some View {
@@ -311,7 +287,7 @@ struct FaceSetupView: View {
                 Label("Face Reference Active", systemImage: "checkmark.circle.fill")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(Theme.ink)
-                Text("Your guided selfie reference is stored on this iPhone for this account.")
+                Text("Your selfie reference is stored on this iPhone for this account.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -324,8 +300,8 @@ struct FaceSetupView: View {
                 }
                 .frame(width: 190, height: 190)
                 Text(session.hasFaceProfile
-                     ? "Your Face Setup is active for this account, but its local selfie preview is not stored on this iPhone. Redo the guided scan only if you want to refresh it."
-                     : "Your guided selfie reference will appear here after Face Setup.")
+                     ? "Your Face Setup is active for this account, but its local selfie preview is not stored on this iPhone. Redo the selfie scan only if you want to refresh it."
+                     : "Your selfie reference will appear here after Face Setup.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -337,7 +313,7 @@ struct FaceSetupView: View {
     private var templateStatus: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label("Guided selfie coverage", systemImage: "viewfinder.circle")
+                Label("Selfie coverage", systemImage: "viewfinder.circle")
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
                 Spacer()
@@ -348,8 +324,8 @@ struct FaceSetupView: View {
             ProgressView(value: Double(model.guidedTemplateCount), total: Double(FaceModelPolicy.targetTemplateCount))
                 .tint(Theme.hotPink)
             Text(model.guidedTemplateCount >= 3
-                 ? "Good pose coverage. These controlled angles improve matching across lighting, expressions and viewpoints."
-                 : "Complete the guided scan for reliable matching.")
+                 ? "Good pose coverage. These angles improve matching across lighting, expressions and viewpoints."
+                 : "Complete the selfie scan for reliable matching.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
