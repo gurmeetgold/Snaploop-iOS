@@ -167,6 +167,30 @@ struct RootView: View {
     }
 
     @MainActor
+    private func clearStaleAuthenticatedSession(reason: Error) {
+        Log.auth.error("Clearing stale authenticated session: \(String(describing: reason), privacy: .public)")
+        do {
+            try environment.auth.signOut()
+        } catch {
+            Log.auth.error("Firebase sign-out while clearing stale session failed: \(String(describing: error), privacy: .public)")
+        }
+        session.clearAuthenticatedSession()
+        postAuthUserId = nil
+    }
+
+    private func isMissingOrInvalidAccount(_ error: Error) -> Bool {
+        guard let appError = error as? AppError else { return false }
+        switch appError {
+        case .backend(let code, _):
+            return code == "user_not_found" || code == "permission_denied" || code == "failed_precondition"
+        case .notAuthenticated:
+            return true
+        default:
+            return false
+        }
+    }
+
+    @MainActor
     private func bootstrapPersistedSessionIfNeeded() async {
         guard !didBootstrapSession else { return }
         didBootstrapSession = true
@@ -191,7 +215,11 @@ struct RootView: View {
             let user = try await environment.users.fetch(userId: uid)
             session.beginAuthenticatedSession(user: user, faceProfile: nil)
         } catch {
-            Log.auth.error("Persisted user refresh failed: \(String(describing: error), privacy: .public)")
+            if isMissingOrInvalidAccount(error) {
+                clearStaleAuthenticatedSession(reason: error)
+            } else {
+                Log.auth.error("Persisted user refresh failed: \(String(describing: error), privacy: .public)")
+            }
         }
         isBootstrappingSession = false
     }
@@ -204,7 +232,12 @@ struct RootView: View {
             session.user = refreshed
             SessionUserCache.save(refreshed)
         } catch {
-            Log.auth.error("Background user refresh failed: \(String(describing: error), privacy: .public)")
+            guard session.user?.id == userId else { return }
+            if isMissingOrInvalidAccount(error) {
+                clearStaleAuthenticatedSession(reason: error)
+            } else {
+                Log.auth.error("Background user refresh failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 }
