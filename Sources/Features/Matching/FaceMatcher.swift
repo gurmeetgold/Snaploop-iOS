@@ -1,5 +1,51 @@
 import Foundation
 
+/// One identity-level decision made from a query face against the enrollment
+/// templates for a single person. Keeping this policy separate lets the Face
+/// Test screen exercise the exact same acceptance rule as camera matching.
+public struct FaceTemplateMatchEvaluation: Equatable, Sendable {
+    public let bestTemplate: Double
+    public let secondTemplate: Double?
+    public let decisionScore: Double
+    public let isCorroborated: Bool
+    public let isStrongSingle: Bool
+
+    public var isAccepted: Bool { isCorroborated || isStrongSingle }
+}
+
+public enum FaceTemplateMatchPolicy {
+    public static func evaluate(similarities: [Double], threshold: Double) -> FaceTemplateMatchEvaluation? {
+        let scores = similarities.sorted(by: >)
+        guard let best = scores.first else { return nil }
+        let second = scores.count > 1 ? scores[1] : nil
+
+        let corroboratedBestFloor = threshold - FaceModelPolicy.corroboratedBestTemplateSlack
+        let supportingFloor = threshold - FaceModelPolicy.supportingTemplateSlack
+        let corroborated = best >= corroboratedBestFloor
+            && (second.map { $0 >= supportingFloor } ?? false)
+        let strongSingle = best >= threshold + FaceModelPolicy.strongSingleTemplateBonus
+
+        // Only blend the runner-up when it independently supports the identity.
+        // This avoids pulling a strong pose-specific hit down with an unrelated
+        // side/tilt template while still rewarding agreement across enrollment
+        // poses in the near-threshold band.
+        let decision: Double
+        if let second, corroborated {
+            decision = best * 0.90 + second * 0.10
+        } else {
+            decision = best
+        }
+
+        return FaceTemplateMatchEvaluation(
+            bestTemplate: best,
+            secondTemplate: second,
+            decisionScore: decision,
+            isCorroborated: corroborated,
+            isStrongSingle: strongSingle
+        )
+    }
+}
+
 /// Precision-first v5 identity matcher.
 public struct FaceMatcher {
     public struct ParticipantScore: Equatable, Sendable {
@@ -8,6 +54,9 @@ public struct FaceMatcher {
         public let secondTemplate: Double?
         public let decisionScore: Double
         public let hasTemplateSupport: Bool
+        public let isStrongSingle: Bool
+
+        public var isAccepted: Bool { hasTemplateSupport || isStrongSingle }
     }
 
     public let config: RemoteConfigValues
@@ -37,44 +86,29 @@ public struct FaceMatcher {
         // Rank templates by how well they match this particular face. This is
         // deliberately pose-adaptive: a frontal gallery photo should not be
         // dragged down by the enrollee's weakest side/tilt template, and vice
-        // versa. A second template is used only as corroborating evidence.
+        // versa. Near the operating threshold, two enrollment poses must agree.
         let scores = participant.effectiveEmbeddings.compactMap {
             face.embedding.cosineSimilarity(to: $0)
-        }.sorted(by: >)
-        guard let best = scores.first else { return nil }
-
-        let second = scores.count > 1 ? scores[1] : nil
-        let supportFloor = config.matchConfidenceThreshold - FaceModelPolicy.supportingTemplateSlack
-        let supported = second.map { $0 >= supportFloor } ?? false
-
-        // Never average a clearly irrelevant template into a good pose-specific
-        // match. If corroboration is present, give it a small precision bonus;
-        // otherwise retain the best identity score and let strong-single +
-        // participant ambiguity gates decide whether it is safe enough.
-        let decision: Double
-        if let second, supported {
-            decision = best * 0.90 + second * 0.10
-        } else {
-            decision = best
         }
+        guard let evaluation = FaceTemplateMatchPolicy.evaluate(
+            similarities: scores,
+            threshold: config.matchConfidenceThreshold
+        ) else { return nil }
 
         return ParticipantScore(
             participantUserId: participant.userId,
-            bestTemplate: best,
-            secondTemplate: second,
-            decisionScore: decision,
-            hasTemplateSupport: supported
+            bestTemplate: evaluation.bestTemplate,
+            secondTemplate: evaluation.secondTemplate,
+            decisionScore: evaluation.decisionScore,
+            hasTemplateSupport: evaluation.isCorroborated,
+            isStrongSingle: evaluation.isStrongSingle
         )
     }
 
     private func assign(face: DetectedFace, to participants: [EventParticipant]) -> ParticipantScore? {
         let ranked = participants.compactMap { participantScore(face: face, participant: $0) }
             .sorted { $0.decisionScore > $1.decisionScore }
-        guard let winner = ranked.first else { return nil }
-        guard winner.bestTemplate >= config.matchConfidenceThreshold else { return nil }
-
-        let strongSingle = winner.bestTemplate >= config.matchConfidenceThreshold + FaceModelPolicy.strongSingleTemplateBonus
-        guard winner.hasTemplateSupport || strongSingle else { return nil }
+        guard let winner = ranked.first, winner.isAccepted else { return nil }
 
         if ranked.count > 1 {
             guard winner.decisionScore - ranked[1].decisionScore >= config.matchAmbiguityMargin else { return nil }
