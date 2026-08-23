@@ -15,11 +15,13 @@ struct RootView: View {
                 OnboardingView(isCompleted: $hasCompletedOnboarding)
             } else if isBootstrappingSession || (session.user == nil && environment.auth.currentUserId != nil) {
                 openingView
-            } else if let user = session.user, user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            } else if let user = session.user,
+                      user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+                      !session.skippedNameSetup {
                 NavigationStack { ProfileNameView() }
             } else if session.user != nil && !session.isFaceProfileResolved {
                 openingView
-            } else if session.user != nil && !session.hasFaceProfile {
+            } else if session.user != nil && !session.hasFaceProfile && !session.skippedFaceSetup {
                 NavigationStack { FaceSetupView() }
             } else if session.user != nil {
                 MainTabView()
