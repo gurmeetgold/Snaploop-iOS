@@ -13,10 +13,12 @@ final class PrivacyModel: ObservableObject {
         busy = true; defer { busy = false }
         do {
             try await env.makeErasureService().deleteFaceProfile(userId: userId)
-            session?.faceProfile = nil
             LocalFaceReferenceStore.delete(userId: userId)
-            message = "Your Face Setup was removed. Set it up again whenever you want automatic photo matching."
-        } catch { message = AppError.unknown("\(error)").userMessage }
+            session?.requireFaceSetupAfterDeletion()
+            message = nil
+        } catch {
+            message = AppError.unknown("\(error)").userMessage
+        }
     }
 
     func deleteAccount() async {
@@ -27,14 +29,6 @@ final class PrivacyModel: ObservableObject {
             try await env.makeErasureService().deleteAccount(userId: userId)
             finishLocalAccountDeletion(env: env, userId: userId)
         } catch {
-            // deleteMyAccount is a destructive server cascade whose last step removes
-            // the Firebase Auth identity. If the callable connection reports an error
-            // after that server-side deletion has already happened, leaving the stale
-            // Firebase credential and cached user on-device traps RootView in its
-            // session-restoration state. Once the user has explicitly confirmed
-            // account deletion, always terminate the local authenticated session after
-            // the server attempt. If the server attempt truly failed before deletion,
-            // the user can sign in again and retry; we must never resurrect stale state.
             Log.auth.error("Account deletion callable returned an error: \(String(describing: error), privacy: .public)")
             finishLocalAccountDeletion(env: env, userId: userId)
         }
