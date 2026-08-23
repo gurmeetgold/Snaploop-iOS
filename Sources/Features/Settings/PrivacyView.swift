@@ -30,6 +30,25 @@ final class PrivacyModel: ObservableObject {
         do {
             try await env.biometricConsent.save(BiometricConsentRecord(userId: userId, acceptedAt: env.clock.now()))
             consentActive = true
+            message = nil
+            return true
+        } catch {
+            message = (error as NSError).localizedDescription
+            return false
+        }
+    }
+
+    func withdrawConsent() async -> Bool {
+        guard let env, let userId = session?.user?.id else { return false }
+        busy = true
+        message = nil
+        defer { busy = false }
+
+        do {
+            try await env.biometricConsent.withdraw(userId: userId, at: env.clock.now())
+            LocalFaceReferenceStore.delete(userId: userId)
+            session?.requireFaceSetupAfterDeletion()
+            consentActive = false
             return true
         } catch {
             message = (error as NSError).localizedDescription
@@ -39,12 +58,13 @@ final class PrivacyModel: ObservableObject {
 
     func deleteFaceProfile() async {
         guard let env, let userId = session?.user?.id else { return }
-        busy = true; defer { busy = false }
+        busy = true
+        defer { busy = false }
         do {
             try await env.makeErasureService().deleteFaceProfile(userId: userId)
             LocalFaceReferenceStore.delete(userId: userId)
             session?.requireFaceSetupAfterDeletion()
-            consentActive = false
+            await refreshConsent()
             message = nil
         } catch {
             message = AppError.unknown("\(error)").userMessage
@@ -119,13 +139,17 @@ struct PrivacyView: View {
         .sheet(isPresented: $showConsent, onDismiss: {
             Task { await model.refreshConsent() }
         }) {
-            BiometricConsentView { await model.acceptConsent() }
+            BiometricConsentView(
+                consentActive: model.consentActive,
+                onAccept: { await model.acceptConsent() },
+                onWithdraw: { await model.withdrawConsent() }
+            )
         }
         .confirmationDialog("Delete your Face Setup?", isPresented: $confirmProfile, titleVisibility: .visible) {
             Button("Delete Face Setup", role: .destructive) { Task { await model.deleteFaceProfile() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the local Face Setup images, stored face-template metadata, and matching derivatives. Automatic face matching stops until you set it up again.")
+            Text("This removes the local Face Setup images, stored face-template metadata, and matching derivatives. Automatic face matching stops until you set it up again. Your existing Face Match consent remains on record unless you separately withdraw it.")
         }
         .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
@@ -141,7 +165,7 @@ struct PrivacyView: View {
                 Label("You stay in control", systemImage: "hand.raised.fill")
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
-                Text("SnapLoop never uploads your entire photo library. Photo matching runs on your iPhone and is limited to the selected Event date range. Your Face Setup selfie/reference images stay only on this iPhone; SnapLoop stores only face-template metadata for matching.")
+                Text("SnapLoop never uploads your entire photo library. Photo matching runs on participating iPhones and is limited to the selected Event date range. Your Face Setup selfie/reference images stay on this iPhone; SnapLoop stores face-template metadata only for the Face Match purpose you consent to.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -155,9 +179,9 @@ struct PrivacyView: View {
                 HStack(spacing: 12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .fill(Theme.violet.opacity(0.12))
-                        Image(systemName: "checkmark.shield.fill")
-                            .foregroundStyle(Theme.violet)
+                            .fill(model.consentActive ? Color.green.opacity(0.12) : Theme.violet.opacity(0.12))
+                        Image(systemName: model.consentActive ? "checkmark.shield.fill" : "shield.lefthalf.filled")
+                            .foregroundStyle(model.consentActive ? .green : Theme.violet)
                     }
                     .frame(width: 36, height: 36)
 
@@ -165,7 +189,7 @@ struct PrivacyView: View {
                         Text("Face Match Consent")
                             .font(.subheadline.bold())
                             .foregroundStyle(Theme.ink)
-                        Text(model.consentActive ? "Consent active · Review details" : "Review consent before Face Setup")
+                        Text(model.consentActive ? "Active · Review or withdraw" : "Not active · Review details")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
