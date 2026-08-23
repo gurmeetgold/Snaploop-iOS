@@ -51,9 +51,17 @@ struct OnboardingView: View {
                     .accessibilityHidden(true)
                 VStack(spacing: 10) {
                     if index == 0 {
-                        Text("Welcome to SnapLoop")
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(Theme.brandGradient)
+                        HStack(spacing: 7) {
+                            Image(systemName: "sparkles")
+                            Text("Welcome to SnapLoop!")
+                            Image(systemName: "sparkles")
+                        }
+                        .font(.system(size: 22, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.brandGradient)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(.white.opacity(0.72), in: Capsule())
+                        .shadow(color: Theme.hotPink.opacity(0.12), radius: 10, y: 4)
                     }
                     Text(item.title)
                         .font(.system(size: 30, weight: .bold, design: .rounded))
@@ -240,7 +248,7 @@ private struct OnboardingPage {
         .init(
             kind: .face,
             title: "Set up your face once",
-            body: "Take a quick guided selfie so SnapLoop can recognize you in Event photos. Your selfie and reference images stay only on this iPhone and are not uploaded to SnapLoop.",
+            body: "Take a quick selfie scan so SnapLoop can recognize you in Event photos. Your selfie and reference images stay only on this iPhone and are not uploaded to SnapLoop.",
             primaryCTA: "Continue",
             note: .init(icon: "lock.shield.fill", text: "To enable matching, SnapLoop stores only face-template metadata - not your selfie photo.")
         ),
