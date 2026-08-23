@@ -9,7 +9,7 @@ const FieldValue = admin.firestore.FieldValue;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIFTEEN_DAY_CLEANUP_AFTER_MS = (14 * DAY_MS) + (23 * 60 * 60 * 1000);
-const CONSENT_POLICY_VERSION = 2;
+const CONSENT_POLICY_VERSION = 3;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
