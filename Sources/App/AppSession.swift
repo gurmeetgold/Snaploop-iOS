@@ -30,19 +30,55 @@ public final class AppSession: ObservableObject {
     @Published public var faceProfile: FaceProfile?
     @Published public var pendingRoute: DeepLinkRoute?
     @Published public var activeEvent: Event?
+    @Published public private(set) var resolvedFaceProfileUserId: String?
 
     public init(user: User? = nil, faceProfile: FaceProfile? = nil) {
         self.user = user
-        self.faceProfile = faceProfile
+        if let user, let faceProfile, faceProfile.userId == user.id {
+            self.faceProfile = faceProfile
+            self.resolvedFaceProfileUserId = user.id
+        } else {
+            self.faceProfile = nil
+            self.resolvedFaceProfileUserId = user == nil ? nil : nil
+        }
     }
 
     public var isRegistered: Bool { user != nil }
-    public var hasFaceProfile: Bool { faceProfile?.version == FaceModelPolicy.currentVersion }
 
-    public func beginAuthenticatedSession(user: User, faceProfile: FaceProfile?) {
+    /// A face profile is valid only when it belongs to the currently authenticated UID.
+    /// This prevents stale in-memory face state from a previously signed-in account from
+    /// being treated as the current user's enrollment.
+    public var hasFaceProfile: Bool {
+        guard let user, let faceProfile else { return false }
+        return faceProfile.userId == user.id && faceProfile.version == FaceModelPolicy.currentVersion
+    }
+
+    public var isFaceProfileResolved: Bool {
+        guard let user else { return false }
+        return resolvedFaceProfileUserId == user.id
+    }
+
+    public func beginAuthenticatedSession(user: User, faceProfile: FaceProfile?, faceProfileResolved: Bool = false) {
         activeEvent = nil
         self.user = user
-        self.faceProfile = faceProfile
+        self.faceProfile = (faceProfile?.userId == user.id) ? faceProfile : nil
+        resolvedFaceProfileUserId = faceProfileResolved ? user.id : nil
+        SessionUserCache.save(user)
+    }
+
+    public func setResolvedFaceProfile(_ profile: FaceProfile?, forUserId userId: String) {
+        guard user?.id == userId else { return }
+        if let profile, profile.userId != userId {
+            faceProfile = nil
+        } else {
+            faceProfile = profile
+        }
+        resolvedFaceProfileUserId = userId
+    }
+
+    public func updateUser(_ user: User) {
+        guard self.user?.id == user.id else { return }
+        self.user = user
         SessionUserCache.save(user)
     }
 
@@ -52,6 +88,7 @@ public final class AppSession: ObservableObject {
     public func clearAuthenticatedSession(preservePendingRoute: Bool = false) {
         user = nil
         faceProfile = nil
+        resolvedFaceProfileUserId = nil
         activeEvent = nil
         SessionUserCache.clear()
         if !preservePendingRoute {
@@ -74,6 +111,8 @@ public final class AppSession: ObservableObject {
             version: FaceModelPolicy.currentVersion,
             updatedAt: Date()
         )
-        return AppSession(user: user, faceProfile: profile)
+        let session = AppSession(user: user, faceProfile: profile)
+        session.resolvedFaceProfileUserId = user.id
+        return session
     }
 }
