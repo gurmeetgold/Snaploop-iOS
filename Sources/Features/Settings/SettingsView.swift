@@ -21,6 +21,7 @@ final class SettingsModel: ObservableObject {
 struct SettingsView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = SettingsModel()
     @AppStorage("snaploop.onboarding.completed") private var hasCompletedOnboarding = false
     @State private var confirmSignOut = false
@@ -51,6 +52,11 @@ struct SettingsView: View {
         .task {
             refreshFaceReference()
             refreshPhotoAccessStatus()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                refreshPhotoAccessStatus()
+            }
         }
         .onChange(of: session.hasFaceProfile) { _, _ in refreshFaceReference() }
         .confirmationDialog("Sign out of SnapLoop?", isPresented: $confirmSignOut, titleVisibility: .visible) {
@@ -130,7 +136,21 @@ struct SettingsView: View {
                     Spacer()
                 }
 
-                if photoAccessStatus == .limited {
+                switch photoAccessStatus {
+                case .notDetermined:
+                    Button {
+                        requestPhotoAccess()
+                    } label: {
+                        Label("Allow Photo Access", systemImage: "photo.badge.plus")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(Theme.socialGradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                case .limited:
                     Button {
                         presentLimitedLibraryPicker()
                     } label: {
@@ -142,11 +162,23 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
                     .background(Theme.socialGradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                } else if photoAccessStatus == .denied || photoAccessStatus == .restricted {
+
+                case .authorized:
                     Button {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
+                        openPhotoSettings()
+                    } label: {
+                        Label("Manage Photo Access", systemImage: "gear")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.sunset)
+                    .background(Theme.peach.opacity(0.22), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                case .denied, .restricted:
+                    Button {
+                        openPhotoSettings()
                     } label: {
                         Label("Open iOS Settings", systemImage: "gear")
                             .font(.headline)
@@ -156,6 +188,9 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.sunset)
                     .background(Theme.peach.opacity(0.22), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                @unknown default:
+                    EmptyView()
                 }
             }
         }
@@ -239,6 +274,20 @@ struct SettingsView: View {
 
     private func refreshPhotoAccessStatus() {
         photoAccessStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    }
+
+    private func requestPhotoAccess() {
+        guard photoAccessStatus == .notDetermined else { return }
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { _ in
+            DispatchQueue.main.async {
+                refreshPhotoAccessStatus()
+            }
+        }
+    }
+
+    private func openPhotoSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func presentLimitedLibraryPicker() {
