@@ -23,8 +23,20 @@ final class FaceSetupModel: ObservableObject {
         self.env = env
         self.session = session
         pendingGuidedReferenceData = nil
-        previewData = session.user.flatMap { LocalFaceReferenceStore.load(userId: $0.id, kind: .guided) }
-        if let profile = session.faceProfile, profile.version == FaceModelPolicy.currentVersion {
+
+        guard let userId = session.user?.id else {
+            previewData = nil
+            templates = []
+            consentActive = false
+            didSave = false
+            hasChanges = false
+            return
+        }
+
+        previewData = LocalFaceReferenceStore.load(userId: userId, kind: .guided)
+        if let profile = session.faceProfile,
+           profile.userId == userId,
+           profile.version == FaceModelPolicy.currentVersion {
             templates = profile.templates.filter { $0.pose != .imported }
         } else {
             templates = []
@@ -132,8 +144,8 @@ final class FaceSetupModel: ObservableObject {
             user.hasFaceProfile = true
             try await env.users.save(user)
             try await refreshEventFaceProfiles()
-            session.faceProfile = profile
-            session.user = user
+            session.setResolvedFaceProfile(profile, forUserId: user.id)
+            session.updateUser(user)
             previewData = LocalFaceReferenceStore.load(userId: user.id, kind: .guided) ?? previewData
             pendingGuidedReferenceData = nil
             hasChanges = false
@@ -269,7 +281,7 @@ struct FaceSetupView: View {
                 Label("Face Reference Active", systemImage: "checkmark.circle.fill")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(Theme.ink)
-                Text("Your guided selfie reference is stored on this iPhone.")
+                Text("Your guided selfie reference is stored on this iPhone for this account.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -282,7 +294,7 @@ struct FaceSetupView: View {
                 }
                 .frame(width: 190, height: 190)
                 Text(session.hasFaceProfile
-                     ? "Redo the guided selfie scan to refresh your face reference on this iPhone."
+                     ? "Your Face Setup is active for this account, but its local selfie preview is not stored on this iPhone. Redo the guided scan only if you want to refresh it."
                      : "Your guided selfie reference will appear here after Face Setup.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
