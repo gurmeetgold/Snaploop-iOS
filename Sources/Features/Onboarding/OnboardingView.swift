@@ -50,6 +50,11 @@ struct OnboardingView: View {
                     .frame(height: 205)
                     .accessibilityHidden(true)
                 VStack(spacing: 10) {
+                    if index == 0 {
+                        Text("Welcome to SnapLoop")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(Theme.brandGradient)
+                    }
                     Text(item.title)
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
