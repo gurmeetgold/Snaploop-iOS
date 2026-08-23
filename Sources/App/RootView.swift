@@ -18,11 +18,11 @@ struct RootView: View {
             } else if let user = session.user,
                       user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
                       !session.skippedNameSetup {
-                NavigationStack { ProfileNameView() }
+                NavigationStack { ProfileNameView(allowsDeferral: true) }
             } else if session.user != nil && !session.isFaceProfileResolved {
                 openingView
             } else if session.user != nil && !session.hasFaceProfile && !session.skippedFaceSetup {
-                NavigationStack { FaceSetupView() }
+                NavigationStack { FaceSetupView(allowsDeferral: true) }
             } else if session.user != nil {
                 MainTabView()
                     .sheet(item: $session.pendingRoute) { route in
