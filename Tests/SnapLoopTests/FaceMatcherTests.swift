@@ -52,7 +52,8 @@ final class FaceMatcherTests: XCTestCase {
 
     func testBelowThresholdStaysSilent() {
         let matcher = FaceMatcher(config: config)
-        // Cosine similarity is 0.50 to [1, 0, 0], safely below the 0.60 threshold.
+        // Cosine similarity is 0.50 to [1, 0, 0], safely below both the base
+        // threshold and the tightly bounded corroborated near-threshold band.
         let alice = participant("alice", [1, 0, 0])
         let x: Float = 0.50
         let y = (1 - x * x).squareRoot()
@@ -67,6 +68,35 @@ final class FaceMatcherTests: XCTestCase {
         let x: Float = 0.62, y = (1 - x * x).squareRoot()
         let result = matcher.appearances(in: [face([x, y])], participants: [p])
         XCTAssertEqual(result.first?.participantUserId, "p")
+    }
+
+    func testTwoTemplatesCanCorroborateJustBelowBaseThreshold() {
+        let evaluation = FaceTemplateMatchPolicy.evaluate(
+            similarities: [0.58, 0.55, 0.30],
+            threshold: 0.60
+        )
+        XCTAssertEqual(evaluation?.isCorroborated, true)
+        XCTAssertEqual(evaluation?.isAccepted, true)
+        XCTAssertEqual(evaluation?.isStrongSingle, false)
+    }
+
+    func testScreenshotLikeGenuineScoresAreCorroboratedAtEvaluationPoint() {
+        let evaluation = FaceTemplateMatchPolicy.evaluate(
+            similarities: [0.489, 0.468, 0.31, 0.28, 0.20],
+            threshold: FaceModelPolicy.evaluationMatchThreshold
+        )
+        XCTAssertEqual(evaluation?.isCorroborated, true)
+        XCTAssertEqual(evaluation?.isAccepted, true)
+    }
+
+    func testNearThresholdBestWithoutSecondTemplateSupportStaysRejected() {
+        let evaluation = FaceTemplateMatchPolicy.evaluate(
+            similarities: [0.58, 0.49, 0.30],
+            threshold: 0.60
+        )
+        XCTAssertEqual(evaluation?.isCorroborated, false)
+        XCTAssertEqual(evaluation?.isStrongSingle, false)
+        XCTAssertEqual(evaluation?.isAccepted, false)
     }
 
     // MARK: Precision guards
