@@ -15,6 +15,12 @@ struct RootView: View {
                 OnboardingView(isCompleted: $hasCompletedOnboarding)
             } else if isBootstrappingSession || (session.user == nil && environment.auth.currentUserId != nil) {
                 openingView
+            } else if let user = session.user, user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                NavigationStack { ProfileNameView() }
+            } else if session.user != nil && !session.isFaceProfileResolved {
+                openingView
+            } else if session.user != nil && !session.hasFaceProfile {
+                NavigationStack { FaceSetupView() }
             } else if session.user != nil {
                 MainTabView()
                     .sheet(item: $session.pendingRoute) { route in
@@ -59,7 +65,7 @@ struct RootView: View {
             guard phase == .active, hasCompletedOnboarding else { return }
             Task {
                 await loadPendingInviteIfNeeded()
-                if session.user != nil { configureAutomaticSyncAndRun() }
+                if session.user != nil && session.hasFaceProfile { configureAutomaticSyncAndRun() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { _ in
@@ -104,10 +110,12 @@ struct RootView: View {
             async let inviteLoad: Void = loadPendingInviteIfNeeded()
             async let pushRegistration: Void = PushNotificationClient.requestAuthorizationAndRegister()
 
-            await hydrateFaceProfileIfNeeded(userId: userId)
+            if !session.isFaceProfileResolved {
+                await hydrateFaceProfileIfNeeded(userId: userId)
+            }
             _ = await (configRefresh, inviteLoad, pushRegistration)
 
-            if session.user?.id == userId {
+            if session.user?.id == userId && session.hasFaceProfile {
                 configureAutomaticSyncAndRun()
             }
         }
@@ -120,13 +128,19 @@ struct RootView: View {
             let stored = try await environment.faceProfiles.load(userId: userId)
             guard session.user?.id == userId else { return }
 
-            let faceProfile = stored?.version == FaceModelPolicy.currentVersion ? stored : nil
-            session.faceProfile = faceProfile
+            let faceProfile: FaceProfile?
+            if let stored,
+               stored.userId == userId,
+               stored.version == FaceModelPolicy.currentVersion {
+                faceProfile = stored
+            } else {
+                faceProfile = nil
+            }
+            session.setResolvedFaceProfile(faceProfile, forUserId: userId)
 
             if var user = session.user, (faceProfile != nil) != user.hasFaceProfile {
                 user.hasFaceProfile = faceProfile != nil
-                session.user = user
-                SessionUserCache.save(user)
+                session.updateUser(user)
                 try? await environment.users.save(user)
             }
         } catch {
@@ -205,7 +219,7 @@ struct RootView: View {
         }
 
         if let cachedUser = SessionUserCache.load(userId: uid) {
-            session.beginAuthenticatedSession(user: cachedUser, faceProfile: nil)
+            session.beginAuthenticatedSession(user: cachedUser, faceProfile: nil, faceProfileResolved: false)
             isBootstrappingSession = false
             Task { await refreshPersistedUser(userId: uid) }
             return
@@ -213,7 +227,7 @@ struct RootView: View {
 
         do {
             let user = try await environment.users.fetch(userId: uid)
-            session.beginAuthenticatedSession(user: user, faceProfile: nil)
+            session.beginAuthenticatedSession(user: user, faceProfile: nil, faceProfileResolved: false)
         } catch {
             if isMissingOrInvalidAccount(error) {
                 clearStaleAuthenticatedSession(reason: error)
@@ -229,8 +243,7 @@ struct RootView: View {
         do {
             let refreshed = try await environment.users.fetch(userId: userId)
             guard session.user?.id == userId else { return }
-            session.user = refreshed
-            SessionUserCache.save(refreshed)
+            session.updateUser(refreshed)
         } catch {
             guard session.user?.id == userId else { return }
             if isMissingOrInvalidAccount(error) {
