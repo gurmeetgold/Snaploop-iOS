@@ -22,24 +22,33 @@ final class PrivacyModel: ObservableObject {
     func deleteAccount() async {
         guard let env, let userId = session?.user?.id else { return }
         busy = true; defer { busy = false }
+
         do {
             try await env.makeErasureService().deleteAccount(userId: userId)
-            LocalFaceReferenceStore.delete(userId: userId)
+            finishLocalAccountDeletion(env: env, userId: userId)
+        } catch {
+            // deleteMyAccount is a destructive server cascade whose last step removes
+            // the Firebase Auth identity. If the callable connection reports an error
+            // after that server-side deletion has already happened, leaving the stale
+            // Firebase credential and cached user on-device traps RootView in its
+            // session-restoration state. Once the user has explicitly confirmed
+            // account deletion, always terminate the local authenticated session after
+            // the server attempt. If the server attempt truly failed before deletion,
+            // the user can sign in again and retry; we must never resurrect stale state.
+            Log.auth.error("Account deletion callable returned an error: \(String(describing: error), privacy: .public)")
+            finishLocalAccountDeletion(env: env, userId: userId)
+        }
+    }
 
-            // The backend deletes the Firebase Auth identity, but Firebase Auth can
-            // temporarily retain the now-invalid user in the local Keychain/session.
-            // Clear that local auth state before dropping the in-memory app session,
-            // otherwise RootView sees a non-nil Firebase user and waits forever on
-            // the "Signing you in" screen. clearAuthenticatedSession also removes
-            // the persisted SessionUserCache so a deleted account cannot be restored
-            // from stale local data on the next launch.
-            do {
-                try env.auth.signOut()
-            } catch {
-                Log.auth.error("Local sign-out after account deletion failed: \(String(describing: error), privacy: .public)")
-            }
-            session?.clearAuthenticatedSession()
-        } catch { message = AppError.unknown("\(error)").userMessage }
+    private func finishLocalAccountDeletion(env: AppEnvironment, userId: String) {
+        LocalFaceReferenceStore.delete(userId: userId)
+        do {
+            try env.auth.signOut()
+        } catch {
+            Log.auth.error("Local sign-out after account deletion failed: \(String(describing: error), privacy: .public)")
+        }
+        session?.clearAuthenticatedSession()
+        message = nil
     }
 }
 
