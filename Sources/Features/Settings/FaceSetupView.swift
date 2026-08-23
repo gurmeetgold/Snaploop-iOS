@@ -1,4 +1,5 @@
 import FirebaseFunctions
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -118,6 +119,60 @@ final class FaceSetupModel: ObservableObject {
         }
     }
 
+    /// Restores only the private on-device Face Setup picture after an app
+    /// reinstall or device migration. The selected photo must first match the
+    /// already-enrolled v5 templates using the same precision policy as normal
+    /// matching. No cloud face profile, consent record, or Event data changes.
+    func restoreLocalPreview(from imageData: Data) async {
+        guard let env, let session, let userId = session.user?.id,
+              let profile = session.faceProfile,
+              profile.userId == userId,
+              profile.version == FaceModelPolicy.currentVersion else {
+            message = "Face Setup is not available for this account."
+            return
+        }
+
+        isBusy = true
+        didSave = false
+        message = "Checking the photo against your Face Setup…"
+        defer { isBusy = false }
+
+        do {
+            let faces = try await env.faceDetection.detectFaces(in: imageData)
+            guard faces.count == 1, let face = faces.first else {
+                message = faces.isEmpty
+                    ? "No usable face was found. Choose a clear front-facing photo of yourself."
+                    : "Choose a photo containing only you to restore the Face Setup picture."
+                return
+            }
+
+            let similarities = profile.effectiveEmbeddings.compactMap {
+                face.embedding.cosineSimilarity(to: $0)
+            }
+            guard let evaluation = FaceTemplateMatchPolicy.evaluate(
+                similarities: similarities,
+                threshold: env.config.current.matchConfidenceThreshold
+            ), evaluation.isAccepted else {
+                message = "That photo did not confidently match your existing Face Setup. Choose a clearer photo or run Selfie Scan."
+                return
+            }
+
+            let candidates = try await VisionFaceCropper.candidates(in: imageData)
+            guard candidates.count == 1, let candidate = candidates.first else {
+                message = "Could not create a clean Face Setup picture from that photo. Try another photo."
+                return
+            }
+
+            try LocalFaceReferenceStore.save(candidate.jpegData, userId: userId, kind: .guided)
+            previewData = candidate.jpegData
+            message = "Face photo restored on this iPhone. Your saved Face Setup templates were not changed."
+        } catch let error as AppError {
+            message = error.userMessage
+        } catch {
+            message = (error as NSError).localizedDescription
+        }
+    }
+
     func saveFaceSetup(automatic: Bool = false) async {
         guard let env, let session, var user = session.user,
               consentActive, hasUsableEnrollment else { return }
@@ -185,6 +240,7 @@ struct FaceSetupView: View {
     @State private var showSelfieEnrollment = false
     @State private var showConsent = false
     @State private var pendingAction: PendingAction?
+    @State private var restorePreviewItem: PhotosPickerItem?
 
     var body: some View {
         ZStack {
@@ -311,11 +367,43 @@ struct FaceSetupView: View {
                 }
                 .frame(width: 190, height: 190)
                 Text(session.hasFaceProfile
-                     ? "Your Face Setup is active for this account, but its local selfie preview is not stored on this iPhone. Redo the selfie scan only if you want to refresh it."
+                     ? "Your Face Setup is active. Its private picture is stored only on this iPhone, so it can be removed when SnapLoop is reinstalled. Restore it from a clear photo or run Selfie Scan."
                      : "Your selfie reference will appear here after Face Setup.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+
+                if session.hasFaceProfile {
+                    PhotosPicker(selection: $restorePreviewItem, matching: .images, photoLibrary: .shared()) {
+                        Label("Restore Face Photo", systemImage: "person.crop.square.filled.and.at.rectangle")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.violet)
+                    .background(Theme.violet.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .disabled(model.isBusy)
+                    .onChange(of: restorePreviewItem) { _, item in
+                        guard let item else { return }
+                        Task {
+                            defer { restorePreviewItem = nil }
+                            do {
+                                guard let data = try await item.loadTransferable(type: Data.self) else {
+                                    model.message = "Could not read that photo. Try another one."
+                                    return
+                                }
+                                await model.restoreLocalPreview(from: data)
+                            } catch {
+                                model.message = (error as NSError).localizedDescription
+                            }
+                        }
+                    }
+                    Text("The restored picture stays on this iPhone and is not uploaded to the cloud.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             }
         }
         .frame(maxWidth: .infinity)
