@@ -92,9 +92,8 @@ final class FaceSetupModel: ObservableObject {
             let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }.prefix(FaceModelPolicy.targetTemplateCount))
             templates = guided
 
-            // The old code chose the highest-quality frame across every pose, which
-            // could make a LEFT/RIGHT/TILT image become the saved Face Setup preview.
-            // Prefer the final straight-on capture, then the opening straight-on frame.
+            // Prefer the final straight-on capture for the saved local preview.
+            // Fall back to the opening center frame, then the best-quality frame.
             let straightReferenceFrame = frames.first(where: { $0.pose == .alternate })
                 ?? frames.first(where: { $0.pose == .center })
                 ?? frames.max(by: { $0.quality < $1.quality })
@@ -266,7 +265,11 @@ struct FaceSetupView: View {
             }
         }
         .sheet(isPresented: $showConsent, onDismiss: resumePendingActionAfterConsent) {
-            BiometricConsentView { await model.acceptConsent() }
+            BiometricConsentView(
+                consentActive: false,
+                onAccept: { await model.acceptConsent() },
+                onWithdraw: { false }
+            )
         }
     }
 
