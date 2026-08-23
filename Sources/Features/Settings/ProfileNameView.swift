@@ -46,6 +46,7 @@ final class ProfileNameModel: ObservableObject {
 
 struct ProfileNameView: View {
     var onSaved: (() -> Void)? = nil
+    var allowsDeferral = false
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = ProfileNameModel()
@@ -60,32 +61,12 @@ struct ProfileNameView: View {
                         .font(.system(size: 27, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
-                    Text("You can add a display name now or come back to it later.")
+                    Text(allowsDeferral
+                         ? "You can add a display name now or come back to it later."
+                         : "People in your events will see this name.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-
-                    Button {
-                        session.deferNameSetup()
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "clock.arrow.circlepath")
-                            Text("Skip for now")
-                            Spacer()
-                            Text("You can add it later")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.headline)
-                        .foregroundStyle(Theme.ink)
-                        .padding(.horizontal, 18)
-                        .frame(maxWidth: .infinity, minHeight: 56)
-                    }
-                    .buttonStyle(.plain)
-                    .background(.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.violet.opacity(0.18), lineWidth: 1))
-                    .disabled(model.isSaving)
 
                     PremiumCard {
                         VStack(alignment: .leading, spacing: 10) {
@@ -124,6 +105,23 @@ struct ProfileNameView: View {
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
                     .disabled(model.isSaving || model.name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
+
+                    if allowsDeferral {
+                        Button {
+                            session.deferNameSetup()
+                            dismiss()
+                        } label: {
+                            Label("Skip for now", systemImage: "clock.arrow.circlepath")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(minHeight: 52)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.ink)
+                        .background(.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.violet.opacity(0.18), lineWidth: 1))
+                        .disabled(model.isSaving)
+                    }
                 }
                 .padding(22)
             }
