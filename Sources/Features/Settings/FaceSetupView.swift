@@ -43,6 +43,9 @@ final class FaceSetupModel: ObservableObject {
         }
         didSave = false
         hasChanges = false
+        if let notice = session.consumeFaceSetupNotice() {
+            message = notice
+        }
         await refreshConsent()
     }
 
@@ -66,8 +69,6 @@ final class FaceSetupModel: ObservableObject {
         }
     }
 
-    /// Builds the multi-angle template set and persists it immediately.
-    /// A completed guided scan is the save action; there is no second manual save/update step.
     func useGuidedFrames(_ frames: [GuidedEnrollmentFrame]) async {
         guard let env else { return }
         isBusy = true
@@ -187,7 +188,7 @@ struct FaceSetupView: View {
                     Text(session.hasFaceProfile ? "Update Your Face" : "Set Up Your Face")
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("Complete one guided selfie scan. SnapLoop captures several angles and saves your Face Setup automatically when the scan finishes.")
+                    Text("Complete one guided selfie scan now, or do it later. Face Setup enables SnapLoop to find photos of you on participating Event members’ phones.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -213,6 +214,17 @@ struct FaceSetupView: View {
                     }
                     .disabled(model.isBusy)
                     .opacity(model.isBusy ? 0.62 : 1)
+
+                    if !session.hasFaceProfile {
+                        Button("Set up later") {
+                            session.deferFaceSetup()
+                            dismiss()
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .disabled(model.isBusy)
+                    }
 
                     if session.hasFaceProfile {
                         NavigationLink { FaceMatchingTestView() } label: {
