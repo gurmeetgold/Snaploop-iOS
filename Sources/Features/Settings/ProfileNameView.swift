@@ -35,7 +35,7 @@ final class ProfileNameModel: ObservableObject {
                 }
             }
             user.displayName = trimmed
-            session.user = user
+            session.updateUser(user)
             return true
         } catch {
             errorMessage = (error as NSError).localizedDescription
