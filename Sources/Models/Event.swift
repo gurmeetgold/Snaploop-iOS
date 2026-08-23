@@ -120,7 +120,12 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
         self.joinedAt = joinedAt
     }
 
+    /// Use one descriptor per distinct enrollment pose. This keeps the
+    /// near-threshold corroboration rule honest even if duplicate template
+    /// records are ever introduced by migration or malformed remote data.
     public var effectiveEmbeddings: [FaceEmbedding] {
-        faceTemplates.isEmpty ? [faceEmbedding] : faceTemplates.map(\.embedding)
+        guard !faceTemplates.isEmpty else { return [faceEmbedding] }
+        let distinct = FaceTemplate.distinctPoseEmbeddings(from: faceTemplates)
+        return distinct.isEmpty ? [faceEmbedding] : distinct
     }
 }
