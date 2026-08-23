@@ -128,7 +128,7 @@ public final class AppEnvironment: ObservableObject {
 /// Defers Core ML model loading until face matching is actually used. A fresh
 /// install may need extra time to prepare the model; doing that before SwiftUI
 /// presents the first screen can otherwise look like a blank launch.
-public final class LazyFaceDetectionService: FaceDetectionService, @unchecked Sendable {
+public final class LazyFaceDetectionService: FaceDetectionService, FaceDiagnosticsProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var cached: FaceDetectionService?
 
@@ -153,5 +153,13 @@ public final class LazyFaceDetectionService: FaceDetectionService, @unchecked Se
 
     public func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding {
         try await service().embeddingForSelfie(imageData)
+    }
+
+    public func diagnose(in imageData: Data) async throws -> FacePipelineDiagnostics {
+        let resolved = service()
+        guard let diagnosticService = resolved as? FaceDiagnosticsProviding else {
+            throw AppError.faceRecognitionNotReady
+        }
+        return try await diagnosticService.diagnose(in: imageData)
     }
 }
