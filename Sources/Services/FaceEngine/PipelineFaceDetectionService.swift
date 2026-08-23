@@ -26,7 +26,14 @@ public struct FacePipelineDiagnostics: Sendable {
     public var embeddedCount: Int { samples.filter { $0.embedding != nil }.count }
 }
 
-public final class PipelineFaceDetectionService: FaceDetectionService, @unchecked Sendable {
+/// Optional diagnostic surface for face engines. The production environment
+/// wraps the real pipeline in a lazy loader, so diagnostics must travel through
+/// a protocol instead of relying on a concrete-type cast in the UI.
+public protocol FaceDiagnosticsProviding: Sendable {
+    func diagnose(in imageData: Data) async throws -> FacePipelineDiagnostics
+}
+
+public final class PipelineFaceDetectionService: FaceDetectionService, FaceDiagnosticsProviding, @unchecked Sendable {
     private let engine: FaceEmbeddingEngine
     private let minScanQuality: Double
     private let minInterocularPixels: Double
