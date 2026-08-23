@@ -27,10 +27,17 @@ public enum FaceModelPolicy {
     public static let evaluationMatchThreshold = 0.52
     public static let evaluationAmbiguityMargin = 0.08
 
-    /// Near-threshold matches require corroboration from another enrollment
-    /// template. A clearly strong pose-specific hit may stand alone.
+    /// A five-pose enrollment should be allowed to corroborate a borderline
+    /// query. We deliberately keep the headline threshold unchanged and permit
+    /// a small near-threshold band only when TWO independent enrollment poses
+    /// agree. This improves recall without turning a lone weak similarity into
+    /// a match. Participant-to-participant ambiguity checks still apply.
+    public static let corroboratedBestTemplateSlack = 0.04
+    public static let supportingTemplateSlack = 0.06
+
+    /// A clearly strong pose-specific hit may stand alone even when another
+    /// enrollment pose does not corroborate it.
     public static let strongSingleTemplateBonus = 0.10
-    public static let supportingTemplateSlack = 0.12
 
     /// Conservative scan gates. Tiny or extreme-pose faces are left unmatched.
     public static let minimumRecognitionFacePixels: CGFloat = 42
