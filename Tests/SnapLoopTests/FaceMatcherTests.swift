@@ -81,12 +81,25 @@ final class FaceMatcherTests: XCTestCase {
     }
 
     func testScreenshotLikeGenuineScoresAreCorroboratedAtEvaluationPoint() {
-        let evaluation = FaceTemplateMatchPolicy.evaluate(
-            similarities: [0.489, 0.468, 0.31, 0.28, 0.20],
-            threshold: FaceModelPolicy.evaluationMatchThreshold
-        )
-        XCTAssertEqual(evaluation?.isCorroborated, true)
-        XCTAssertEqual(evaluation?.isAccepted, true)
+        let screenshotPairs: [[Double]] = [
+            [0.509, 0.478],
+            [0.527, 0.500],
+            [0.500, 0.466],
+            [0.489, 0.468],
+        ]
+
+        for scores in screenshotPairs {
+            let evaluation = FaceTemplateMatchPolicy.evaluate(
+                similarities: scores,
+                threshold: FaceModelPolicy.evaluationMatchThreshold
+            )
+            XCTAssertEqual(
+                evaluation?.isCorroborated,
+                true,
+                "Expected same-person screenshot scores \(scores) to receive two-pose corroboration"
+            )
+            XCTAssertEqual(evaluation?.isAccepted, true)
+        }
     }
 
     func testNearThresholdBestWithoutSecondTemplateSupportStaysRejected() {
@@ -97,6 +110,40 @@ final class FaceMatcherTests: XCTestCase {
         XCTAssertEqual(evaluation?.isCorroborated, false)
         XCTAssertEqual(evaluation?.isStrongSingle, false)
         XCTAssertEqual(evaluation?.isAccepted, false)
+    }
+
+    func testDuplicateSamePoseTemplatesCannotCreateFalseCorroboration() {
+        let base = emb([1, 0])
+        let duplicated = EventParticipant(
+            userId: "duplicate",
+            displayName: "duplicate",
+            faceEmbedding: base,
+            faceTemplates: [
+                FaceTemplate(embedding: base, pose: .center, quality: 0.95, createdAt: Date()),
+                FaceTemplate(embedding: base, pose: .center, quality: 0.90, createdAt: Date().addingTimeInterval(-1)),
+            ],
+            faceProfileVersion: FaceModelPolicy.currentVersion,
+            joinedAt: Date()
+        )
+
+        XCTAssertEqual(duplicated.effectiveEmbeddings.count, 1)
+
+        let x: Float = 0.58
+        let y = (1 - x * x).squareRoot()
+        let result = FaceMatcher(config: config).appearances(
+            in: [face([x, y])],
+            participants: [duplicated]
+        )
+        XCTAssertTrue(result.isEmpty, "Two copies of one pose must not count as independent support")
+    }
+
+    func testDistinctPosesStillCorroborateNearThreshold() {
+        let matcher = FaceMatcher(config: config)
+        let p = participant("p", [1, 0])
+        let x: Float = 0.58
+        let y = (1 - x * x).squareRoot()
+        let result = matcher.appearances(in: [face([x, y])], participants: [p])
+        XCTAssertEqual(result.first?.participantUserId, "p")
     }
 
     // MARK: Precision guards
