@@ -3,7 +3,6 @@ import SwiftUI
 struct BiometricConsentView: View {
     let onAccept: () async -> Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var agreed = false
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -19,7 +18,7 @@ struct BiometricConsentView: View {
                                 Text("Face Match Consent")
                                     .font(.title2.bold())
                                     .foregroundStyle(Theme.ink)
-                                Text("Review once before Face Setup")
+                                Text("Review before Face Setup")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -50,12 +49,6 @@ struct BiometricConsentView: View {
                             }
                         }
 
-                        Toggle(
-                            "I agree to SnapLoop using my face-template metadata only for photo matching in Events I join.",
-                            isOn: $agreed
-                        )
-                        .tint(Theme.sunset)
-
                         if let errorMessage {
                             Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                                 .font(.footnote)
@@ -82,8 +75,7 @@ struct BiometricConsentView: View {
                             }
                         }
                         .buttonStyle(MyPicsTubePrimaryButtonStyle())
-                        .disabled(!agreed || isSaving)
-                        .opacity((!agreed || isSaving) ? 0.5 : 1)
+                        .disabled(isSaving)
 
                         Button("Not Now", role: .cancel) { dismiss() }
                             .frame(maxWidth: .infinity)
