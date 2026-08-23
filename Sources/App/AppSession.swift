@@ -23,6 +23,24 @@ enum SessionUserCache {
     }
 }
 
+private enum SetupDeferralStore {
+    static func skippedName(userId: String) -> Bool {
+        UserDefaults.standard.bool(forKey: "snaploop.setup.skipName.\(userId)")
+    }
+
+    static func skippedFace(userId: String) -> Bool {
+        UserDefaults.standard.bool(forKey: "snaploop.setup.skipFace.\(userId)")
+    }
+
+    static func setSkippedName(_ skipped: Bool, userId: String) {
+        UserDefaults.standard.set(skipped, forKey: "snaploop.setup.skipName.\(userId)")
+    }
+
+    static func setSkippedFace(_ skipped: Bool, userId: String) {
+        UserDefaults.standard.set(skipped, forKey: "snaploop.setup.skipFace.\(userId)")
+    }
+}
+
 /// Observable holder for the signed-in user's session state.
 @MainActor
 public final class AppSession: ObservableObject {
@@ -31,6 +49,9 @@ public final class AppSession: ObservableObject {
     @Published public var pendingRoute: DeepLinkRoute?
     @Published public var activeEvent: Event?
     @Published public private(set) var resolvedFaceProfileUserId: String?
+    @Published public private(set) var skippedNameSetup = false
+    @Published public private(set) var skippedFaceSetup = false
+    @Published public var faceSetupNotice: String?
 
     public init(user: User? = nil, faceProfile: FaceProfile? = nil) {
         self.user = user
@@ -39,15 +60,16 @@ public final class AppSession: ObservableObject {
             self.resolvedFaceProfileUserId = user.id
         } else {
             self.faceProfile = nil
-            self.resolvedFaceProfileUserId = user == nil ? nil : nil
+            self.resolvedFaceProfileUserId = nil
+        }
+        if let user {
+            skippedNameSetup = SetupDeferralStore.skippedName(userId: user.id)
+            skippedFaceSetup = SetupDeferralStore.skippedFace(userId: user.id)
         }
     }
 
     public var isRegistered: Bool { user != nil }
 
-    /// A face profile is valid only when it belongs to the currently authenticated UID.
-    /// This prevents stale in-memory face state from a previously signed-in account from
-    /// being treated as the current user's enrollment.
     public var hasFaceProfile: Bool {
         guard let user, let faceProfile else { return false }
         return faceProfile.userId == user.id && faceProfile.version == FaceModelPolicy.currentVersion
@@ -63,6 +85,9 @@ public final class AppSession: ObservableObject {
         self.user = user
         self.faceProfile = (faceProfile?.userId == user.id) ? faceProfile : nil
         resolvedFaceProfileUserId = faceProfileResolved ? user.id : nil
+        skippedNameSetup = SetupDeferralStore.skippedName(userId: user.id)
+        skippedFaceSetup = SetupDeferralStore.skippedFace(userId: user.id)
+        faceSetupNotice = nil
         SessionUserCache.save(user)
     }
 
@@ -79,16 +104,46 @@ public final class AppSession: ObservableObject {
     public func updateUser(_ user: User) {
         guard self.user?.id == user.id else { return }
         self.user = user
+        if user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            skippedNameSetup = false
+            SetupDeferralStore.setSkippedName(false, userId: user.id)
+        }
         SessionUserCache.save(user)
     }
 
-    /// Explicit sign-out clears account-scoped state and any stale persisted
-    /// invite. Authentication bootstrap failures may opt to preserve a route so
-    /// it can be replayed after the user signs in again.
+    public func deferNameSetup() {
+        guard let userId = user?.id else { return }
+        skippedNameSetup = true
+        SetupDeferralStore.setSkippedName(true, userId: userId)
+    }
+
+    public func deferFaceSetup() {
+        guard let userId = user?.id else { return }
+        skippedFaceSetup = true
+        SetupDeferralStore.setSkippedFace(true, userId: userId)
+    }
+
+    public func requireFaceSetupAfterDeletion() {
+        guard let userId = user?.id else { return }
+        faceProfile = nil
+        resolvedFaceProfileUserId = userId
+        skippedFaceSetup = false
+        SetupDeferralStore.setSkippedFace(false, userId: userId)
+        faceSetupNotice = "Your Face Setup was deleted. Automatic matching is now off, so SnapLoop cannot find your photos on other participants’ phones until you set it up again."
+    }
+
+    public func consumeFaceSetupNotice() -> String? {
+        defer { faceSetupNotice = nil }
+        return faceSetupNotice
+    }
+
     public func clearAuthenticatedSession(preservePendingRoute: Bool = false) {
         user = nil
         faceProfile = nil
         resolvedFaceProfileUserId = nil
+        skippedNameSetup = false
+        skippedFaceSetup = false
+        faceSetupNotice = nil
         activeEvent = nil
         SessionUserCache.clear()
         if !preservePendingRoute {
