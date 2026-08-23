@@ -37,5 +37,7 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SnapLoop uses photo access to help you select and manage photos for your Events.</string>
 </dict>
 </plist>
