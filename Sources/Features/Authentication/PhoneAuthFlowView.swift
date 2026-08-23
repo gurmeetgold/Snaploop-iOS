@@ -28,18 +28,20 @@ final class PhoneAuthModel: ObservableObject {
             let uid = try await env.auth.confirmVerification(verificationId: verificationId, code: code)
             let canonicalPhone = normalizedPhoneNumber ?? PhoneNumberNormalizer.e164(localInput: phoneNumber, country: selectedCountry) ?? phoneNumber
             let user: User
-            do { user = try await env.users.fetch(userId: uid) }
-            catch let error as AppError {
+            var isNewAccount = false
+            do {
+                user = try await env.users.fetch(userId: uid)
+            } catch let error as AppError {
                 if case .backend(let backendCode, _) = error, backendCode == "user_not_found" {
                     let created = User(id: uid, phoneNumber: canonicalPhone, displayName: nil, hasFaceProfile: false, createdAt: env.clock.now())
-                    try await env.users.save(created); user = created
-                } else { throw error }
+                    try await env.users.save(created)
+                    user = created
+                    isNewAccount = true
+                } else {
+                    throw error
+                }
             }
 
-            // Resolve the authenticated UID's face profile before entering the app.
-            // This prevents a previous account's in-memory enrollment from ever being
-            // rendered for the newly authenticated account and gives RootView a reliable
-            // new-user vs returning-user setup decision.
             let storedProfile = try await env.faceProfiles.load(userId: uid)
             let currentProfile: FaceProfile?
             if let storedProfile,
@@ -54,6 +56,13 @@ final class PhoneAuthModel: ObservableObject {
             if resolvedUser.hasFaceProfile != (currentProfile != nil) {
                 resolvedUser.hasFaceProfile = currentProfile != nil
                 try? await env.users.save(resolvedUser)
+            }
+
+            if isNewAccount {
+                // Onboarding was historically device-wide. Reset it when a genuinely
+                // new account is created so every new user sees the product explanation,
+                // even on an iPhone where another account already completed it.
+                UserDefaults.standard.set(false, forKey: "snaploop.onboarding.completed")
             }
 
             session.beginAuthenticatedSession(
