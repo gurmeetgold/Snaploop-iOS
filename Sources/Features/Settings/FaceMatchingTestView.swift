@@ -58,8 +58,11 @@ final class FaceMatchingTestModel: ObservableObject {
             }
             previewData = data
 
-            let pipeline = env.faceDetection as? PipelineFaceDetectionService
-            let diagnostics = try await pipeline?.diagnose(in: data)
+            // Live builds use LazyFaceDetectionService, so diagnostics must be
+            // requested through the diagnostic protocol instead of casting to
+            // the concrete pipeline implementation.
+            let diagnosticsProvider = env.faceDetection as? FaceDiagnosticsProviding
+            let diagnostics = try await diagnosticsProvider?.diagnose(in: data)
             let faces: [DetectedFace]
             if let diagnostics {
                 faces = diagnostics.samples.compactMap { sample in
@@ -70,17 +73,24 @@ final class FaceMatchingTestModel: ObservableObject {
                 faces = try await env.faceDetection.detectFaces(in: data)
             }
 
-            var similarities: [Double] = []
-            for face in faces {
-                for template in profile.effectiveEmbeddings {
-                    if let score = face.embedding.cosineSimilarity(to: template) { similarities.append(score) }
-                }
-            }
-            similarities.sort(by: >)
-            let best = similarities.first
-            let second = similarities.count > 1 ? similarities[1] : nil
+            // Exercise exactly the same multi-template acceptance policy used
+            // by camera matching. The old Face Test flattened every score and
+            // used only `best >= threshold`, which made this screen disagree
+            // with the production matcher and wasted the five-pose enrollment.
             let threshold = env.config.current.matchConfidenceThreshold
-            let passes = (best ?? -1) >= threshold
+            let evaluations = faces.compactMap { face -> FaceTemplateMatchEvaluation? in
+                let similarities = profile.effectiveEmbeddings.compactMap {
+                    face.embedding.cosineSimilarity(to: $0)
+                }
+                return FaceTemplateMatchPolicy.evaluate(
+                    similarities: similarities,
+                    threshold: threshold
+                )
+            }
+            let evaluation = evaluations.max { $0.decisionScore < $1.decisionScore }
+            let best = evaluation?.bestTemplate
+            let second = evaluation?.secondTemplate
+            let passes = evaluation?.isAccepted == true
 
             let reason: String
             if diagnostics?.facesDetected == 0 {
@@ -90,16 +100,24 @@ final class FaceMatchingTestModel: ObservableObject {
             } else if let rejected = diagnostics?.samples.first(where: { $0.embedding == nil })?.rejectionReason,
                       faces.isEmpty {
                 reason = "Pre-model rejection: \(rejected)."
-            } else if best == nil {
+            } else if evaluation == nil {
                 reason = "No comparable embedding was produced."
-            } else if passes {
-                reason = "Best identity score is above the evaluation threshold."
+            } else if evaluation?.isStrongSingle == true {
+                reason = "Strong single-template identity score passed the precision gate."
+            } else if evaluation?.isCorroborated == true {
+                let bestFloor = threshold - FaceModelPolicy.corroboratedBestTemplateSlack
+                let supportFloor = threshold - FaceModelPolicy.supportingTemplateSlack
+                reason = String(
+                    format: "Two Face Setup poses corroborate this identity (best floor %.3f · support floor %.3f).",
+                    bestFloor,
+                    supportFloor
+                )
             } else {
-                reason = "Identity score is below threshold; do not force a match."
+                reason = "Identity evidence is too weak or is not corroborated by a second Face Setup pose."
             }
 
             let dimension = faces.first?.embedding.values.count
-            let engineIdentifier = diagnostics?.engineIdentifier ?? pipeline?.engineIdentifier ?? "unknown"
+            let engineIdentifier = diagnostics?.engineIdentifier ?? env.faceDetection.engineIdentifier
             let final = Result(
                 diagnostics: diagnostics,
                 facesFound: faces.count,
@@ -236,7 +254,7 @@ struct FaceMatchingTestView: View {
                             .foregroundStyle(result.passes ? .green : Theme.amber)
                     }
                     .frame(width: 38, height: 38)
-                    Text(result.passes ? "Threshold passed" : "No confident match").font(.headline)
+                    Text(result.passes ? "Confident match" : "No confident match").font(.headline)
                     Spacer()
                 }
                 Group {
@@ -248,7 +266,7 @@ struct FaceMatchingTestView: View {
                         Text("Vision faces: \(d.facesDetected) · usable landmarks: \(d.facesWithUsableLandmarks) · alignment failures: \(d.alignmentFailures)")
                     }
                     if let best = result.bestSimilarity {
-                        Text(String(format: "Best: %.3f · 2nd: %@ · threshold: %.3f", best, result.secondTemplateSimilarity.map { String(format: "%.3f", $0) } ?? "—", result.threshold))
+                        Text(String(format: "Best: %.3f · 2nd: %@ · base threshold: %.3f", best, result.secondTemplateSimilarity.map { String(format: "%.3f", $0) } ?? "—", result.threshold))
                     }
                 }
                 .font(.system(.caption, design: .monospaced))
