@@ -58,13 +58,29 @@ public struct FaceTemplate: Identifiable, Equatable, Codable, Sendable {
         self.quality = quality
         self.createdAt = createdAt
     }
+
+    /// Returns at most one descriptor per enrollment pose. This prevents a
+    /// duplicated/corrupted template from counting twice as independent
+    /// corroboration near the match threshold. When duplicates exist for one
+    /// pose, keep the highest-quality capture (newest wins exact quality ties).
+    public static func distinctPoseEmbeddings(from templates: [FaceTemplate]) -> [FaceEmbedding] {
+        Pose.allCases.compactMap { pose in
+            templates
+                .filter { $0.pose == pose && $0.quality.isFinite }
+                .max { lhs, rhs in
+                    if lhs.quality != rhs.quality { return lhs.quality < rhs.quality }
+                    return lhs.createdAt < rhs.createdAt
+                }?
+                .embedding
+        }
+    }
 }
 
 /// The user's own face profile.
 ///
 /// `embedding` remains as a compatibility/centroid descriptor for older code
-/// and migrations. `templates` is the authoritative v3 enrollment set used by
-/// the multi-template matcher.
+/// and migrations. `templates` is the authoritative multi-pose enrollment set
+/// used by the matcher.
 ///
 /// No raw enrollment frame is stored in Firestore.
 public struct FaceProfile: Equatable, Codable, Sendable {
@@ -89,10 +105,12 @@ public struct FaceProfile: Equatable, Codable, Sendable {
     }
 
     /// New code should compare against this set. Old profiles automatically
-    /// degrade to their single compatibility embedding.
+    /// degrade to their single compatibility embedding. Multi-template profiles
+    /// expose one high-quality descriptor per distinct enrollment pose so two
+    /// duplicate records cannot satisfy the corroboration rule by themselves.
     public var effectiveEmbeddings: [FaceEmbedding] {
-        templates.isEmpty
-            ? [embedding]
-            : templates.map(\.embedding)
+        guard !templates.isEmpty else { return [embedding] }
+        let distinct = FaceTemplate.distinctPoseEmbeddings(from: templates)
+        return distinct.isEmpty ? [embedding] : distinct
     }
 }
