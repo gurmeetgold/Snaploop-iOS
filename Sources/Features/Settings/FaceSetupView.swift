@@ -56,11 +56,17 @@ final class FaceSetupModel: ObservableObject {
         catch { consentActive = false }
     }
 
-    func acceptConsent() async -> Bool {
-        guard let env, let userId = session?.user?.id else { return false }
+    func acceptConsent(_ jurisdiction: BiometricJurisdiction) async -> Bool {
+        guard let env, let userId = session?.user?.id,
+              jurisdiction.isFaceMatchAvailable else { return false }
         message = nil
         do {
-            try await env.biometricConsent.save(BiometricConsentRecord(userId: userId, acceptedAt: env.clock.now()))
+            try await env.biometricConsent.save(BiometricConsentRecord(
+                userId: userId,
+                acceptedAt: env.clock.now(),
+                jurisdictionCountry: jurisdiction.countryCode,
+                jurisdictionSubdivision: jurisdiction.subdivisionCode
+            ))
             consentActive = true
             return true
         } catch {
@@ -329,7 +335,7 @@ struct FaceSetupView: View {
         .sheet(isPresented: $showConsent, onDismiss: resumePendingActionAfterConsent) {
             BiometricConsentView(
                 consentActive: false,
-                onAccept: { await model.acceptConsent() },
+                onAccept: { jurisdiction in await model.acceptConsent(jurisdiction) },
                 onWithdraw: { false }
             )
         }
