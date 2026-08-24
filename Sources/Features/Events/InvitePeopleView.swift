@@ -115,12 +115,16 @@ struct InvitePeopleView: View {
                         }
                     }
 
-                    Button { Task { await sendInvite() } } label: {
+                    Button {
+                        guard !isSending else { return }
+                        Task { await sendInvite() }
+                    } label: {
                         HStack {
                             if isSending { ProgressView().tint(.white) }
                             else { Image(systemName: "paperplane.fill") }
                             Text("Send Invite")
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
                     .disabled(isSending || phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -140,6 +144,7 @@ struct InvitePeopleView: View {
                 }
                 .padding(20)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .navigationTitle("Invite by Phone")
         .navigationBarTitleDisplayMode(.inline)
@@ -201,6 +206,7 @@ struct InvitePeopleView: View {
 
     @MainActor
     private func sendInvite() async {
+        guard !isSending else { return }
         guard event.status == .active else {
             errorMessage = "This Event is not accepting new invitations. Reopen it first if you're the organizer."
             return
