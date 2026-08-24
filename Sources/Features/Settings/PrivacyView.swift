@@ -235,8 +235,8 @@ struct PrivacyView: View {
 
                 Divider().padding(.leading, 46)
 
-                Link(destination: URL(string: "https://getsnaploop.web.app/biometric-consent-v4.txt")!) {
-                    resourceRow(title: "Face Match Biometric Notice", subtitle: "The versioned notice used for Face Match consent", icon: "checkmark.shield.fill")
+                Link(destination: URL(string: "https://getsnaploop.web.app/privacy.html#face-match-notice")!) {
+                    resourceRow(title: "Face Match Biometric Notice", subtitle: "Purpose, consent, candidate-face processing and retention", icon: "checkmark.shield.fill")
                 }
                 .buttonStyle(.plain)
 
