@@ -68,7 +68,7 @@ enum EventInviteClient {
     static func userMessage(for error: Error) -> String {
         let text = (error as NSError).localizedDescription
         if text.uppercased().contains("NOT FOUND") {
-            return "MyPicsRoom's event service needs to be updated. Deploy the latest Firebase Functions, then try again."
+            return "SnapLoop's event service needs to be updated. Deploy the latest Firebase Functions, then try again."
         }
         if let appError = error as? AppError { return appError.userMessage }
         return text
