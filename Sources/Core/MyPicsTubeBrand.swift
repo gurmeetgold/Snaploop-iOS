@@ -42,7 +42,9 @@ struct MyPicsTubePrimaryButtonStyle: ButtonStyle {
             .font(.system(.headline, design: .rounded, weight: .bold))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 15)
+            .frame(minHeight: 54)
+            .padding(.horizontal, 14)
+            .contentShape(Rectangle())
             .background(Theme.brandGradient)
             .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
             .shadow(
