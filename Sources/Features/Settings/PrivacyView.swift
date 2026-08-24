@@ -25,10 +25,16 @@ final class PrivacyModel: ObservableObject {
         }
     }
 
-    func acceptConsent() async -> Bool {
-        guard let env, let userId = session?.user?.id else { return false }
+    func acceptConsent(_ jurisdiction: BiometricJurisdiction) async -> Bool {
+        guard let env, let userId = session?.user?.id,
+              jurisdiction.isFaceMatchAvailable else { return false }
         do {
-            try await env.biometricConsent.save(BiometricConsentRecord(userId: userId, acceptedAt: env.clock.now()))
+            try await env.biometricConsent.save(BiometricConsentRecord(
+                userId: userId,
+                acceptedAt: env.clock.now(),
+                jurisdictionCountry: jurisdiction.countryCode,
+                jurisdictionSubdivision: jurisdiction.subdivisionCode
+            ))
             consentActive = true
             message = nil
             return true
@@ -116,6 +122,7 @@ struct PrivacyView: View {
                     privacyIntro
                     faceConsentCard
                     retentionCard
+                    legalResourcesCard
                     deleteFaceCard
                     deleteAccountCard
                     if let message = model.message {
@@ -141,7 +148,7 @@ struct PrivacyView: View {
         }) {
             BiometricConsentView(
                 consentActive: model.consentActive,
-                onAccept: { await model.acceptConsent() },
+                onAccept: { jurisdiction in await model.acceptConsent(jurisdiction) },
                 onWithdraw: { await model.withdrawConsent() }
             )
         }
@@ -149,7 +156,7 @@ struct PrivacyView: View {
             Button("Delete Face Setup", role: .destructive) { Task { await model.deleteFaceProfile() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the local Face Setup images, stored face-template metadata, and matching derivatives. Automatic face matching stops until you set it up again. Your existing Face Match consent remains on record unless you separately withdraw it.")
+            Text("This removes the local Face Setup images, stored face-template metadata, and matching derivatives. Automatic face matching stops until you set it up again. Your existing Face Match consent remains on record unless you separately withdraw it or it expires after 12 months without biometric activity.")
         }
         .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
@@ -165,7 +172,7 @@ struct PrivacyView: View {
                 Label("You stay in control", systemImage: "hand.raised.fill")
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
-                Text("SnapLoop never uploads your entire photo library. Photo matching runs on participating iPhones and is limited to the selected Event date range. Your Face Setup selfie/reference images stay on this iPhone; SnapLoop stores face-template metadata only for the Face Match purpose you consent to.")
+                Text("SnapLoop never uploads your entire photo library. Photo matching runs on participating iPhones and is limited to the selected Event date range. Your Face Setup selfie/reference images stay on this iPhone; SnapLoop stores numerical face-template metadata only for the Face Match purpose you expressly consent to.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -210,12 +217,55 @@ struct PrivacyView: View {
                 Label("Data retention", systemImage: "clock.badge.checkmark")
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
-                Text("All Event-related cloud data, including matched photo previews, is deleted within 15 days after an Event ends. If an Event is manually deleted, its Event-related cloud data is also deleted within 15 days of deletion.")
+                Text("Face Match consent and the account-level numerical face template expire after 12 months without biometric activity. They are removed sooner when you withdraw consent, delete Face Setup, or delete your account. Event-related cloud data, including matched photo previews, is deleted within 15 days after an Event ends or is manually deleted.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal)
+    }
+
+    private var legalResourcesCard: some View {
+        PremiumCard {
+            VStack(spacing: 0) {
+                Link(destination: URL(string: "https://getsnaploop.web.app/privacy.html")!) {
+                    resourceRow(title: "Privacy Policy", subtitle: "How SnapLoop collects, uses, protects and deletes data", icon: "doc.text.fill")
+                }
+                .buttonStyle(.plain)
+
+                Divider().padding(.leading, 46)
+
+                Link(destination: URL(string: "https://getsnaploop.web.app/biometric-consent-v4.txt")!) {
+                    resourceRow(title: "Face Match Biometric Notice", subtitle: "The versioned notice used for Face Match consent", icon: "checkmark.shield.fill")
+                }
+                .buttonStyle(.plain)
+
+                Divider().padding(.leading, 46)
+
+                NavigationLink { OpenSourceLicensesView() } label: {
+                    resourceRow(title: "Open Source Licenses", subtitle: "AuraFace and other applicable license notices", icon: "curlybraces.square.fill")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    private func resourceRow(title: String, subtitle: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.violet.opacity(0.12))
+                Image(systemName: icon).font(.headline).foregroundStyle(Theme.violet)
+            }
+            .frame(width: 36, height: 36)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.bold()).foregroundStyle(Theme.ink)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 8)
     }
 
     private var deleteFaceCard: some View {
@@ -254,5 +304,51 @@ struct PrivacyView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal)
+    }
+}
+
+struct OpenSourceLicensesView: View {
+    @State private var auraFaceLicense = "Loading license notice…"
+
+    var body: some View {
+        ZStack {
+            BrandScreenBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Open Source Licenses")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.ink)
+
+                    PremiumCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("AuraFace-v1")
+                                .font(.headline)
+                                .foregroundStyle(Theme.ink)
+                            Text("SnapLoop uses an on-device Core ML conversion of AuraFace-v1 to generate numerical face embeddings. AuraFace-v1 is distributed under the Apache License, Version 2.0. SnapLoop's use of open-source face technology does not permit the model publisher to receive or process your Face Setup images.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            Divider()
+                            Text(auraFaceLicense)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .navigationTitle("Licenses")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { loadAuraFaceLicense() }
+    }
+
+    private func loadAuraFaceLicense() {
+        guard let url = Bundle.main.url(forResource: "AuraFace_LICENSE", withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            auraFaceLicense = "AuraFace-v1: Apache License, Version 2.0. The full license notice is included with the SnapLoop application bundle."
+            return
+        }
+        auraFaceLicense = text
     }
 }
