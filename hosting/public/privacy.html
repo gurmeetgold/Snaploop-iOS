@@ -5,96 +5,125 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SnapLoop Privacy Policy</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 820px; margin: 0 auto; padding: 32px 20px 64px; line-height: 1.62; color: #17171f; background: #fff; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; line-height: 1.62; color: #17171f; background: #fff; }
     h1, h2 { line-height: 1.25; }
     h1 { margin-bottom: 4px; }
     h2 { margin-top: 30px; }
     .updated { color: #666; margin-bottom: 28px; }
     .note { background: #f7f4ff; border-radius: 14px; padding: 14px 16px; }
+    .important { background: #fff4ee; border-radius: 14px; padding: 14px 16px; }
     a { color: #5b37f2; }
   </style>
 </head>
 <body>
 <h1>SnapLoop Privacy Policy</h1>
-<p class="updated">Last updated: August 22, 2026</p>
+<p class="updated">Last updated: August 24, 2026</p>
 
-<p>SnapLoop helps people participating in shared Events find photos of themselves taken on their own or other participating users' devices. This Privacy Policy explains the personal information SnapLoop processes, why it is processed, how it may be shared, how long it is retained, and the choices available to users.</p>
+<p>SnapLoop helps people participating in shared Events find photos of themselves taken on their own or other participating users' devices. This Privacy Policy explains what personal information SnapLoop processes, why it is processed, how it is protected and shared, how long it is retained, and the choices and rights available to users.</p>
 
 <h2>1. Information We Process</h2>
 <ul>
-  <li><strong>Phone number:</strong> used to create and authenticate your SnapLoop account through Firebase Authentication.</li>
-  <li><strong>Profile information:</strong> such as your optional display name and account settings.</li>
-  <li><strong>Event information:</strong> including Event name, dates, category, membership, invitations, and Event settings.</li>
-  <li><strong>Photos and photo-library information:</strong> SnapLoop accesses photos only after you grant iOS Photos permission. Event scanning is limited to photos eligible for the selected Event date range.</li>
-  <li><strong>Matched photo previews:</strong> optimized previews of photos identified as relevant to participating users may be uploaded so authorized users can view matched photos within the Event.</li>
-  <li><strong>Face Setup information:</strong> if you expressly consent to Face Match, SnapLoop creates numerical face-template metadata (face embeddings and related templates) from your Face Setup selfie. The selfie/reference images themselves remain on your iPhone and are not uploaded to SnapLoop.</li>
-  <li><strong>Consent records:</strong> SnapLoop records the applicable Face Match consent-policy version and timestamps showing when consent was given or withdrawn. These records do not contain your selfie or face template.</li>
-  <li><strong>Technical information:</strong> limited device, diagnostic, crash, security, notification, and service information may be processed by Apple, Firebase, or other infrastructure providers used to operate SnapLoop.</li>
+  <li><strong>Account information:</strong> your verified phone number, account identifier, optional display name, and account settings.</li>
+  <li><strong>Event information:</strong> Event name, dates, category, membership, invitations, participant settings, organizer actions, and related Event metadata.</li>
+  <li><strong>Photos and photo-library information:</strong> SnapLoop accesses photos only after you grant iOS Photos permission. Event scanning is limited to photos eligible for the Event's selected date range. SnapLoop does not upload your entire photo library.</li>
+  <li><strong>Matched photo previews:</strong> optimized JPEG previews of photos identified as containing an eligible Event participant may be uploaded so the matched participant can view the photo in SnapLoop.</li>
+  <li><strong>Face Setup selfie/reference image:</strong> when you choose Face Match, a reference image is stored locally on your iPhone. SnapLoop's current architecture does not upload the raw Face Setup selfie/reference image to Firebase.</li>
+  <li><strong>Biometric face-template information:</strong> with your express consent, SnapLoop converts Face Setup images into numerical face embeddings/templates used to recognize you in eligible Event photos. These templates are biometric information and are treated as sensitive personal information.</li>
+  <li><strong>Transient candidate-face processing:</strong> when an Event participant runs photo matching, SnapLoop may detect faces and temporarily create numerical face representations from faces appearing in eligible Event-date photos so those faces can be compared with consenting participants' templates. Candidate embeddings are processed on-device for matching and are not intended to be retained as account-level face profiles merely because a face appeared in a photo.</li>
+  <li><strong>Consent records:</strong> SnapLoop records the Face Match consent-policy version and timestamps showing when consent was given or withdrawn. A limited consent record may be retained separately from the face template for compliance and audit purposes.</li>
+  <li><strong>Technical information:</strong> device, diagnostic, crash, security, notification, and service information may be processed as needed by SnapLoop, Apple, Google Firebase, and other infrastructure used to operate the service.</li>
 </ul>
 
 <h2>2. How We Use Information</h2>
-<p>We process information only for purposes reasonably connected to operating SnapLoop, including to:</p>
+<p>We process personal information only for purposes reasonably connected to operating and protecting SnapLoop, including to:</p>
 <ul>
-  <li>authenticate users;</li>
+  <li>authenticate users and maintain accounts;</li>
   <li>create, join, administer, and secure Events;</li>
-  <li>perform Face Match when the user has provided active consent;</li>
+  <li>perform Face Match for users who have provided active consent;</li>
   <li>identify and deliver matched photos to authorized Event participants;</li>
   <li>support invitations, notifications, saving, sharing, and Event functionality;</li>
   <li>maintain security, reliability, abuse prevention, and app performance; and</li>
   <li>investigate crashes, errors, fraud, misuse, or technical problems.</li>
 </ul>
-<p>SnapLoop does not use face-template metadata for advertising, account authentication, surveillance, stranger identification, or to infer sensitive characteristics such as race, religion, health status, sexual orientation, or political views.</p>
+<p>SnapLoop does not use biometric face-template information for advertising, behavioral advertising, account authentication, surveillance, stranger identification, law-enforcement identification, or to infer sensitive traits such as race, ethnicity, religion, health status, disability, sexual orientation, political views, or similar characteristics.</p>
+<p>SnapLoop does not sell, lease, trade, or otherwise profit from biometric face-template information.</p>
 
-<h2>3. Face Match and Express Consent</h2>
-<p>Face Match is optional. Before Face Setup creates or stores face-template metadata, SnapLoop presents a separate Face Match consent notice and requires an affirmative <strong>I Agree &amp; Continue</strong> action.</p>
-<p>The consent notice explains the type of biometric information involved, the purpose of processing, where the data is stored, how it is used in Events, retention, and the consequences of refusing or withdrawing consent.</p>
-<p>Your Face Setup selfie/reference images remain on your iPhone. Numerical face-template metadata is stored with your SnapLoop account in Firebase. While you participate in an active Event, your face-template metadata may be made available only to authenticated participating Event members' devices so that matching can run on-device against eligible Event-date photos.</p>
-<p class="note"><strong>Age:</strong> Face Match is intended only for users who are 18 years of age or older. Users who are not eligible to provide valid consent should not activate Face Match.</p>
+<h2>3. Face Match, Biometric Processing, and Express Consent</h2>
+<p>Face Match is a separate optional feature. Before Face Setup creates or stores your account-level biometric face-template information, SnapLoop presents a Face Match consent notice and requires an affirmative <strong>I Agree &amp; Continue</strong> action.</p>
+<p>The Face Match notice explains the type of biometric information involved, the specific purpose of processing, where data is stored, how it is used in Events, how it may be disclosed to participating devices, the retention and deletion approach, the consequences of refusing or withdrawing consent, and available non-biometric app functionality.</p>
+<p>Your raw Face Setup selfie/reference image remains on your iPhone. Numerical face-template information is stored with your SnapLoop account in Firebase. While you participate in an active Event, your numerical template may be provided through SnapLoop's backend only to authenticated participating Event members' devices so that those devices can compare eligible Event-date photos on-device.</p>
+<p class="important"><strong>Important:</strong> Because Face Match requires comparison against faces appearing in Event photos, participating devices may process faces of other people appearing in those photos. SnapLoop is designed to keep that candidate-face processing on-device and to avoid retaining unmatched candidate embeddings as account-level biometric profiles.</p>
+<p>Face Match may be unavailable or restricted in some jurisdictions where SnapLoop determines that additional legal, regulatory, consent, age, registration, or other requirements apply.</p>
+<p class="note"><strong>Age:</strong> Face Match is intended only for users who are 18 years of age or older. Users who are not eligible to provide valid consent must not activate Face Match.</p>
 
-<h2>4. Withdrawing Face Match Consent</h2>
-<p>You can review or withdraw Face Match consent at any time from <strong>Privacy &amp; Data</strong> in SnapLoop. Withdrawal is designed to be available without deleting your SnapLoop account.</p>
-<p>When you confirm withdrawal, SnapLoop stops future Face Match processing and deletes your Face Setup, account-level face-template metadata, and related face-matching data from active Event metadata. Your local Face Setup reference image is also removed from the device. You will no longer receive automatically matched photos until you complete Face Setup and give consent again.</p>
-<p>A limited consent record, including when consent was given or withdrawn and the applicable policy version, may be retained where reasonably necessary to demonstrate consent history, comply with legal obligations, resolve disputes, or maintain security and audit records.</p>
+<h2>4. Refusing or Withdrawing Face Match Consent</h2>
+<p>You may choose not to activate Face Match. Non-Face-Match functionality may remain available, although automatic photo matching requires Face Match.</p>
+<p>You can review or withdraw Face Match consent at any time from <strong>Privacy &amp; Data</strong> in SnapLoop. Withdrawal does not require deletion of your entire SnapLoop account.</p>
+<p>When withdrawal is successfully completed, SnapLoop stops future Face Match processing for your account, deletes your account-level face-template information, removes your Face Setup from active matching state, removes related biometric matching metadata from active Event data, and deletes the local Face Setup reference image from that installation. You will no longer receive automatic face-matched photos unless you later complete Face Setup and provide valid consent again.</p>
+<p>A limited consent-history record, including the applicable disclosure/policy version and consent or withdrawal timestamps, may be retained where reasonably necessary to demonstrate consent history, comply with legal obligations, resolve disputes, maintain security, or support audit requirements. Such a consent-history record is not used for face matching.</p>
 
-<h2>5. Sharing and Service Providers</h2>
-<p>SnapLoop does not sell personal information. Information is disclosed only as needed to provide the service, comply with law, protect users or SnapLoop, or with your direction or consent.</p>
-<p>Within an Event, matched photo information and previews may be made available to authorized Event participants as required for the Event's photo-sharing functionality. Face-template metadata is not intended to be displayed to users; it is used by participating devices for Face Match processing.</p>
-<p>SnapLoop uses service providers including Google Firebase for authentication, databases, cloud storage, notifications, and backend services, and Apple platform services for iOS functionality. These providers process information on SnapLoop's behalf subject to their applicable terms, security measures, and data-protection obligations.</p>
+<h2>5. Event Participants, Photo Sharing, and Face Templates</h2>
+<p>SnapLoop is built around user-created Events. Event membership does not give every member unrestricted access to every photo. Matched photo previews are designed to be readable only by authorized users identified as appearing in the relevant photo, subject to Event membership and sharing controls.</p>
+<p>Face-template information is not displayed to users as ordinary content. For Face Match to operate across participants' devices, however, a consenting participant's numerical template may be delivered to authenticated members' devices for the limited Event matching purpose described above. Recipients are not authorized to use those templates for any other purpose.</p>
 
-<h2>6. Data Retention and Deletion</h2>
+<h2>6. Service Providers and International Processing</h2>
+<p>SnapLoop uses service providers to operate the app. Current core providers include:</p>
 <ul>
-  <li><strong>Face Setup:</strong> account-level face-template metadata is retained while Face Match remains configured, unless you delete Face Setup, withdraw consent, or delete your account.</li>
-  <li><strong>Event data:</strong> Event-related cloud data, including matched photo previews, is deleted within 15 days after an Event ends. If an Event is manually deleted, its Event-related cloud data is deleted within 15 days of deletion.</li>
-  <li><strong>Account deletion:</strong> the in-app Delete Account control deletes the SnapLoop account and associated account data, subject to limited information that may need to be retained where required by law, security, fraud prevention, dispute resolution, or backup rotation.</li>
-  <li><strong>Consent records:</strong> a limited record of consent or withdrawal may be retained as described above.</li>
+  <li><strong>Google Firebase:</strong> authentication, database, cloud storage, Cloud Functions/backend operations, notifications, and related infrastructure.</li>
+  <li><strong>Apple:</strong> iOS platform functionality, permissions, device security, App Store distribution, and related Apple services.</li>
 </ul>
+<p>The face-embedding model used by SnapLoop runs on-device; SnapLoop does not send your Face Setup image to the open-source face-model publisher for recognition processing.</p>
+<p>Service providers may process information in jurisdictions other than where you live. SnapLoop requires service-provider use to remain limited to providing, securing, or supporting the service, subject to applicable contractual, technical, organizational, and legal protections.</p>
+<p>SnapLoop does not disclose biometric face-template information to advertisers or data brokers.</p>
 
-<h2>7. Your Choices and Rights</h2>
-<p>Depending on your location and applicable law, you may have rights relating to your personal information. SnapLoop provides controls that allow you to:</p>
+<h2>7. Retention and Destruction Schedule</h2>
+<p>SnapLoop limits retention according to the purpose for which information was collected and deletes information when that purpose has ended or when deletion is requested or required, subject to limited legal, security, fraud-prevention, dispute, and backup obligations.</p>
+<ul>
+  <li><strong>Local Face Setup image:</strong> retained on the device while Face Setup remains configured on that installation; removed when Face Setup is deleted, Face Match consent is withdrawn, or the local account is deleted from the app, subject to normal device-storage behavior.</li>
+  <li><strong>Account-level biometric face templates:</strong> retained while Face Match remains configured for the account and the information remains necessary for the Face Match purpose. They are deleted when Face Setup is deleted, Face Match consent is withdrawn, or the account is deleted.</li>
+  <li><strong>Transient candidate-face embeddings:</strong> used on-device for the matching operation and are not intended to be retained as persistent account-level profiles for people merely appearing in Event photos.</li>
+  <li><strong>Event-related cloud data:</strong> Event cloud data, including matched photo previews, is scheduled for deletion within 15 days after an Event ends. If an Event is manually deleted, its Event-related cloud data is scheduled for deletion within 15 days after deletion.</li>
+  <li><strong>Account deletion:</strong> the in-app Delete Account control initiates deletion of the SnapLoop account and associated account data. Limited records may be retained only where reasonably necessary or legally required for security, fraud prevention, dispute resolution, compliance, or backup rotation.</li>
+  <li><strong>Consent records:</strong> a limited consent/withdrawal record may be retained for legal and audit purposes and is not used to perform Face Match.</li>
+</ul>
+<p>Where applicable law requires a shorter retention period or earlier destruction than the periods described above, SnapLoop will follow the legally required shorter period.</p>
+
+<h2>8. Security</h2>
+<p>SnapLoop uses safeguards appropriate to the sensitivity of biometric and other personal information. Current protections include account authentication, authorization checks, restricted database and storage access, event-membership checks, local iOS file protection for Face Setup reference images, exclusion of local Face Setup reference images from device backup, and deletion workflows for biometric information.</p>
+<p>No system can guarantee absolute security. If we become aware of a security incident involving personal information, we will investigate and provide legally required notifications where applicable.</p>
+
+<h2>9. Your Choices and Privacy Rights</h2>
+<p>Depending on your location and applicable law, you may have rights to access, correct, delete, obtain information about, or restrict certain processing of your personal information, and to withdraw consent where processing is based on consent.</p>
+<p>SnapLoop provides controls that allow you to:</p>
 <ul>
   <li>deny, limit, or revoke Camera and Photos permissions through iOS Settings;</li>
   <li>choose not to activate Face Match;</li>
   <li>review or withdraw Face Match consent;</li>
-  <li>delete Face Setup without deleting your account;</li>
+  <li>delete Face Setup without deleting the entire account;</li>
   <li>leave Events where supported;</li>
   <li>delete your SnapLoop account in the app; and</li>
-  <li>contact us regarding access, correction, deletion, consent, or privacy questions.</li>
+  <li>contact us regarding access, correction, deletion, consent, or other privacy requests.</li>
 </ul>
 <p>To exercise a privacy right or ask a privacy question, contact <a href="mailto:g.chhiber3@gmail.com">g.chhiber3@gmail.com</a>.</p>
 
-<h2>8. Children's Privacy</h2>
-<p>SnapLoop's Face Match feature is intended only for users age 18 or older. SnapLoop does not knowingly intend to process children's biometric information without any consent or authorization required by applicable law. If you believe a child has activated Face Match improperly, contact us so that we can investigate and take appropriate deletion or restriction steps.</p>
+<h2>10. Children's Privacy</h2>
+<p>Face Match is intended only for users age 18 or older. SnapLoop does not knowingly permit a child to create an account-level biometric Face Setup where valid adult authorization or other legally required consent would be required. If you believe a minor has activated Face Match improperly, contact us so that we can investigate and take appropriate restriction or deletion steps.</p>
 
-<h2>9. Security</h2>
-<p>We use reasonable technical and organizational safeguards designed to protect personal information against unauthorized access, loss, misuse, alteration, or disclosure. Safeguards are selected with regard to the sensitivity of the information. No electronic transmission or storage system can be guaranteed to be completely secure.</p>
+<h2>11. No Sale, Advertising Use, or Secondary Biometric Use</h2>
+<p>SnapLoop does not sell, lease, trade, or monetize biometric face-template information. SnapLoop does not use biometric templates for targeted advertising, cross-app tracking, marketing profiles, credit or insurance decisions, employment decisions, surveillance, law-enforcement identification, or unrelated machine-learning training.</p>
+<p>If SnapLoop ever proposes a materially different biometric purpose, it will not apply the new purpose to existing biometric information without first providing an updated disclosure and obtaining new consent where required.</p>
 
-<h2>10. International Processing</h2>
-<p>SnapLoop uses cloud and platform service providers whose systems may process information in countries other than the country where you live. Where applicable, data is handled subject to the contractual, technical, organizational, and legal safeguards available for those services and jurisdictions.</p>
+<h2>12. Open-Source Face Technology</h2>
+<p>SnapLoop uses on-device face-embedding technology to create numerical representations used for Face Match. Open-source software and model components are used under their applicable licenses. Open-source license notices do not change SnapLoop's privacy commitments: user face images are not sent to an open-source model publisher for recognition processing, and biometric information remains subject to the collection, use, disclosure, retention, and deletion limits described in this Policy.</p>
 
-<h2>11. Changes to This Policy or Face Match Purpose</h2>
-<p>We may update this Privacy Policy as SnapLoop evolves. The date at the top identifies the current version. If SnapLoop materially changes the purpose for which face-template metadata is collected, used, or disclosed, SnapLoop will require review of the updated Face Match notice and new consent where required before using the information for that materially changed purpose.</p>
+<h2>13. Jurisdiction-Specific Requirements</h2>
+<p>Biometric and privacy requirements differ by jurisdiction. SnapLoop may restrict or disable Face Match in particular provinces, states, countries, or regions while legal or regulatory requirements are being evaluated or implemented. Availability of the app itself does not necessarily mean that every SnapLoop feature is available in every jurisdiction.</p>
+<p>Nothing in this Policy limits rights that cannot lawfully be waived under applicable privacy or biometric-information law.</p>
 
-<h2>12. Contact</h2>
-<p>For privacy questions, requests, or complaints, contact <a href="mailto:g.chhiber3@gmail.com">g.chhiber3@gmail.com</a>.</p>
+<h2>14. Changes to This Policy</h2>
+<p>We may update this Privacy Policy as SnapLoop evolves. The date at the top identifies the current version. Material changes affecting biometric collection, use, disclosure, or retention will be reflected in the Face Match notice, and SnapLoop will seek renewed consent when required before applying a materially changed biometric purpose.</p>
+
+<h2>15. Contact</h2>
+<p>For privacy questions, rights requests, complaints, or concerns about biometric information, contact <a href="mailto:g.chhiber3@gmail.com">g.chhiber3@gmail.com</a>.</p>
 </body>
 </html>
