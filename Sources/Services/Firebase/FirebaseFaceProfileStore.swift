@@ -25,6 +25,14 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
         do {
             let snapshot = try await ref(userId: userId).getDocument()
             guard snapshot.exists, let data = snapshot.data() else { return nil }
+
+            // A legacy model-v5 profile is not enough by itself. Only profiles
+            // persisted by the current consent-gated backend and still inside
+            // their server-issued retention window may enter AppSession as an
+            // active Face Setup. This prevents an old consent/profile pair from
+            // making Create Event or Test Face Setup look enabled after a policy
+            // upgrade.
+            guard Self.isCurrentEligibleProfile(data) else { return nil }
             return try Self.decodeProfile(userId: userId, data: data)
         } catch let error as AppError {
             throw error
@@ -74,6 +82,23 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
             .document(userId)
             .collection("faceProfile")
             .document("current")
+    }
+
+    private static func isCurrentEligibleProfile(_ data: [String: Any]) -> Bool {
+        let consentPolicyVersion =
+            (data["consentPolicyVersion"] as? NSNumber)?.intValue
+            ?? data["consentPolicyVersion"] as? Int
+            ?? 0
+
+        guard consentPolicyVersion == BiometricConsentRecord.currentPolicyVersion,
+              data["consentDisclosureId"] as? String == BiometricConsentRecord.currentDisclosureId,
+              data["consentDisclosureSHA256"] as? String == BiometricConsentRecord.currentDisclosureSHA256,
+              let expiresAt = data["expiresAt"] as? Timestamp,
+              expiresAt.dateValue() > Date()
+        else {
+            return false
+        }
+        return true
     }
 
     private static func decodeProfile(userId: String, data: [String: Any]) throws -> FaceProfile {
