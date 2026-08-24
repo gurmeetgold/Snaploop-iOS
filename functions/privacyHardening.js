@@ -18,6 +18,7 @@ const FACE_PROFILE_VERSION = 5;
 const FACE_EMBEDDING_DIMENSION = 512;
 const MAX_FACE_TEMPLATES = 5;
 const MIN_FACE_TEMPLATES = 3;
+const BIOMETRIC_POLICY_PATH = "systemConfig/biometricFaceMatch";
 const VALID_POSES = new Set(["center", "sideA", "sideB", "tilted", "alternate", "imported"]);
 const CANADIAN_SUBDIVISIONS = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]);
 const US_SUBDIVISIONS = new Set([
@@ -43,7 +44,10 @@ function boundedString(value, name, maxLength) {
 function normalizeCode(value, name) {
   return boundedString(value, name, 8).toUpperCase();
 }
-function jurisdictionIsSupported(country, subdivision) {
+function jurisdictionKey(country, subdivision) {
+  return `${country}-${subdivision}`;
+}
+function jurisdictionIsStaticallySupported(country, subdivision) {
   if (country === "CA") return CANADIAN_SUBDIVISIONS.has(subdivision) && subdivision !== "QC";
   if (country === "US") return US_SUBDIVISIONS.has(subdivision) && subdivision !== "IL";
   return false;
@@ -53,7 +57,37 @@ function jurisdictionUnavailableMessage(country, subdivision) {
   if (country === "US" && subdivision === "IL") return "Face Match is not currently available to users who ordinarily reside in Illinois.";
   return "Face Match is not currently available in the selected jurisdiction.";
 }
-function consentIsActive(consent) {
+async function loadBiometricFeaturePolicy() {
+  // This private Admin-SDK-only document is an emergency compliance control.
+  // Missing document means normal launch policy. If it exists, an operator can
+  // disable all biometric processing immediately or add jurisdiction codes such
+  // as "US-TX" without waiting for an App Store release. Client Firestore rules
+  // do not grant access to this path.
+  const snap = await db.doc(BIOMETRIC_POLICY_PATH).get();
+  if (!snap.exists) return { enabled: true, blockedJurisdictions: new Set() };
+  const data = snap.data() || {};
+  const blocked = Array.isArray(data.blockedJurisdictions)
+    ? data.blockedJurisdictions
+        .filter((value) => typeof value === "string")
+        .map((value) => value.trim().toUpperCase())
+        .filter((value) => /^[A-Z]{2,3}-[A-Z]{2,3}$/.test(value))
+    : [];
+  return {
+    enabled: data.enabled !== false,
+    blockedJurisdictions: new Set(blocked),
+  };
+}
+function policyAllowsJurisdiction(policy, country, subdivision) {
+  return policy.enabled
+    && jurisdictionIsStaticallySupported(country, subdivision)
+    && !policy.blockedJurisdictions.has(jurisdictionKey(country, subdivision));
+}
+function policyUnavailableMessage(policy, country, subdivision) {
+  if (!policy.enabled) return "Face Match is temporarily unavailable. You can continue using SnapLoop without Face Match.";
+  if (!jurisdictionIsStaticallySupported(country, subdivision)) return jurisdictionUnavailableMessage(country, subdivision);
+  return "Face Match is temporarily unavailable in your declared jurisdiction. You can continue using SnapLoop without Face Match.";
+}
+function consentIsCurrent(consent) {
   if (!consent) return false;
   const country = typeof consent.jurisdictionCountry === "string" ? consent.jurisdictionCountry.toUpperCase() : "";
   const subdivision = typeof consent.jurisdictionSubdivision === "string" ? consent.jurisdictionSubdivision.toUpperCase() : "";
@@ -62,7 +96,13 @@ function consentIsActive(consent) {
     && consent.disclosureSHA256 === CONSENT_DISCLOSURE_SHA256
     && consent.withdrawnAt == null
     && consent.expiredAt == null
-    && jurisdictionIsSupported(country, subdivision);
+    && jurisdictionIsStaticallySupported(country, subdivision);
+}
+function consentJurisdiction(consent) {
+  return {
+    country: typeof consent.jurisdictionCountry === "string" ? consent.jurisdictionCountry.toUpperCase() : "",
+    subdivision: typeof consent.jurisdictionSubdivision === "string" ? consent.jurisdictionSubdivision.toUpperCase() : "",
+  };
 }
 function requireEmbedding(raw, name) {
   if (!Array.isArray(raw) || raw.length !== FACE_EMBEDDING_DIMENSION) {
@@ -139,7 +179,7 @@ async function scrubUserFromEventPhotos(eventId, uid) {
   }
   if (updates.length) await commitUpdates(updates);
 }
-async function expireBiometricProfile(uid, expiredAt) {
+async function removeActiveBiometricProfile(uid) {
   const userRef = db.doc(`users/${uid}`);
   const eventRefs = await userRef.collection("eventRefs").get();
   for (const eventRefDoc of eventRefs.docs) {
@@ -148,15 +188,17 @@ async function expireBiometricProfile(uid, expiredAt) {
     if ((await participantRef.get()).exists) await participantRef.delete();
     await scrubUserFromEventPhotos(eventId, uid);
   }
-
   const batch = db.batch();
   batch.delete(db.doc(`users/${uid}/faceProfile/current`));
   batch.set(userRef, { hasFaceProfile: false }, { merge: true });
-  batch.set(db.doc(`users/${uid}/privacy/biometricConsent`), {
+  await batch.commit();
+}
+async function expireBiometricProfile(uid, expiredAt) {
+  await removeActiveBiometricProfile(uid);
+  await db.doc(`users/${uid}/privacy/biometricConsent`).set({
     expiredAt,
     expirationReason: "12-month-biometric-inactivity",
   }, { merge: true });
-  await batch.commit();
 }
 async function hardDeleteTrip(eventId, event) {
   const membersSnap = await db.collection(`events/${eventId}/members`).get();
@@ -179,7 +221,7 @@ async function hardDeleteTrip(eventId, event) {
   if (typeof event.inviteToken === "string" && event.inviteToken) lookupRefs.push(db.doc(`inviteTokens/${event.inviteToken}`));
   if (lookupRefs.length) await commitDeletes(lookupRefs);
   try { await admin.storage().bucket().deleteFiles({ prefix: `events/${eventId}/` }); }
-  catch (error) { console.error("Trip storage cleanup failed", { eventId, error }); }
+  catch (error) { console.error("Event storage cleanup failed", { eventId, error }); }
   await db.doc(`events/${eventId}`).delete();
 }
 
@@ -208,8 +250,9 @@ exports.acceptBiometricConsent = onCall(async (request) => {
 
   const country = normalizeCode(data.jurisdictionCountry, "jurisdictionCountry");
   const subdivision = normalizeCode(data.jurisdictionSubdivision, "jurisdictionSubdivision");
-  if (!jurisdictionIsSupported(country, subdivision)) {
-    throw new HttpsError("failed-precondition", jurisdictionUnavailableMessage(country, subdivision));
+  const policy = await loadBiometricFeaturePolicy();
+  if (!policyAllowsJurisdiction(policy, country, subdivision)) {
+    throw new HttpsError("failed-precondition", policyUnavailableMessage(policy, country, subdivision));
   }
 
   const acceptedVia = boundedString(data.acceptedVia, "acceptedVia", 64);
@@ -219,6 +262,16 @@ exports.acceptBiometricConsent = onCall(async (request) => {
   const locale = boundedString(data.locale, "locale", 64);
 
   const acceptedAt = Timestamp.now();
+  const profileRef = db.doc(`users/${uid}/faceProfile/current`);
+  const existingProfile = await profileRef.get();
+  if (existingProfile.exists) {
+    const profile = existingProfile.data() || {};
+    const profileIsCurrent = Number(profile.consentPolicyVersion) === CONSENT_POLICY_VERSION
+      && profile.consentDisclosureId === CONSENT_DISCLOSURE_ID
+      && profile.consentDisclosureSHA256 === CONSENT_DISCLOSURE_SHA256;
+    if (!profileIsCurrent) await removeActiveBiometricProfile(uid);
+  }
+
   await db.doc(`users/${uid}/privacy/biometricConsent`).set({
     userId: uid,
     policyVersion: CONSENT_POLICY_VERSION,
@@ -227,6 +280,7 @@ exports.acceptBiometricConsent = onCall(async (request) => {
     acceptedAt,
     withdrawnAt: null,
     expiredAt: null,
+    expirationReason: null,
     lastBiometricActivityAt: null,
     jurisdictionCountry: country,
     jurisdictionSubdivision: subdivision,
@@ -253,13 +307,18 @@ exports.saveMyFaceProfile = onCall(async (request) => {
   const data = request.data || {};
   if (typeof data.userId === "string" && data.userId !== uid) throw new HttpsError("permission-denied", "Face profile identity does not match the signed-in user.");
 
-  const [consentSnap, userSnap] = await Promise.all([
+  const [consentSnap, userSnap, policy] = await Promise.all([
     db.doc(`users/${uid}/privacy/biometricConsent`).get(),
     db.doc(`users/${uid}`).get(),
+    loadBiometricFeaturePolicy(),
   ]);
   if (!userSnap.exists) throw new HttpsError("failed-precondition", "Your SnapLoop user profile is missing.");
   const consent = consentSnap.exists ? consentSnap.data() || {} : null;
-  if (!consentIsActive(consent)) throw new HttpsError("failed-precondition", "Active current Face Match consent is required before Face Setup can be stored.");
+  if (!consentIsCurrent(consent)) throw new HttpsError("failed-precondition", "Active current Face Match consent is required before Face Setup can be stored.");
+  const jurisdiction = consentJurisdiction(consent);
+  if (!policyAllowsJurisdiction(policy, jurisdiction.country, jurisdiction.subdivision)) {
+    throw new HttpsError("failed-precondition", policyUnavailableMessage(policy, jurisdiction.country, jurisdiction.subdivision));
+  }
 
   const version = Number(data.version);
   if (version !== FACE_PROFILE_VERSION) throw new HttpsError("failed-precondition", "Please update Face Setup using the current face model.");
@@ -295,10 +354,12 @@ exports.saveMyFaceProfile = onCall(async (request) => {
 exports.listEventFaceProfiles = onCall(async (request) => {
   const uid = requireAuth(request);
   const eventId = requireString((request.data || {}).eventId, "eventId");
-  const [eventSnap, callerMember] = await Promise.all([
+  const [eventSnap, callerMember, policy] = await Promise.all([
     db.doc(`events/${eventId}`).get(),
     db.doc(`events/${eventId}/members/${uid}`).get(),
+    loadBiometricFeaturePolicy(),
   ]);
+  if (!policy.enabled) throw new HttpsError("failed-precondition", "Face Match is temporarily unavailable.");
   if (!eventSnap.exists) throw new HttpsError("not-found", "This Event does not exist.");
   if (!callerMember.exists) throw new HttpsError("permission-denied", "Join this Event first.");
   const event = eventSnap.data() || {};
@@ -322,7 +383,9 @@ exports.listEventFaceProfiles = onCall(async (request) => {
 
     const profile = profileSnap.data() || {};
     const consent = consentSnap.data() || {};
-    if (!consentIsActive(consent)) continue;
+    if (!consentIsCurrent(consent)) continue;
+    const jurisdiction = consentJurisdiction(consent);
+    if (!policyAllowsJurisdiction(policy, jurisdiction.country, jurisdiction.subdivision)) continue;
     if (Number(profile.consentPolicyVersion) !== CONSENT_POLICY_VERSION
         || profile.consentDisclosureId !== CONSENT_DISCLOSURE_ID
         || profile.consentDisclosureSHA256 !== CONSENT_DISCLOSURE_SHA256) continue;
@@ -369,9 +432,8 @@ exports.scrubLegacyParticipantBiometrics = onSchedule("every 24 hours", async ()
 });
 
 // Deletes account-level biometric templates and expires their consent after
-// 12 months with no actual biometric use. Older profiles are backfilled with an
-// expiry derived from their last use or update time so legacy data cannot live
-// indefinitely merely because it predates this policy.
+// 12 months with no actual biometric use. Legacy/outdated profiles cannot remain
+// active merely because their model version is still numerically compatible.
 exports.purgeExpiredBiometricProfiles = onSchedule("every 24 hours", async () => {
   const now = Timestamp.now();
   const expired = await db.collectionGroup("faceProfile").where("expiresAt", "<=", now).limit(250).get();
@@ -383,11 +445,23 @@ exports.purgeExpiredBiometricProfiles = onSchedule("every 24 hours", async () =>
     await expireBiometricProfile(uid, now);
   }
 
-  const legacy = await db.collectionGroup("faceProfile").limit(500).get();
-  for (const doc of legacy.docs) {
+  const candidates = await db.collectionGroup("faceProfile").limit(500).get();
+  for (const doc of candidates.docs) {
     const uid = doc.ref.parent.parent && doc.ref.parent.parent.id;
     if (!uid || processed.has(uid)) continue;
     const data = doc.data() || {};
+    const consentSnap = await db.doc(`users/${uid}/privacy/biometricConsent`).get();
+    const consent = consentSnap.exists ? consentSnap.data() || {} : null;
+    const currentProfile = Number(data.consentPolicyVersion) === CONSENT_POLICY_VERSION
+      && data.consentDisclosureId === CONSENT_DISCLOSURE_ID
+      && data.consentDisclosureSHA256 === CONSENT_DISCLOSURE_SHA256;
+
+    if (!currentProfile || !consentIsCurrent(consent)) {
+      processed.add(uid);
+      await removeActiveBiometricProfile(uid);
+      continue;
+    }
+
     if (data.expiresAt instanceof Timestamp) continue;
     const anchor = data.lastBiometricActivityAt instanceof Timestamp
       ? data.lastBiometricActivityAt
