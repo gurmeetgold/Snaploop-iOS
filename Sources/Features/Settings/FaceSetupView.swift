@@ -292,13 +292,19 @@ struct FaceSetupView: View {
                     }
 
                     if allowsDeferral && !session.hasFaceProfile {
-                        Button("Skip for now") {
+                        Button {
                             session.deferFaceSetup()
                             dismiss()
+                        } label: {
+                            Label("Skip for now", systemImage: "clock.arrow.circlepath")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(minHeight: 52)
                         }
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(Theme.ink.opacity(0.75))
-                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.ink)
+                        .background(.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.violet.opacity(0.18), lineWidth: 1))
                         .disabled(model.isBusy)
                         .padding(.top, 4)
                     }
