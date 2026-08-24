@@ -15,6 +15,7 @@ final class JoinEventModel: ObservableObject {
     @Published var participantCount = 0
     @Published var isJoining = false
     @Published var isDeclining = false
+    @Published var actionError: String?
 
     private var env: AppEnvironment?
     private var session: AppSession?
@@ -27,6 +28,7 @@ final class JoinEventModel: ObservableObject {
     func load(route: DeepLinkRoute) async {
         guard let env, let session else { return }
         phase = .loading
+        actionError = nil
         do {
             let event: Event
             switch route {
@@ -66,28 +68,32 @@ final class JoinEventModel: ObservableObject {
     }
 
     func join(event: Event) async {
+        guard !isJoining, !isDeclining else { return }
         guard let env, let user = session?.user, let profile = session?.faceProfile else { return }
         isJoining = true
+        actionError = nil
         defer { isJoining = false }
         do {
             let service = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
             try await service.join(event: event, user: user, faceProfile: profile)
             phase = .joined(event)
         } catch let error as AppError {
-            phase = .error(error.userMessage)
+            actionError = error.userMessage
         } catch {
-            phase = .error(AppError.unknown("\(error)").userMessage)
+            actionError = AppError.unknown("\(error)").userMessage
         }
     }
 
     func decline(event: Event) async {
+        guard !isJoining, !isDeclining else { return }
         isDeclining = true
+        actionError = nil
         defer { isDeclining = false }
         do {
             try await EventInviteClient.decline(eventId: event.id)
             phase = .declined
         } catch {
-            phase = .error((error as NSError).localizedDescription)
+            actionError = (error as NSError).localizedDescription
         }
     }
 }
@@ -177,7 +183,7 @@ struct JoinEventView: View {
                 }
                 .frame(width: 86, height: 86)
 
-                Text(event.name)
+                Text("Join \(event.name)")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
@@ -189,6 +195,12 @@ struct JoinEventView: View {
                     Label("\(model.participantCount) already joined", systemImage: "person.2.fill")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+
+                Text("Join this Event to get photos of you from participating members’ phones. SnapLoop checks only the Event's selected date range and matches faces on-device.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 4)
 
                 consentBox
 
@@ -204,20 +216,31 @@ struct JoinEventView: View {
                         .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 } else {
                     Button {
+                        guard !model.isJoining, !model.isDeclining else { return }
                         Task { await model.join(event: event) }
                     } label: {
                         HStack {
                             if model.isJoining { ProgressView().tint(.white) }
                             else { Image(systemName: "checkmark.circle.fill") }
-                            Text("Accept & Join Event")
+                            Text("Join Event")
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
                     .disabled(model.isJoining || model.isDeclining)
                 }
 
+                if let actionError = model.actionError {
+                    Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 8)
+                }
+
                 if isPhoneInvitation {
                     Button("Decline Invitation", role: .destructive) {
+                        guard !model.isJoining, !model.isDeclining else { return }
                         Task { await model.decline(event: event) }
                     }
                     .disabled(model.isJoining || model.isDeclining)
@@ -232,7 +255,7 @@ struct JoinEventView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("How SnapLoop works here", systemImage: "sparkles")
                     .font(.subheadline.bold()).foregroundStyle(Theme.ink)
-                Text("Participating members scan their own photo libraries on-device only for this Event's selected date range.")
+                Text("Participating members scan their own photo libraries on-device only for this Event's selected date range. Only confident matches are shared into the Event.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
