@@ -14,6 +14,7 @@ final class PhoneAuthModel: ObservableObject {
     private var session: AppSession?
     func configure(env: AppEnvironment, session: AppSession) { self.env = env; self.session = session }
     func sendCode() async {
+        guard !isBusy else { return }
         guard let env else { return }
         guard let e164 = PhoneNumberNormalizer.e164(localInput: phoneNumber, country: selectedCountry) else { errorMessage = AppError.invalidPhoneNumber.userMessage; return }
         normalizedPhoneNumber = e164; isBusy = true; errorMessage = nil; defer { isBusy = false }
@@ -22,6 +23,7 @@ final class PhoneAuthModel: ObservableObject {
         catch { errorMessage = AppError.unknown("\(error)").userMessage }
     }
     func verifyCode() async {
+        guard !isBusy else { return }
         guard let env, let session, case .enterCode(let verificationId) = stage else { return }
         isBusy = true; errorMessage = nil; defer { isBusy = false }
         do {
@@ -67,7 +69,7 @@ final class PhoneAuthModel: ObservableObject {
         } catch let error as AppError { errorMessage = error.userMessage }
         catch { errorMessage = AppError.unknown("\(error)").userMessage }
     }
-    func useADifferentNumber() { stage = .enterPhone; code = ""; normalizedPhoneNumber = nil; errorMessage = nil }
+    func useADifferentNumber() { guard !isBusy else { return }; stage = .enterPhone; code = ""; normalizedPhoneNumber = nil; errorMessage = nil }
 }
 
 struct PhoneAuthFlowView: View {
@@ -90,6 +92,7 @@ struct PhoneAuthFlowView: View {
                         Spacer(minLength: 56)
                     }
                 }
+                .scrollDismissesKeyboard(.interactively)
             }.task { model.configure(env: env, session: session) }
         }
     }
@@ -110,9 +113,13 @@ struct PhoneAuthFlowView: View {
                 TextField("Phone number", text: $model.phoneNumber).keyboardType(.phonePad).textContentType(.telephoneNumber).padding().frame(height: 60)
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
-            Button { Task { await model.sendCode() } } label: {
+            Button {
+                guard !model.isBusy else { return }
+                Task { await model.sendCode() }
+            } label: {
                 HStack { if model.isBusy { ProgressView().tint(.white) } else { Image(systemName: "message.fill"); Text("Send Code") } }
                     .font(.headline).frame(maxWidth: .infinity).frame(height: 54)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain).foregroundStyle(.white).background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .disabled(model.isBusy || model.phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -126,9 +133,17 @@ struct PhoneAuthFlowView: View {
             if let normalized = model.normalizedPhoneNumber { Text("Enter the 6-digit code").font(.headline); Text("Sent to \(normalized)").font(.subheadline).foregroundStyle(.secondary) }
             else { Text("Enter the 6-digit code").font(.headline) }
             TextField("6-digit code", text: $model.code).keyboardType(.numberPad).textContentType(.oneTimeCode).multilineTextAlignment(.center).font(.title2.monospacedDigit().bold()).padding().background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-            Button { Task { await model.verifyCode() } } label: { HStack { if model.isBusy { ProgressView().tint(.white) } else { Image(systemName: "checkmark.circle.fill"); Text("Verify") } }.font(.headline).frame(maxWidth: .infinity).frame(height: 54) }
-                .buttonStyle(.plain).foregroundStyle(.white).background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18)).disabled(model.isBusy || model.code.count < 4).opacity(model.code.count < 4 ? 0.55 : 1)
+            Button {
+                guard !model.isBusy else { return }
+                Task { await model.verifyCode() }
+            } label: {
+                HStack { if model.isBusy { ProgressView().tint(.white) } else { Image(systemName: "checkmark.circle.fill"); Text("Verify") } }
+                    .font(.headline).frame(maxWidth: .infinity).frame(height: 54)
+                    .contentShape(Rectangle())
+            }
+                .buttonStyle(.plain).foregroundStyle(.white).background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18)).disabled(model.isBusy || model.code.count < 6).opacity(model.code.count < 6 ? 0.55 : 1)
             Button("Use a different number") { model.useADifferentNumber() }.font(.footnote.weight(.semibold)).foregroundStyle(Theme.sky)
+                .disabled(model.isBusy)
         }
     }
 }
