@@ -77,7 +77,7 @@ struct BiometricConsentView: View {
                                 Divider()
                                 consentPoint(
                                     "12-month biometric expiry",
-                                    "Your active Face Match consent and account-level face template expire after 12 months without biometric activity. They are deleted or disabled sooner if you delete Face Setup, withdraw consent, or delete your account. After expiry, Face Setup and consent are required again.",
+                                    "Your active Face Match consent and account-level face template expire after 12 months (365 days) without Face Match activity initiated by your account. Another participant merely retrieving or using your template does not extend your retention period. They are deleted or disabled sooner if you delete Face Setup, withdraw consent, or delete your account. After expiry, Face Setup and consent are required again.",
                                     icon: "clock.badge.checkmark",
                                     tint: Theme.violet
                                 )
