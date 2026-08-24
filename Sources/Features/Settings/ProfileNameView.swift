@@ -12,6 +12,7 @@ final class ProfileNameModel: ObservableObject {
     }
 
     func save(session: AppSession) async -> Bool {
+        guard !isSaving else { return false }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { errorMessage = "Enter at least 2 characters."; return false }
         guard trimmed.count <= 40 else { errorMessage = "Keep your name to 40 characters or fewer."; return false }
@@ -90,6 +91,7 @@ struct ProfileNameView: View {
                     }
 
                     Button {
+                        guard !model.isSaving else { return }
                         Task {
                             if await model.save(session: session) {
                                 onSaved?()
@@ -102,6 +104,7 @@ struct ProfileNameView: View {
                             else { Image(systemName: "checkmark.circle.fill") }
                             Text("Save Name")
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
                     .disabled(model.isSaving || model.name.trimmingCharacters(in: .whitespacesAndNewlines).count < 2)
@@ -125,6 +128,7 @@ struct ProfileNameView: View {
                 }
                 .padding(22)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .navigationTitle("Your Name")
         .navigationBarTitleDisplayMode(.inline)
