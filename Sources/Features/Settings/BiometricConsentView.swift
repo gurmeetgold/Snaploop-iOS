@@ -11,6 +11,8 @@ struct BiometricConsentView: View {
     @State private var confirmWithdrawal = false
     @State private var selectedCountry = "CA"
     @State private var selectedSubdivision = "ON"
+    @State private var ageConfirmed = false
+    @State private var noticeConfirmed = false
 
     private var subdivisions: [BiometricJurisdictionOption] {
         BiometricJurisdictionCatalog.subdivisions(for: selectedCountry)
@@ -21,6 +23,13 @@ struct BiometricConsentView: View {
             countryCode: selectedCountry,
             subdivisionCode: selectedSubdivision
         )
+    }
+
+    private var canAccept: Bool {
+        selectedJurisdiction.isFaceMatchAvailable
+            && ageConfirmed
+            && noticeConfirmed
+            && !isSaving
     }
 
     private var jurisdictionAvailabilityMessage: String? {
@@ -93,6 +102,7 @@ struct BiometricConsentView: View {
 
                         if !consentActive {
                             jurisdictionCard
+                            attestationCard
                         }
 
                         if let errorMessage {
@@ -120,7 +130,7 @@ struct BiometricConsentView: View {
                                 .frame(maxWidth: .infinity, minHeight: 44)
                                 .foregroundStyle(.secondary)
                         } else {
-                            Text("By tapping I Agree & Continue, you confirm that you are at least 18 years old, that the jurisdiction you selected is where you ordinarily reside, that you have reviewed this notice, and that you expressly consent to the biometric processing described above.")
+                            Text("I Agree & Continue is enabled only after both confirmations above are selected. The server records the current notice version, notice hash, consent time, app version, locale, consent method, age attestation, and your declared jurisdiction code.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -135,8 +145,8 @@ struct BiometricConsentView: View {
                                 }
                             }
                             .buttonStyle(MyPicsTubePrimaryButtonStyle())
-                            .disabled(isSaving || !selectedJurisdiction.isFaceMatchAvailable)
-                            .opacity(selectedJurisdiction.isFaceMatchAvailable ? 1 : 0.55)
+                            .disabled(!canAccept)
+                            .opacity(canAccept ? 1 : 0.55)
 
                             Button("Not Now", role: .cancel) { dismiss() }
                                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -201,9 +211,35 @@ struct BiometricConsentView: View {
         }
     }
 
+    private var attestationCard: some View {
+        PremiumCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Label("Confirm before continuing", systemImage: "checkmark.shield.fill")
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
+
+                Toggle(isOn: $ageConfirmed) {
+                    Text("I confirm that I am at least 18 years old.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Divider()
+
+                Toggle(isOn: $noticeConfirmed) {
+                    Text("I have read this Face Match notice and expressly consent to the described creation, storage, Event-scoped disclosure, on-device comparison, retention, and deletion of my numerical face-template information.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
     @MainActor
     private func accept() async {
-        guard selectedJurisdiction.isFaceMatchAvailable else { return }
+        guard canAccept else { return }
         isSaving = true
         errorMessage = nil
         let saved = await onAccept(selectedJurisdiction)
