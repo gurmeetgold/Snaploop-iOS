@@ -163,8 +163,19 @@ public struct CameraSyncCoordinator {
         )
         try Task.checkCancellation()
 
-        let faces = try await faceDetection.detectFaces(in: working)
-        var appearances = matcher.appearances(in: faces, participants: participants)
+        // Privacy invariant: detected candidate faces — including unmatched
+        // bystanders — exist only inside this local scope. Their embeddings are
+        // used in memory for immediate comparison and are never passed to the
+        // repository, logs, scan-state store, analytics, or any upload API.
+        // Only identity-level appearances for consenting Event participants can
+        // leave this scope. Exiting the scope releases the candidate array before
+        // any cloud persistence occurs.
+        var appearances: [PhotoMatch.Appearance]
+        do {
+            let transientCandidateFaces = try await faceDetection.detectFaces(in: working)
+            appearances = matcher.appearances(in: transientCandidateFaces, participants: participants)
+        }
+
         if !includeOwnMatches {
             appearances.removeAll { $0.participantUserId == currentUserId }
         }
