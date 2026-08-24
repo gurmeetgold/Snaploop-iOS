@@ -149,6 +149,9 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
     public let acceptedAt: Date
     public var withdrawnAt: Date?
     public var expiredAt: Date?
+    /// Server-issued deadline for the current active consent window. This is
+    /// separate from `expiredAt`, which records that expiry has been processed.
+    public var expiresAt: Date?
     public let jurisdictionCountry: String
     public let jurisdictionSubdivision: String
     public let appVersion: String
@@ -165,6 +168,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
         acceptedAt: Date,
         withdrawnAt: Date? = nil,
         expiredAt: Date? = nil,
+        expiresAt: Date? = nil,
         jurisdictionCountry: String = "",
         jurisdictionSubdivision: String = "",
         appVersion: String? = nil,
@@ -180,6 +184,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
         self.acceptedAt = acceptedAt
         self.withdrawnAt = withdrawnAt
         self.expiredAt = expiredAt
+        self.expiresAt = expiresAt
         self.jurisdictionCountry = jurisdictionCountry.uppercased()
         self.jurisdictionSubdivision = jurisdictionSubdivision.uppercased()
         self.appVersion = appVersion
@@ -204,6 +209,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
             && disclosureSHA256 == Self.currentDisclosureSHA256
             && withdrawnAt == nil
             && expiredAt == nil
+            && (expiresAt.map { $0 > Date() } ?? false)
             && jurisdiction.isFaceMatchAvailable
     }
 }
