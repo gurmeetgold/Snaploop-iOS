@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "GPDH2M3AVZ.com.gurmeetchhiber.snaploop.app",
+        "paths": [
+          "/e/*",
+          "/c/*"
+        ]
+      }
+    ]
+  }
+}
