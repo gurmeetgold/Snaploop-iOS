@@ -63,6 +63,8 @@ public final class FirebaseBiometricConsentStore:
             platform: data["platform"] as? String ?? "iOS",
             locale: data["locale"] as? String ?? "unknown",
             acceptedVia: data["acceptedVia"] as? String ?? "unknown",
+            age18Attested: data["age18Attested"] as? Bool ?? false,
+            noticeAcknowledged: data["noticeAcknowledged"] as? Bool ?? false,
             lastBiometricActivityAt: lastBiometricActivityAt
         )
     }
@@ -81,7 +83,9 @@ public final class FirebaseBiometricConsentStore:
                 "appVersion": record.appVersion,
                 "platform": record.platform,
                 "locale": record.locale,
-                "acceptedVia": record.acceptedVia
+                "acceptedVia": record.acceptedVia,
+                "age18Attested": record.age18Attested,
+                "noticeAcknowledged": record.noticeAcknowledged
             ]) { result, error in
                 if let error { continuation.resume(throwing: error); return }
                 continuation.resume(returning: result?.data as Any)
