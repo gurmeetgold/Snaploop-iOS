@@ -45,7 +45,7 @@ struct ShareEventView: View {
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
 
-                    Text("Anyone with the invite can open the event, sign in, and choose whether to join.")
+                    Text("Anyone with the invite can open the Event, sign in, and choose whether to join.")
                         .font(.subheadline).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center).padding(.horizontal, 12)
 
@@ -120,7 +120,9 @@ struct ShareEventView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadInvitePermission() }
         .sheet(isPresented: $showShareSheet) {
-            ActivityView(items: [InviteLink.shareText(eventName: event.name, token: token), url])
+            // The share text already contains the canonical URL. Passing the URL
+            // as a second activity item made apps such as WhatsApp render it twice.
+            ActivityView(items: [InviteLink.shareText(eventName: event.name, token: token)])
         }
     }
 
