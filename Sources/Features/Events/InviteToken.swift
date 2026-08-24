@@ -27,14 +27,17 @@ public struct InviteToken: Equatable, Sendable {
 public enum InviteLink {
     public static let scheme = "https"
 
-    /// Keep the legacy technical scheme during the visual rebrand so existing
-    /// installs and already-issued development links remain compatible.
+    /// Keep the technical custom scheme stable so installed versions can always
+    /// open an invitation from the web fallback page.
     public static let customScheme = "snaploop"
 
-    /// TestFlight/beta builds must use a host that is actually deployed.
-    /// Do not switch this to a MyPicsRoom production domain until DNS,
-    /// Associated Domains, AASA and the App Store landing path are all live.
+    /// Keep development data on the development Hosting project while every
+    /// Release/TestFlight/App Store build generates production invitation links.
+    #if DEBUG
     public static let host = "snaploop-dev.web.app"
+    #else
+    public static let host = "getsnaploop.web.app"
+    #endif
 
     public static func url(forToken token: InviteToken) -> URL {
         var comps = URLComponents()
@@ -45,10 +48,14 @@ public enum InviteLink {
     }
 
     public static func customURL(forToken token: InviteToken) -> URL {
-        URL(string: "\(customScheme)://e/\(token.value)")!
+        var comps = URLComponents()
+        comps.scheme = customScheme
+        comps.host = "join"
+        comps.queryItems = [URLQueryItem(name: "token", value: token.value)]
+        return comps.url!
     }
 
     public static func shareText(eventName: String, token: InviteToken) -> String {
-        "Join \"\(eventName)\" on MyPicsRoom:\n\(url(forToken: token).absoluteString)"
+        "Join \"\(eventName)\" in SnapLoop:\n\(url(forToken: token).absoluteString)"
     }
 }
