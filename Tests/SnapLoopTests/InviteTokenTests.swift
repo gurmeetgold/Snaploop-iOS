@@ -30,6 +30,24 @@ final class InviteTokenTests: XCTestCase {
         XCTAssertEqual(DeepLinkRouter.route(for: url), .joinEventByToken(token))
     }
 
+    func testCustomURLRoundTripsThroughJoinQuery() {
+        var rng = SeededGenerator(seed: 11)
+        let token = InviteToken.generate(using: &rng)
+        XCTAssertEqual(DeepLinkRouter.route(for: InviteLink.customURL(forToken: token)), .joinEventByToken(token))
+    }
+
+    func testShareTextContainsExactlyOneCanonicalURLAndCurrentBrand() {
+        var rng = SeededGenerator(seed: 17)
+        let token = InviteToken.generate(using: &rng)
+        let text = InviteLink.shareText(eventName: "Test Event", token: token)
+        let url = InviteLink.url(forToken: token).absoluteString
+
+        XCTAssertTrue(text.contains("SnapLoop"))
+        XCTAssertFalse(text.contains("MyPicsRoom"))
+        XCTAssertEqual(text.components(separatedBy: url).count - 1, 1)
+        XCTAssertEqual(text.components(separatedBy: "https://").count - 1, 1)
+    }
+
     // The central Phase-2 guarantee: editing event details never changes the link.
     func testEditingEventDetailsDoesNotChangeInviteLink() throws {
         let clock = FixedClock(Date(timeIntervalSince1970: 1_000_000))
