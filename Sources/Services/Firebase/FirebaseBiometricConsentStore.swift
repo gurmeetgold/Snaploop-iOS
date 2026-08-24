@@ -37,6 +37,9 @@ public final class FirebaseBiometricConsentStore:
         let expiredAt =
             (data["expiredAt"] as? Timestamp)?.dateValue()
 
+        let expiresAt =
+            (data["expiresAt"] as? Timestamp)?.dateValue()
+
         let lastBiometricActivityAt =
             (data["lastBiometricActivityAt"] as? Timestamp)?.dateValue()
 
@@ -53,6 +56,7 @@ public final class FirebaseBiometricConsentStore:
             acceptedAt: acceptedAt,
             withdrawnAt: withdrawnAt,
             expiredAt: expiredAt,
+            expiresAt: expiresAt,
             jurisdictionCountry: data["jurisdictionCountry"] as? String ?? "",
             jurisdictionSubdivision: data["jurisdictionSubdivision"] as? String ?? "",
             appVersion: data["appVersion"] as? String ?? "unknown",
