@@ -30,10 +30,12 @@ final class InviteTokenTests: XCTestCase {
         XCTAssertEqual(DeepLinkRouter.route(for: url), .joinEventByToken(token))
     }
 
-    func testCustomURLRoundTripsThroughJoinQuery() {
+    func testCustomURLUsesCanonicalEventPathAndRoundTrips() {
         var rng = SeededGenerator(seed: 11)
         let token = InviteToken.generate(using: &rng)
-        XCTAssertEqual(DeepLinkRouter.route(for: InviteLink.customURL(forToken: token)), .joinEventByToken(token))
+        let url = InviteLink.customURL(forToken: token)
+        XCTAssertEqual(url.absoluteString, "snaploop://e/\(token.value)")
+        XCTAssertEqual(DeepLinkRouter.route(for: url), .joinEventByToken(token))
     }
 
     func testShareTextContainsExactlyOneCanonicalURLAndCurrentBrand() {
