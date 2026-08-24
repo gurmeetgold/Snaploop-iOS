@@ -40,8 +40,20 @@ final class CameraSyncCoordinatorTests: XCTestCase {
                           joinedAt: Date())]
     }
 
-    private func scanKey(eventId: String = "e1", userId: String = "alice") -> String {
-        [eventId, userId, FaceModelPolicy.scanGeneration].joined(separator: "::")
+    private func scanKey(
+        eventId: String = "e1",
+        userId: String = "alice",
+        includeOwnMatches: Bool = false,
+        preferenceRevision: String = "default"
+    ) -> String {
+        [
+            eventId,
+            userId,
+            FaceModelPolicy.scanGeneration,
+            "sharing-v3",
+            includeOwnMatches ? "own-on" : "own-off",
+            preferenceRevision,
+        ].joined(separator: "::")
     }
 
     func testUploadsOnlyMatchesForOtherMembersAndMarksAllScanned() async throws {
