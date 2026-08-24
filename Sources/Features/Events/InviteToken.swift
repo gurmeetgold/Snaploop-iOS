@@ -47,11 +47,15 @@ public enum InviteLink {
         return comps.url!
     }
 
+    /// Browser fallback for an already-installed app. Use the same `/e/<token>`
+    /// route shape as the Universal Link instead of a query-only join URL. This
+    /// keeps the web fallback and DeepLinkRouter on one canonical route and
+    /// avoids Safari treating malformed/legacy join URLs as invalid addresses.
     public static func customURL(forToken token: InviteToken) -> URL {
         var comps = URLComponents()
         comps.scheme = customScheme
-        comps.host = "join"
-        comps.queryItems = [URLQueryItem(name: "token", value: token.value)]
+        comps.host = "e"
+        comps.path = "/\(token.value)"
         return comps.url!
     }
 
