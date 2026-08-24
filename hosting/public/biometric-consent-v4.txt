@@ -1,0 +1,46 @@
+SnapLoop Face Match Biometric Consent Notice v4
+Effective: August 24, 2026
+
+Face Match is optional and intended only for users who are at least 18 years old.
+
+1. What Face Match does
+SnapLoop uses a Face Setup selfie to create numerical face embeddings/templates that can recognize you in photos from Events you choose to join. SnapLoop uses these templates only for Event-scoped photo matching. SnapLoop does not use biometric face-template information for advertising, account authentication, surveillance, stranger identification, law-enforcement identification, credit or insurance decisions, employment decisions, sensitive-trait inference, or unrelated machine-learning training.
+
+2. Where your Face Setup information goes
+Your raw Face Setup selfie/reference image stays on your iPhone and is not uploaded to SnapLoop's Firebase backend by the Face Setup workflow. Your numerical face template is stored with your SnapLoop account in Firebase after the trusted backend verifies current consent, eligibility, and the face-profile payload.
+
+3. Event-scoped disclosure and on-device comparison
+While you participate in an active Event, SnapLoop's backend may provide your numerical face template only to authenticated participating Event members' devices so those devices can compare eligible photos from that Event's selected date range on-device. Face templates are not displayed as ordinary user content and are not authorized for use outside this Event-scoped Face Match purpose.
+
+4. Candidate and bystander faces
+To determine whether a group photo contains a consenting participant, a participating iPhone may temporarily detect other faces in that photo and create candidate face embeddings in memory for comparison. Unmatched candidate embeddings are not uploaded to SnapLoop, are not saved as account-level face profiles, are not intentionally written to persistent storage by the matching workflow, are not sent to analytics, and are not used to train the face model. They exist only as needed for the local comparison.
+
+5. Consent and security controls
+Face-profile creation and updates are routed through SnapLoop's trusted backend. Direct client writes to cloud face-profile records are denied. The backend verifies a current consent version, this notice's identifier and SHA-256 hash, jurisdiction eligibility, age and notice attestations, and a valid profile payload before storing a face template. Before returning an Event participant's template for matching, the backend re-checks active consent, expiry, profile version, Event membership, Event status, jurisdiction eligibility, and applicable server-side restrictions.
+
+6. Retention and deletion
+Your active Face Match consent and account-level numerical face template expire after 12 months (365 days) without Face Match activity initiated by your account. The initial period begins when you give consent. Completing or updating Face Setup and authenticated Face Match activity initiated by your account can restart the 12-month period. Another participant's device merely retrieving or using your template does not extend your retention period.
+
+Your active face template is deleted earlier if you delete Face Setup, withdraw Face Match consent, or delete your account. Consent itself has a server-issued 12-month expiry even if you never complete Face Setup. Event-related cloud data, including matched photo previews, is scheduled for deletion within 15 days after an Event ends or is manually deleted. A limited non-biometric record of consent, withdrawal, expiry, policy version, disclosure evidence, and related audit metadata may be retained where reasonably necessary for legal, security, dispute, or audit purposes.
+
+7. Your choices
+You can use non-biometric parts of SnapLoop without Face Match. You can review or withdraw Face Match consent and delete Face Setup from Privacy & Data. Withdrawal stops future Face Match processing for your account and deletes the active account-level face template and related matching metadata.
+
+8. No sale or biometric advertising use
+SnapLoop does not sell, lease, trade, or otherwise profit from biometric face-template information. SnapLoop does not disclose biometric face-template information to advertisers or data brokers.
+
+9. Jurisdiction
+Before enabling Face Match, you must select the country and province/state where you ordinarily reside. SnapLoop stores the jurisdiction code for biometric-compliance purposes and does not require GPS or a precise residential address for this determination. Face Match is currently intended only for supported jurisdictions in Canada and the United States and is not currently offered to users who declare ordinary residence in Quebec or Illinois. SnapLoop may disable Face Match globally or in additional jurisdictions for legal, regulatory, security, or operational reasons.
+
+10. Open-source face technology
+SnapLoop currently uses an on-device Core ML conversion of AuraFace-v1 to generate numerical face embeddings. The open-source model publisher does not receive your Face Setup image through SnapLoop's recognition workflow. Open-source licensing does not change SnapLoop's privacy commitments.
+
+11. Express consent
+By selecting both required confirmations and then tapping I Agree & Continue, you confirm that:
+- you are at least 18 years old;
+- the country and province/state you selected accurately reflect where you ordinarily reside;
+- you have read this Face Match notice;
+- you understand the creation, storage, Event-scoped disclosure, on-device comparison, retention, and deletion practices described above; and
+- you expressly consent to SnapLoop processing your numerical biometric face-template information for the Face Match purpose described in this notice.
+
+You may withdraw this consent at any time from Privacy & Data in SnapLoop.
