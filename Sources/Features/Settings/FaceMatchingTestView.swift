@@ -154,7 +154,7 @@ struct FaceMatchingTestView: View {
                     Text("Test My Face Setup")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("Choose a photo, tell MyPicsRoom whether it really contains you, and record the score. Test both genuine and wrong-person photos before changing the threshold.")
+                    Text("Choose a photo, tell SnapLoop whether it really contains you, and record the score. Test both genuine and wrong-person photos before changing the threshold.")
                         .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
                     Picker("Expected", selection: $model.expected) {
