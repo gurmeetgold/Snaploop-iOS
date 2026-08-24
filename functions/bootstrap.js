@@ -45,6 +45,7 @@ exports.syncMyUserProfile = security.syncMyUserProfile;
 exports.updateDisplayName = security.updateDisplayNameTrusted;
 exports.refreshMyFaceProfile = profile.refreshMyFaceProfileManaged;
 exports.acceptBiometricConsent = privacy.acceptBiometricConsent;
+exports.saveMyFaceProfile = privacy.saveMyFaceProfile;
 exports.eraseMyFaceProfile = security.eraseMyFaceProfile;
 exports.withdrawBiometricConsent = security.withdrawBiometricConsent;
 exports.deleteMyAccount = security.deleteMyAccount;
@@ -55,6 +56,7 @@ exports.setOwnPhotoVisibility = memberPreferences.setOwnPhotoVisibility;
 exports.listMyMatchedPhotos = matchRead.listMyMatchedPhotos;
 exports.scrubParticipantBiometrics = privacy.scrubParticipantBiometrics;
 exports.scrubLegacyParticipantBiometrics = privacy.scrubLegacyParticipantBiometrics;
+exports.purgeExpiredBiometricProfiles = privacy.purgeExpiredBiometricProfiles;
 
 exports.setSharing = security.setSharingManaged;
 exports.publishMatch = security.publishMatch;
