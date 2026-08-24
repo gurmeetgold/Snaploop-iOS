@@ -5,8 +5,10 @@ import FirebaseFunctions
 /// Firestore-backed private face-profile store.
 /// Path: users/{uid}/faceProfile/current
 ///
-/// The profile contains only the on-device-generated embedding and metadata.
-/// The source selfie itself is not written to Firestore by this store.
+/// Reads are self-only. Writes are intentionally routed through the
+/// saveMyFaceProfile callable so the backend can enforce active, current-version
+/// biometric consent, jurisdiction eligibility, payload validation, and the
+/// 12-month biometric-retention clock before any template is persisted.
 public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendable {
     private let db: Firestore
     private let functions: Functions
@@ -38,22 +40,23 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
                 "embedding": template.embedding.vector.map(Double.init),
                 "pose": template.pose.rawValue,
                 "quality": template.quality,
-                "createdAt": Timestamp(date: template.createdAt)
+                "createdAtMillis": template.createdAt.timeIntervalSince1970 * 1000
             ]
         }
 
-        let data: [String: Any] = [
+        let payload: [String: Any] = [
             "userId": profile.userId,
             "embedding": profile.embedding.vector.map(Double.init),
             "templates": templates,
             "version": profile.version,
-            "updatedAt": Timestamp(date: profile.updatedAt)
+            "updatedAtMillis": profile.updatedAt.timeIntervalSince1970 * 1000
         ]
 
-        do {
-            try await ref(userId: profile.userId).setData(data, merge: false)
-        } catch {
-            throw Self.mapFirestoreError(error)
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+            functions.httpsCallable("saveMyFaceProfile").call(payload) { result, error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume(returning: result?.data as Any)
+            }
         }
     }
 
