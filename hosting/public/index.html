@@ -75,10 +75,10 @@
     <div class="eyebrow">You've been invited to an Event</div>
     <h1 id="eventName">Join this Event</h1>
     <p id="conversation">Opening your invitation…</p>
-    <p id="privacy">Join this Event to get photos of you from participating members’ phones. Face matching happens on-device and only within the Event's selected date range.</p>
+    <p id="privacy">Join this Event to get all your photos from participating members’ phones. SnapLoop checks only this Event's selected date range and face matching happens on-device.</p>
     <a id="join" class="button" href="#">Join Event</a>
     <p id="error">We couldn't load the Event details. You can still open this invitation in SnapLoop.</p>
-    <p id="hint">If SnapLoop is installed, the original invite link should open the app directly.</p>
+    <p id="hint">If SnapLoop is installed, tap Join Event to open this invitation in the app.</p>
   </main>
 <script>
 (() => {
@@ -98,18 +98,13 @@
   const rawValue = match[2];
   const value = encodeURIComponent(rawValue);
   const appURL = kind === "e"
-    ? `snaploop://join?token=${value}`
+    ? `snaploop://e/${value}`
     : `snaploop://c/${value}`;
   join.href = appURL;
 
   const formatDate = (millis) => {
     if (!millis) return null;
     return new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric", year:"numeric" }).format(new Date(millis));
-  };
-
-  const categoryName = (category) => {
-    if (!category) return "Event";
-    return category.charAt(0).toUpperCase() + category.slice(1);
   };
 
   fetch(`/api/invite-preview?kind=${encodeURIComponent(kind)}&value=${value}`, { cache: "no-store" })
@@ -125,7 +120,7 @@
       const end = formatDate(data.endsAtMillis);
       const dates = start && end ? `, ${start} – ${end}` : "";
       const inviter = data.inviterName || "A SnapLoop member";
-      conversation.textContent = `${inviter} invited you to ${name}${dates}. Join to get photos of you from participating members’ phones.`;
+      conversation.textContent = `${inviter} invited you to ${name}${dates}. Join this Event to get all your photos from participating members’ phones.`;
     })
     .catch(() => {
       conversation.textContent = "You've been invited to join an Event in SnapLoop.";
@@ -133,8 +128,7 @@
     });
 
   // Use the registered SnapLoop custom scheme only as the browser fallback.
-  // Proper Universal Links are served by the AASA file and open the app directly
-  // when the invite is tapped from Messages, WhatsApp, Mail, etc.
+  // Universal Links remain the canonical links shared from the app.
   join.addEventListener("click", () => {
     join.textContent = "Opening SnapLoop…";
     setTimeout(() => { join.textContent = "Join Event"; }, 1600);
