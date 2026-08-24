@@ -162,6 +162,10 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
     public let noticeAcknowledged: Bool
     public var lastBiometricActivityAt: Date?
 
+    /// This initializer is used by the explicit Face Match acceptance path.
+    /// Firebase reads pass the stored attestation values explicitly, so a
+    /// missing/legacy server field still decodes as false and cannot become
+    /// active accidentally.
     public init(
         userId: String,
         policyVersion: Int = Self.currentPolicyVersion,
@@ -177,8 +181,8 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
         platform: String = "iOS",
         locale: String? = nil,
         acceptedVia: String = Self.consentMethod,
-        age18Attested: Bool = false,
-        noticeAcknowledged: Bool = false,
+        age18Attested: Bool = true,
+        noticeAcknowledged: Bool = true,
         lastBiometricActivityAt: Date? = nil
     ) {
         self.userId = userId
