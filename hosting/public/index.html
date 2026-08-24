@@ -33,17 +33,8 @@
       border:1px solid rgba(255,0,112,.09); backdrop-filter:blur(18px);
     }
     .mark {
-      width:82px; height:82px; margin:0 auto 14px; border-radius:20px; position:relative;
-      background:linear-gradient(135deg,var(--orange),var(--coral) 28%,var(--pink) 49%,var(--magenta) 66%,var(--violet) 82%,var(--blue));
-      box-shadow:0 12px 28px rgba(255,0,112,.20); overflow:hidden;
-    }
-    .mark .ring {
-      position:absolute; width:42px; height:42px; border:6px solid white; border-radius:50%;
-      left:20px; top:20px; opacity:.98;
-    }
-    .mark .slash {
-      position:absolute; width:49px; height:9px; border-radius:9px; background:#fff;
-      left:16px; top:36px; transform:rotate(-34deg); box-shadow:0 0 0 2px rgba(255,255,255,.04);
+      display:block; width:86px; height:86px; margin:0 auto 14px; border-radius:20px;
+      object-fit:cover; box-shadow:0 12px 28px rgba(255,0,112,.20);
     }
     .brand {
       display:inline-block; margin-bottom:22px; font-size:24px; font-weight:850;
@@ -70,7 +61,7 @@
 </head>
 <body>
   <main>
-    <div class="mark" aria-hidden="true"><div class="ring"></div><div class="slash"></div></div>
+    <img class="mark" src="/SnapLoopBrandMark.png" alt="" aria-hidden="true" />
     <div class="brand">SnapLoop</div>
     <div class="eyebrow">You've been invited to an Event</div>
     <h1 id="eventName">Join this Event</h1>
