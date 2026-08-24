@@ -29,6 +29,69 @@ final class ErasureTests: XCTestCase {
         XCTAssertEqual(plan.last, .deleteUserDocument(userId: "u"))
     }
 
+    // MARK: Biometric launch policy
+
+    func testFaceMatchJurisdictionAllowsSupportedCanadaAndUS() {
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "US", subdivisionCode: "NY").isFaceMatchAvailable)
+    }
+
+    func testFaceMatchJurisdictionBlocksQuebecIllinoisAndUnsupportedCountries() {
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "IL").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "GB", subdivisionCode: "ENG").isFaceMatchAvailable)
+    }
+
+    func testBiometricConsentRequiresCurrentDisclosureEligibleJurisdictionAndUnexpiredWindow() {
+        let now = Date()
+        let active = BiometricConsentRecord(
+            userId: "u",
+            acceptedAt: now,
+            expiresAt: now.addingTimeInterval(86_400),
+            jurisdictionCountry: "CA",
+            jurisdictionSubdivision: "ON",
+            appVersion: "1.0",
+            locale: "en_CA"
+        )
+        XCTAssertTrue(active.isActive)
+
+        let expired = BiometricConsentRecord(
+            userId: "u",
+            acceptedAt: now.addingTimeInterval(-172_800),
+            expiresAt: now.addingTimeInterval(-86_400),
+            jurisdictionCountry: "CA",
+            jurisdictionSubdivision: "ON",
+            appVersion: "1.0",
+            locale: "en_CA"
+        )
+        XCTAssertFalse(expired.isActive)
+
+        let oldDisclosure = BiometricConsentRecord(
+            userId: "u",
+            policyVersion: BiometricConsentRecord.currentPolicyVersion,
+            disclosureId: "biometric-consent-old",
+            disclosureSHA256: BiometricConsentRecord.currentDisclosureSHA256,
+            acceptedAt: now,
+            expiresAt: now.addingTimeInterval(86_400),
+            jurisdictionCountry: "CA",
+            jurisdictionSubdivision: "ON",
+            appVersion: "1.0",
+            locale: "en_CA"
+        )
+        XCTAssertFalse(oldDisclosure.isActive)
+
+        let blockedJurisdiction = BiometricConsentRecord(
+            userId: "u",
+            acceptedAt: now,
+            expiresAt: now.addingTimeInterval(86_400),
+            jurisdictionCountry: "US",
+            jurisdictionSubdivision: "IL",
+            appVersion: "1.0",
+            locale: "en_US"
+        )
+        XCTAssertFalse(blockedJurisdiction.isActive)
+    }
+
     // MARK: Execution
 
     func testDeleteFaceProfileRemovesEmbeddingButKeepsMemberships() async throws {
