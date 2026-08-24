@@ -96,6 +96,8 @@ function consentIsCurrent(consent) {
     && consent.disclosureSHA256 === CONSENT_DISCLOSURE_SHA256
     && consent.withdrawnAt == null
     && consent.expiredAt == null
+    && consent.expiresAt instanceof Timestamp
+    && consent.expiresAt.toMillis() > Date.now()
     && jurisdictionIsStaticallySupported(country, subdivision);
 }
 function consentJurisdiction(consent) {
@@ -262,6 +264,7 @@ exports.acceptBiometricConsent = onCall(async (request) => {
   const locale = boundedString(data.locale, "locale", 64);
 
   const acceptedAt = Timestamp.now();
+  const expiresAt = Timestamp.fromMillis(acceptedAt.toMillis() + BIOMETRIC_INACTIVITY_MS);
   const profileRef = db.doc(`users/${uid}/faceProfile/current`);
   const existingProfile = await profileRef.get();
   if (existingProfile.exists) {
@@ -280,6 +283,7 @@ exports.acceptBiometricConsent = onCall(async (request) => {
     acceptedAt,
     withdrawnAt: null,
     expiredAt: null,
+    expiresAt,
     expirationReason: null,
     lastBiometricActivityAt: null,
     jurisdictionCountry: country,
@@ -297,6 +301,7 @@ exports.acceptBiometricConsent = onCall(async (request) => {
     policyVersion: CONSENT_POLICY_VERSION,
     disclosureId: CONSENT_DISCLOSURE_ID,
     acceptedAtMillis: acceptedAt.toMillis(),
+    expiresAtMillis: expiresAt.toMillis(),
     jurisdictionCountry: country,
     jurisdictionSubdivision: subdivision,
   };
@@ -344,7 +349,7 @@ exports.saveMyFaceProfile = onCall(async (request) => {
     consentDisclosureId: CONSENT_DISCLOSURE_ID,
     consentDisclosureSHA256: CONSENT_DISCLOSURE_SHA256,
   }, { merge: false });
-  batch.set(consentRef, { lastBiometricActivityAt: now }, { merge: true });
+  batch.set(consentRef, { lastBiometricActivityAt: now, expiresAt }, { merge: true });
   batch.set(userRef, { hasFaceProfile: true }, { merge: true });
   await batch.commit();
 
@@ -389,7 +394,7 @@ exports.listEventFaceProfiles = onCall(async (request) => {
     if (Number(profile.consentPolicyVersion) !== CONSENT_POLICY_VERSION
         || profile.consentDisclosureId !== CONSENT_DISCLOSURE_ID
         || profile.consentDisclosureSHA256 !== CONSENT_DISCLOSURE_SHA256) continue;
-    if (profile.expiresAt instanceof Timestamp && profile.expiresAt.toMillis() <= now.toMillis()) continue;
+    if (!(profile.expiresAt instanceof Timestamp) || profile.expiresAt.toMillis() <= now.toMillis()) continue;
     if (!Array.isArray(profile.embedding) || profile.embedding.length !== FACE_EMBEDDING_DIMENSION) continue;
 
     const user = userSnap.exists ? userSnap.data() || {} : {};
@@ -403,8 +408,13 @@ exports.listEventFaceProfiles = onCall(async (request) => {
       joinedAtMillis: memberData.joinedAt instanceof Timestamp ? memberData.joinedAt.toMillis() : Date.now(),
     });
 
-    activityUpdates.push({ ref: profileRef, data: { lastBiometricActivityAt: now, expiresAt: nextExpiry } });
-    activityUpdates.push({ ref: consentRef, data: { lastBiometricActivityAt: now } });
+    // Only the authenticated caller's own action extends that caller's
+    // biometric-retention window. Passive retrieval of another participant's
+    // template must never keep that other person's biometric data alive.
+    if (member.id === uid) {
+      activityUpdates.push({ ref: profileRef, data: { lastBiometricActivityAt: now, expiresAt: nextExpiry } });
+      activityUpdates.push({ ref: consentRef, data: { lastBiometricActivityAt: now, expiresAt: nextExpiry } });
+    }
   }
 
   if (activityUpdates.length) await commitUpdates(activityUpdates);
@@ -432,13 +442,26 @@ exports.scrubLegacyParticipantBiometrics = onSchedule("every 24 hours", async ()
 });
 
 // Deletes account-level biometric templates and expires their consent after
-// 12 months with no actual biometric use. Legacy/outdated profiles cannot remain
-// active merely because their model version is still numerically compatible.
+// 12 months with no biometric activity initiated by that user's account.
+// Legacy/outdated profiles cannot remain active merely because their model
+// version is still numerically compatible.
 exports.purgeExpiredBiometricProfiles = onSchedule("every 24 hours", async () => {
   const now = Timestamp.now();
-  const expired = await db.collectionGroup("faceProfile").where("expiresAt", "<=", now).limit(250).get();
   const processed = new Set();
-  for (const doc of expired.docs) {
+
+  // Consent can exist even when a user never completed Face Setup, so consent
+  // itself has an independent server-issued expiry and is swept directly.
+  const expiredConsents = await db.collectionGroup("privacy").where("expiresAt", "<=", now).limit(250).get();
+  for (const doc of expiredConsents.docs) {
+    if (doc.id !== "biometricConsent") continue;
+    const uid = doc.ref.parent.parent && doc.ref.parent.parent.id;
+    if (!uid || processed.has(uid)) continue;
+    processed.add(uid);
+    await expireBiometricProfile(uid, now);
+  }
+
+  const expiredProfiles = await db.collectionGroup("faceProfile").where("expiresAt", "<=", now).limit(250).get();
+  for (const doc of expiredProfiles.docs) {
     const uid = doc.ref.parent.parent && doc.ref.parent.parent.id;
     if (!uid || processed.has(uid)) continue;
     processed.add(uid);
@@ -456,9 +479,19 @@ exports.purgeExpiredBiometricProfiles = onSchedule("every 24 hours", async () =>
       && data.consentDisclosureId === CONSENT_DISCLOSURE_ID
       && data.consentDisclosureSHA256 === CONSENT_DISCLOSURE_SHA256;
 
-    if (!currentProfile || !consentIsCurrent(consent)) {
+    if (!currentProfile) {
       processed.add(uid);
       await removeActiveBiometricProfile(uid);
+      continue;
+    }
+
+    if (!consentIsCurrent(consent)) {
+      processed.add(uid);
+      if (consent && consent.expiresAt instanceof Timestamp && consent.expiresAt.toMillis() <= now.toMillis()) {
+        await expireBiometricProfile(uid, now);
+      } else {
+        await removeActiveBiometricProfile(uid);
+      }
       continue;
     }
 
