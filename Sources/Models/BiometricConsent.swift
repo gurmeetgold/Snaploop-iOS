@@ -158,6 +158,8 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
     public let platform: String
     public let locale: String
     public let acceptedVia: String
+    public let age18Attested: Bool
+    public let noticeAcknowledged: Bool
     public var lastBiometricActivityAt: Date?
 
     public init(
@@ -175,6 +177,8 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
         platform: String = "iOS",
         locale: String? = nil,
         acceptedVia: String = Self.consentMethod,
+        age18Attested: Bool = false,
+        noticeAcknowledged: Bool = false,
         lastBiometricActivityAt: Date? = nil
     ) {
         self.userId = userId
@@ -193,6 +197,8 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
         self.platform = platform
         self.locale = locale ?? Locale.current.identifier
         self.acceptedVia = acceptedVia
+        self.age18Attested = age18Attested
+        self.noticeAcknowledged = noticeAcknowledged
         self.lastBiometricActivityAt = lastBiometricActivityAt
     }
 
@@ -210,6 +216,8 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
             && withdrawnAt == nil
             && expiredAt == nil
             && (expiresAt.map { $0 > Date() } ?? false)
+            && age18Attested
+            && noticeAcknowledged
             && jurisdiction.isFaceMatchAvailable
     }
 }
