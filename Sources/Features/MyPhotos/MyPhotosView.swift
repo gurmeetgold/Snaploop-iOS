@@ -308,7 +308,7 @@ struct PhotoDetailView: View {
     let onFavoriteChanged: (PhotoMatch, Bool) -> Void
     let onNotMe: (PhotoMatch) -> Void
 
-    @State private var selectedMatchID: String
+    @State private var selectedMatchID: String?
 
     init(
         matches: [PhotoMatch],
@@ -329,21 +329,27 @@ struct PhotoDetailView: View {
     var body: some View {
         ZStack {
             BrandScreenBackground()
-            TabView(selection: $selectedMatchID) {
-                ForEach(Array(matches.enumerated()), id: \.element.id) { index, match in
-                    SinglePhotoPage(
-                        match: match,
-                        position: index + 1,
-                        total: matches.count,
-                        ownerLabel: ownerLabel(match),
-                        initialFavorite: isFavorite(match),
-                        onFavoriteChanged: { onFavoriteChanged(match, $0) },
-                        onNotMe: { onNotMe(match) }
-                    )
-                    .tag(match.id)
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(matches.enumerated()), id: \.element.id) { index, match in
+                        SinglePhotoPage(
+                            match: match,
+                            position: index + 1,
+                            total: matches.count,
+                            ownerLabel: ownerLabel(match),
+                            initialFavorite: isFavorite(match),
+                            onFavoriteChanged: { onFavoriteChanged(match, $0) },
+                            onNotMe: { onNotMe(match) }
+                        )
+                        .containerRelativeFrame(.vertical)
+                        .id(match.id)
+                    }
                 }
+                .scrollTargetLayout()
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $selectedMatchID, anchor: .top)
         }
         .navigationTitle("Photo")
         .navigationBarTitleDisplayMode(.inline)
@@ -353,8 +359,8 @@ struct PhotoDetailView: View {
         }
     }
 
-    private func prefetchAdjacent(to matchID: String) async {
-        guard let index = matches.firstIndex(where: { $0.id == matchID }) else { return }
+    private func prefetchAdjacent(to matchID: String?) async {
+        guard let matchID, let index = matches.firstIndex(where: { $0.id == matchID }) else { return }
         var paths: [String] = []
         if index + 1 < matches.count, let path = matches[index + 1].thumbnailPath { paths.append(path) }
         if index > 0, let path = matches[index - 1].thumbnailPath { paths.append(path) }
@@ -397,33 +403,30 @@ private struct SinglePhotoPage: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                Text("\(position) of \(total)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+        GeometryReader { geometry in
+            let photoHeight = max(250, min(geometry.size.height * 0.50, 440))
+
+            VStack(spacing: 10) {
+                HStack {
+                    Text("\(position) of \(total)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if total > 1 {
+                        Label("Swipe up/down", systemImage: "arrow.up.arrow.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 4)
 
                 preview
                     .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .shadow(color: Theme.ink.opacity(0.10), radius: 18, y: 8)
+                    .frame(height: photoHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .shadow(color: Theme.ink.opacity(0.10), radius: 14, y: 6)
 
-                PremiumCard {
-                    HStack {
-                        ZStack {
-                            Circle().fill(Theme.brandGradient)
-                            Text(String(ownerLabel.prefix(1)).uppercased()).bold().foregroundStyle(.white)
-                        }
-                        .frame(width: 42, height: 42)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Taken by \(ownerLabel)").font(.subheadline.bold())
-                            Text(DateFormatting.longDate(match.capturedAt)).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                }
-
-                HStack(spacing: 24) {
+                HStack(spacing: 8) {
                     actionButton("Save", "square.and.arrow.down.fill") { Task { await saveImage() } }
                     actionButton("Share", "square.and.arrow.up.fill") { shareImageAction() }
                     actionButton(favorite ? "Favorited" : "Favorite", favorite ? "heart.fill" : "heart") {
@@ -434,17 +437,32 @@ private struct SinglePhotoPage: View {
                 }
                 .disabled(loader.image == nil)
 
+                PremiumCard {
+                    HStack {
+                        ZStack {
+                            Circle().fill(Theme.brandGradient)
+                            Text(String(ownerLabel.prefix(1)).uppercased()).bold().foregroundStyle(.white)
+                        }
+                        .frame(width: 38, height: 38)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Taken by \(ownerLabel)").font(.subheadline.bold())
+                            Text(DateFormatting.longDate(match.capturedAt)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                }
+
                 if let statusMessage {
                     Text(statusMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                        .lineLimit(2)
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
             .padding(.horizontal, 10)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
+            .padding(.vertical, 8)
         }
         .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
         .sheet(isPresented: $showShareSheet) { if let shareImage { ActivityView(items: [shareImage]) } }
@@ -462,20 +480,13 @@ private struct SinglePhotoPage: View {
     @ViewBuilder private var preview: some View {
         if let image = loader.image {
             ZoomablePhotoView(image: image)
-                .frame(maxWidth: .infinity)
-                .aspectRatio(photoAspectRatio(for: image), contentMode: .fit)
-                .frame(minHeight: 360, maxHeight: 680)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if loader.failed {
             ContentUnavailableViewCompat(title: "Photo unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
-                .frame(maxWidth: .infinity, minHeight: 360)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ProgressView().frame(maxWidth: .infinity, minHeight: 360)
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    private func photoAspectRatio(for image: UIImage) -> CGFloat {
-        guard image.size.height > 0 else { return 1 }
-        return max(image.size.width / image.size.height, 0.52)
     }
 
     private func shareImageAction() {
@@ -507,15 +518,18 @@ private struct SinglePhotoPage: View {
 
     private func actionButton(_ title: String, _ icon: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
         Button(role: role, action: action) {
-            VStack(spacing: 6) {
+            VStack(spacing: 5) {
                 ZStack {
                     Circle().fill(role == .destructive ? Color.red.opacity(0.10) : Theme.peach.opacity(0.26))
-                    Image(systemName: icon).font(.headline)
+                    Image(systemName: icon).font(.subheadline.weight(.semibold))
                 }
-                .frame(width: 44, height: 44)
-                Text(title).font(.caption2).lineLimit(1)
+                .frame(width: 40, height: 40)
+                Text(title).font(.caption2).lineLimit(1).minimumScaleFactor(0.75)
             }
+            .frame(maxWidth: .infinity)
             .foregroundStyle(role == .destructive ? .red : Theme.ink)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 }
