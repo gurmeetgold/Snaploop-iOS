@@ -34,6 +34,12 @@ public final class FirebaseBiometricConsentStore:
         let withdrawnAt =
             (data["withdrawnAt"] as? Timestamp)?.dateValue()
 
+        let expiredAt =
+            (data["expiredAt"] as? Timestamp)?.dateValue()
+
+        let lastBiometricActivityAt =
+            (data["lastBiometricActivityAt"] as? Timestamp)?.dateValue()
+
         let version =
             (data["policyVersion"] as? NSNumber)?.intValue
             ?? data["policyVersion"] as? Int
@@ -42,8 +48,18 @@ public final class FirebaseBiometricConsentStore:
         return BiometricConsentRecord(
             userId: userId,
             policyVersion: version,
+            disclosureId: data["disclosureId"] as? String ?? "",
+            disclosureSHA256: data["disclosureSHA256"] as? String ?? "",
             acceptedAt: acceptedAt,
-            withdrawnAt: withdrawnAt
+            withdrawnAt: withdrawnAt,
+            expiredAt: expiredAt,
+            jurisdictionCountry: data["jurisdictionCountry"] as? String ?? "",
+            jurisdictionSubdivision: data["jurisdictionSubdivision"] as? String ?? "",
+            appVersion: data["appVersion"] as? String ?? "unknown",
+            platform: data["platform"] as? String ?? "iOS",
+            locale: data["locale"] as? String ?? "unknown",
+            acceptedVia: data["acceptedVia"] as? String ?? "unknown",
+            lastBiometricActivityAt: lastBiometricActivityAt
         )
     }
 
@@ -53,7 +69,15 @@ public final class FirebaseBiometricConsentStore:
         _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
             functions.httpsCallable("acceptBiometricConsent").call([
                 "userId": record.userId,
-                "policyVersion": record.policyVersion
+                "policyVersion": record.policyVersion,
+                "disclosureId": record.disclosureId,
+                "disclosureSHA256": record.disclosureSHA256,
+                "jurisdictionCountry": record.jurisdictionCountry,
+                "jurisdictionSubdivision": record.jurisdictionSubdivision,
+                "appVersion": record.appVersion,
+                "platform": record.platform,
+                "locale": record.locale,
+                "acceptedVia": record.acceptedVia
             ]) { result, error in
                 if let error { continuation.resume(throwing: error); return }
                 continuation.resume(returning: result?.data as Any)
