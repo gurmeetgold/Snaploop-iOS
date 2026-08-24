@@ -111,11 +111,21 @@ public final class PipelineFaceDetectionService: FaceDetectionService, FaceDiagn
     }
 
     public func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding {
-        guard isReadyForMatching else { throw AppError.faceRecognitionNotReady }
-        let aligned = try await FaceAligner.alignedFaces(in: imageData, outputSize: engine.expectedInputSize)
-        guard !aligned.isEmpty else { throw AppError.noFaceDetectedInSelfie }
-        guard aligned.count == 1 else { throw AppError.multipleFacesInSelfie }
-        return try await engine.embedding(forAlignedFace: aligned[0].image)
+        // Enrollment and normal photo matching must use the same alignment,
+        // quality, size and pose gates. Previously enrollment bypassed the
+        // post-alignment gates and could persist a template that the production
+        // matching path itself would have rejected. That makes a five-pose
+        // setup look complete while weakening the reference set.
+        let diagnostics = try await diagnose(in: imageData)
+        guard diagnostics.facesDetected > 0 else { throw AppError.noFaceDetectedInSelfie }
+        guard diagnostics.facesDetected == 1 else { throw AppError.multipleFacesInSelfie }
+        guard diagnostics.facesWithUsableLandmarks == 1,
+              diagnostics.alignmentFailures == 0,
+              diagnostics.samples.count == 1,
+              let embedding = diagnostics.samples[0].embedding else {
+            throw AppError.faceEmbeddingFailed
+        }
+        return embedding
     }
 
     public func alignedFaces(in imageData: Data) async throws -> [AlignedFace] {
