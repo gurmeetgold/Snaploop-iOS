@@ -19,12 +19,14 @@ final class CreateEventModel: ObservableObject {
     }
 
     func create() async -> Event? {
+        guard !isSaving else { return nil }
         guard let env, let session else { return nil }
         guard let user = session.user, let profile = session.faceProfile else {
             errorMessage = "Complete Face Setup before creating an Event so SnapLoop can find your photos."
             return nil
         }
         isSaving = true
+        errorMessage = nil
         defer { isSaving = false }
         do {
             let factory = EventFactory(config: env.config.current, clock: env.clock)
@@ -133,32 +135,57 @@ struct CreateEventView: View {
                             }
                         }
 
-                        if let error = model.errorMessage {
-                            Label(error, systemImage: "exclamationmark.triangle.fill")
-                                .font(.footnote).foregroundStyle(.red)
-                                .multilineTextAlignment(.center)
-                        }
+                        if !session.hasFaceProfile {
+                            PremiumCard {
+                                VStack(spacing: 12) {
+                                    Label("Complete Face Setup before creating an Event so SnapLoop can find your photos.", systemImage: "faceid")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Theme.ink)
+                                        .multilineTextAlignment(.center)
 
-                        Button {
-                            Task {
-                                if let event = await model.create() {
-                                    onCreated(event)
-                                    dismiss()
+                                    NavigationLink {
+                                        FaceSetupView(onSaved: { model.errorMessage = nil })
+                                    } label: {
+                                        Label("Complete Face Setup", systemImage: "faceid")
+                                            .font(.headline)
+                                            .frame(maxWidth: .infinity)
+                                            .frame(height: 52)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(.white)
+                                    .background(Theme.brandGradient, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                                 }
                             }
-                        } label: {
-                            HStack {
-                                if model.isSaving { ProgressView().tint(.white) }
-                                else { Image(systemName: "sparkles") }
-                                Text("Create Event")
+                        } else {
+                            if let error = model.errorMessage {
+                                Label(error, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.footnote).foregroundStyle(.red)
+                                    .multilineTextAlignment(.center)
                             }
+
+                            Button {
+                                guard !model.isSaving else { return }
+                                Task {
+                                    if let event = await model.create() {
+                                        onCreated(event)
+                                        dismiss()
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    if model.isSaving { ProgressView().tint(.white) }
+                                    else { Image(systemName: "sparkles") }
+                                    Text("Create Event")
+                                }
+                            }
+                            .buttonStyle(MyPicsTubePrimaryButtonStyle())
+                            .disabled(model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSaving)
+                            .opacity(model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
                         }
-                        .buttonStyle(MyPicsTubePrimaryButtonStyle())
-                        .disabled(model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isSaving)
-                        .opacity(model.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
                     }
                     .padding(20)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .navigationTitle("New Event")
             .navigationBarTitleDisplayMode(.inline)
