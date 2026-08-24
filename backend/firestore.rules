@@ -31,10 +31,10 @@ service cloud.firestore {
       allow create, update, delete: if false;
 
       match /faceProfile/{doc} {
+        // Biometric profiles are written only by trusted Cloud Functions after
+        // current consent, jurisdiction, payload, and retention checks pass.
         allow read: if isSelf(userId);
-        allow create, update: if isSelf(userId)
-          && request.resource.data.userId == userId;
-        allow delete: if false;
+        allow create, update, delete: if false;
       }
 
       match /privacy/{doc} {
