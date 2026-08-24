@@ -98,6 +98,8 @@ function consentIsCurrent(consent) {
     && consent.expiredAt == null
     && consent.expiresAt instanceof Timestamp
     && consent.expiresAt.toMillis() > Date.now()
+    && consent.age18Attested === true
+    && consent.noticeAcknowledged === true
     && jurisdictionIsStaticallySupported(country, subdivision);
 }
 function consentJurisdiction(consent) {
@@ -249,6 +251,9 @@ exports.acceptBiometricConsent = onCall(async (request) => {
       || data.disclosureSHA256 !== CONSENT_DISCLOSURE_SHA256) {
     throw new HttpsError("failed-precondition", "Please review the current Face Match Consent before continuing.");
   }
+  if (data.age18Attested !== true || data.noticeAcknowledged !== true) {
+    throw new HttpsError("failed-precondition", "Both the age confirmation and Face Match consent confirmation are required.");
+  }
 
   const country = normalizeCode(data.jurisdictionCountry, "jurisdictionCountry");
   const subdivision = normalizeCode(data.jurisdictionSubdivision, "jurisdictionSubdivision");
@@ -294,6 +299,8 @@ exports.acceptBiometricConsent = onCall(async (request) => {
     platform,
     locale,
     acceptedVia: CONSENT_METHOD,
+    age18Attested: true,
+    noticeAcknowledged: true,
   }, { merge: false });
 
   return {
