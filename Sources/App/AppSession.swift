@@ -72,7 +72,9 @@ public final class AppSession: ObservableObject {
 
     public var hasFaceProfile: Bool {
         guard let user, let faceProfile else { return false }
-        return faceProfile.userId == user.id && faceProfile.version == FaceModelPolicy.currentVersion
+        return faceProfile.userId == user.id
+            && faceProfile.version == FaceModelPolicy.currentVersion
+            && !faceProfile.stableFaceIdentityId.isEmpty
     }
 
     public var isFaceProfileResolved: Bool {
@@ -165,6 +167,7 @@ public final class AppSession: ObservableObject {
         )
         let profile = FaceProfile(
             userId: "dev-user",
+            faceIdentityId: "dev-face-identity",
             embedding: FaceEmbedding(normalized: [1, 0, 0]),
             version: FaceModelPolicy.currentVersion,
             updatedAt: Date()
