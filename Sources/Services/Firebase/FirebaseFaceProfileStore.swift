@@ -42,6 +42,20 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
     }
 
     public func save(_ profile: FaceProfile) async throws {
+        // A normal "Update Face Setup" is an update of the same biometric
+        // subject, not a way to transfer this account's face identity to another
+        // person. Compare the new guided enrollment against the currently active
+        // profile before sending the replacement to the backend. A user who has
+        // intentionally deleted Face Setup has no active profile and must give
+        // fresh consent before creating a new one.
+        if let existing = try await load(userId: profile.userId),
+           existing.version == FaceModelPolicy.currentVersion,
+           !existing.faceProfileRevision.isEmpty,
+           existing.faceProfileRevision != profile.faceProfileRevision,
+           !Self.isSameIdentityReplacement(newProfile: profile, existingProfile: existing) {
+            throw AppError.faceIdentityMismatch
+        }
+
         let templates: [[String: Any]] = profile.templates.map { template in
             [
                 "id": template.id,
@@ -82,6 +96,37 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
             .document(userId)
             .collection("faceProfile")
             .document("current")
+    }
+
+    static func isSameIdentityReplacement(
+        newProfile: FaceProfile,
+        existingProfile: FaceProfile
+    ) -> Bool {
+        let newEmbeddings = newProfile.templates
+            .filter { $0.pose != .imported }
+            .map(\.embedding)
+        guard newEmbeddings.count >= 3 else { return false }
+
+        let oldEmbeddings = existingProfile.effectiveEmbeddings
+        guard !oldEmbeddings.isEmpty else { return false }
+
+        let accepted = newEmbeddings.reduce(into: 0) { count, newEmbedding in
+            let similarities = oldEmbeddings.compactMap {
+                newEmbedding.cosineSimilarity(to: $0)
+            }
+            if FaceTemplateMatchPolicy.evaluate(
+                similarities: similarities,
+                threshold: FaceModelPolicy.evaluationMatchThreshold
+            )?.isAccepted == true {
+                count += 1
+            }
+        }
+
+        // Require agreement from a majority of the guided enrollment frames,
+        // with at least two independently accepted frames. This catches a clear
+        // identity replacement while allowing ordinary pose/expression changes.
+        let required = max(2, Int(ceil(Double(newEmbeddings.count) * 0.60)))
+        return accepted >= required
     }
 
     private static func isCurrentEligibleProfile(_ data: [String: Any]) -> Bool {
