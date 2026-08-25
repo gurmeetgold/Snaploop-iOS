@@ -39,10 +39,10 @@ service firebase.storage {
         && firestore.get(photoPath(eventId, photoId)).data.sourceUserId == ownerUserId
         && firestore.get(photoPath(eventId, photoId)).data.matchedUserIds is list
         && firestore.get(photoPath(eventId, photoId)).data.matchedUserIds.hasAny([request.auth.uid])
-        && firestore.get(photoPath(eventId, photoId)).data.matchedProfileRevisions is map
-        && firestore.get(photoPath(eventId, photoId)).data.matchedProfileRevisions.get(request.auth.uid, '') != ''
-        && firestore.get(photoPath(eventId, photoId)).data.matchedProfileRevisions.get(request.auth.uid, '') ==
-           firestore.get(faceProfilePath(request.auth.uid)).data.get('identityRevision', '');
+        && firestore.get(photoPath(eventId, photoId)).data.matchedFaceIdentityIds is map
+        && firestore.get(photoPath(eventId, photoId)).data.matchedFaceIdentityIds.get(request.auth.uid, '') != ''
+        && firestore.get(photoPath(eventId, photoId)).data.matchedFaceIdentityIds.get(request.auth.uid, '') ==
+           firestore.get(faceProfilePath(request.auth.uid)).data.get('faceIdentityId', '');
     }
 
     match /events/{eventId}/cover.jpg {
@@ -54,9 +54,9 @@ service firebase.storage {
     }
 
     match /events/{eventId}/photos/{ownerUserId}/{photoId}/thumbnail.jpg {
-      // Preview access is bound to the exact Face Setup revision that produced
-      // the viewer's match. Replacing Face Setup immediately invalidates older
-      // preview authorization even before asynchronous cleanup completes.
+      // Preview access follows the viewer's stable face identity. Updating Face
+      // Setup for the same verified person keeps existing previews available;
+      // deleting Face Setup and enrolling another identity invalidates them.
       allow read: if isMember(eventId)
         && publishedPhotoVisibleToViewer(eventId, ownerUserId, photoId);
 
