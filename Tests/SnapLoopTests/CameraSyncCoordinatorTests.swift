@@ -173,19 +173,20 @@ final class BiometricConsentPolicyTests: XCTestCase {
         XCTAssertFalse(BiometricJurisdiction(countryCode: "IN", subdivisionCode: "DL").isFaceMatchAvailable)
     }
 
-    func testQuebecAndConservativeUSRiskStatesAreBlocked() {
+    func testQuebecAndUnitedStatesAreBlocked() {
         XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
-        for state in BiometricJurisdictionCatalog.blockedUnitedStates {
-            XCTAssertFalse(
-                BiometricJurisdiction(countryCode: "US", subdivisionCode: state).isFaceMatchAvailable,
-                "Expected \(state) to remain blocked for Face Match"
-            )
-        }
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "AK").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "IL").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "NY").isFaceMatchAvailable)
     }
 
-    func testKnownLowerRiskLaunchJurisdictionsRemainAvailable() {
+    func testSupportedLaunchJurisdictionsRemainAvailable() {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
-        XCTAssertTrue(BiometricJurisdiction(countryCode: "US", subdivisionCode: "AK").isFaceMatchAvailable)
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
+    }
+
+    func testLaunchCountryPickerContainsOnlyIndiaAndCanada() {
+        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["IN", "CA"])
     }
 
     func testAgeAttestationIsRequiredForActiveConsent() {
@@ -203,7 +204,7 @@ final class BiometricConsentPolicyTests: XCTestCase {
     func testCanonicalDisclosureHashIsPinned() {
         XCTAssertEqual(
             BiometricConsentRecord.currentDisclosureSHA256,
-            "23259c73e44fdb2f335a01a53cd6800947d204a5495731580b8c010917b4eab6"
+            "3a8bf78ce8ece5232e25f6ad742845a29f974722ade8e7cc086b372e95558cf4"
         )
     }
 }
