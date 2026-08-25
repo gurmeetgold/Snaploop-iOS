@@ -10,6 +10,7 @@ public enum AppError: Error, Equatable, Sendable {
     case noFaceDetectedInSelfie
     case multipleFacesInSelfie
     case faceEmbeddingFailed
+    case faceIdentityMismatch
     case faceRecognitionNotReady
     case deviceTooWarm
     case syncCancelled
@@ -52,6 +53,8 @@ public extension AppError {
             return "Make sure it's just you in the photo, then try again."
         case .faceEmbeddingFailed:
             return "Something went wrong setting up your face. Please try again."
+        case .faceIdentityMismatch:
+            return "This scan does not match your current Face Setup. To protect privacy, an existing Face Setup can only be updated with the same person."
         case .faceRecognitionNotReady:
             return "Camera matching is not ready for this build. Your photos have not been marked as scanned."
         case .deviceTooWarm:
