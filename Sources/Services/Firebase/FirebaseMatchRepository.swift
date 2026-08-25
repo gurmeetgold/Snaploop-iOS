@@ -32,10 +32,16 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             }
         }
 
-        let appearances: [[String: Any]] = match.appearances.map {
-            [
+        let appearances: [[String: Any]] = try match.appearances.map {
+            guard let identityId = $0.faceIdentityId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !identityId.isEmpty,
+                  !$0.faceProfileRevision.isEmpty else {
+                throw AppError.decoding("match appearance missing face identity metadata")
+            }
+            return [
                 "participantUserId": $0.participantUserId,
                 "confidence": $0.confidence,
+                "faceIdentityId": identityId,
                 "faceProfileRevision": $0.faceProfileRevision
             ]
         }
@@ -130,12 +136,15 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         }
 
         let appearances = (data["appearances"] as? [[String: Any]] ?? []).compactMap { item -> PhotoMatch.Appearance? in
-            guard let userId = item["participantUserId"] as? String else { return nil }
+            guard let userId = item["participantUserId"] as? String,
+                  let identityId = item["faceIdentityId"] as? String,
+                  !identityId.isEmpty else { return nil }
             let confidence = numeric(item["confidence"]) ?? 0
             let dismissed = item["dismissedByUser"] as? Bool ?? false
             return PhotoMatch.Appearance(
                 participantUserId: userId,
                 confidence: confidence,
+                faceIdentityId: identityId,
                 faceProfileRevision: item["faceProfileRevision"] as? String ?? "",
                 dismissedByUser: dismissed
             )
