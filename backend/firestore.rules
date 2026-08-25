@@ -29,11 +29,11 @@ service cloud.firestore {
       return isSignedIn()
         && resource.data.matchedUserIds is list
         && resource.data.matchedUserIds.hasAny([request.auth.uid])
-        && resource.data.matchedProfileRevisions is map
+        && resource.data.matchedFaceIdentityIds is map
         && exists(faceProfilePath(request.auth.uid))
-        && resource.data.matchedProfileRevisions.get(request.auth.uid, '') != ''
-        && resource.data.matchedProfileRevisions.get(request.auth.uid, '') ==
-           get(faceProfilePath(request.auth.uid)).data.get('identityRevision', '');
+        && resource.data.matchedFaceIdentityIds.get(request.auth.uid, '') != ''
+        && resource.data.matchedFaceIdentityIds.get(request.auth.uid, '') ==
+           get(faceProfilePath(request.auth.uid)).data.get('faceIdentityId', '');
     }
 
     match /users/{userId} {
@@ -41,8 +41,6 @@ service cloud.firestore {
       allow create, update, delete: if false;
 
       match /faceProfile/{doc} {
-        // Biometric profiles are written only by trusted Cloud Functions after
-        // current consent, jurisdiction, payload, and retention checks pass.
         allow read: if isSelf(userId);
         allow create, update, delete: if false;
       }
@@ -115,9 +113,10 @@ service cloud.firestore {
       }
 
       match /photos/{photoId} {
-        // A UID match is not enough. The photo must have been matched using the
-        // viewer's current Face Setup revision. Replacing Face Setup therefore
-        // revokes direct Firestore access to all older face-derived results.
+        // Continued access is tied to the viewer's stable biometric identity,
+        // not to a particular enrollment revision. A verified same-person Face
+        // Setup refresh preserves existing positive matches; deleting Face Setup
+        // and enrolling a new identity revokes the older photo authorization.
         allow read: if isMember(eventId) && isMatchedInPhoto();
         allow create, update, delete: if false;
       }
