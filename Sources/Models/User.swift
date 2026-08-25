@@ -24,7 +24,6 @@ public struct User: Identifiable, Equatable, Codable, Sendable {
     }
 }
 
-
 /// One enrollment template for a specific appearance/pose.
 ///
 /// The raw image is never part of this model. Only the normalized descriptor
@@ -102,6 +101,16 @@ public struct FaceProfile: Equatable, Codable, Sendable {
         self.templates = templates
         self.version = version
         self.updatedAt = updatedAt
+    }
+
+    /// Opaque identity revision for this exact enrollment. Template IDs are
+    /// random identifiers, not biometric vectors. A fresh guided enrollment
+    /// receives new IDs, so caches and cloud matches can be invalidated without
+    /// persisting or exposing any additional biometric measurement.
+    public var faceProfileRevision: String {
+        let templateIds = templates.map(\.id).filter { !$0.isEmpty }.sorted()
+        guard !templateIds.isEmpty else { return "" }
+        return "v\(version):\(templateIds.joined(separator: "|"))"
     }
 
     /// New code should compare against this set. Old profiles automatically
