@@ -63,15 +63,28 @@ public struct CameraSyncCoordinator {
 
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
-        // Preference revision is part of the local scan-state key so turning
-        // sharing back on or changing own-photo visibility causes a clean pass.
+
+        // A scan is valid only for the exact Face Setup revisions in the roster
+        // that produced it. If any Event member updates Face Setup, the revision
+        // changes and every device receives a fresh scan-state namespace on its
+        // next sync. This prevents "already scanned" state from preserving stale
+        // identity decisions after a participant's face profile changes.
+        let rosterRevision = participants
+            .map { "\($0.userId)=\($0.faceProfileRevision)" }
+            .sorted()
+            .joined(separator: ";")
+
+        // Preference revision is also part of the local scan-state key so
+        // turning sharing back on or changing own-photo visibility causes a
+        // clean pass.
         let scanStateKey = [
             event.id,
             currentUserId,
             FaceModelPolicy.scanGeneration,
-            "sharing-v3",
+            "sharing-v4",
             includeOwnMatches ? "own-on" : "own-off",
             preferenceRevision,
+            rosterRevision,
         ].joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
         state.retainScannedAssetIds(Set(assets.map(\.id)))
