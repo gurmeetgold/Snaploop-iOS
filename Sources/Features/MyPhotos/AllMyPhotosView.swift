@@ -1,17 +1,34 @@
 import SwiftUI
 
 private enum CachedGalleryMatches {
-    private static func key(userId: String) -> String { "snaploop.gallery.cache.\(userId)" }
+    private static func prefix(userId: String) -> String { "snaploop.gallery.cache.\(userId)" }
+    private static func key(userId: String, faceRevision: String) -> String {
+        "\(prefix(userId: userId)).\(faceRevision)"
+    }
 
-    static func load(userId: String) -> [PhotoMatch] {
-        guard let data = UserDefaults.standard.data(forKey: key(userId: userId)),
+    static func load(userId: String, faceRevision: String) -> [PhotoMatch] {
+        guard !faceRevision.isEmpty,
+              let data = UserDefaults.standard.data(forKey: key(userId: userId, faceRevision: faceRevision)),
               let matches = try? JSONDecoder().decode([PhotoMatch].self, from: data) else { return [] }
         return matches
     }
 
-    static func save(_ matches: [PhotoMatch], userId: String) {
-        guard let data = try? JSONEncoder().encode(matches) else { return }
-        UserDefaults.standard.set(data, forKey: key(userId: userId))
+    static func save(_ matches: [PhotoMatch], userId: String, faceRevision: String) {
+        guard !faceRevision.isEmpty,
+              let data = try? JSONEncoder().encode(matches) else { return }
+        UserDefaults.standard.set(data, forKey: key(userId: userId, faceRevision: faceRevision))
+    }
+
+    /// Face-derived Gallery metadata must never cross a Face Setup identity
+    /// boundary. Remove legacy/user-only caches and every prior Face Setup
+    /// revision as soon as the current account/profile is configured.
+    static func purgeOtherRevisions(userId: String, keeping faceRevision: String?) {
+        let base = prefix(userId: userId)
+        let keep = faceRevision.flatMap { $0.isEmpty ? nil : key(userId: userId, faceRevision: $0) }
+        for existingKey in UserDefaults.standard.dictionaryRepresentation().keys
+            where existingKey == base || existingKey.hasPrefix("\(base).") {
+            if existingKey != keep { UserDefaults.standard.removeObject(forKey: existingKey) }
+        }
     }
 }
 
@@ -38,11 +55,18 @@ final class AllMyPhotosModel: ObservableObject {
     func configure(env: AppEnvironment, session: AppSession) {
         self.env = env
         self.session = session
-        if let userId = session.user?.id, photos.isEmpty {
-            photos = CachedGalleryMatches.load(userId: userId)
-            favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
-            if let name = session.user?.displayName, !name.isEmpty { ownerNames[userId] = name }
+        guard let userId = session.user?.id else { return }
+
+        let revision = session.faceProfile?.faceProfileRevision
+        CachedGalleryMatches.purgeOtherRevisions(userId: userId, keeping: revision)
+        if let revision, !revision.isEmpty, photos.isEmpty {
+            photos = CachedGalleryMatches.load(userId: userId, faceRevision: revision)
+        } else if revision == nil || revision?.isEmpty == true {
+            photos = []
         }
+
+        favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+        if let name = session.user?.displayName, !name.isEmpty { ownerNames[userId] = name }
     }
 
     func reload() async {
@@ -51,6 +75,17 @@ final class AllMyPhotosModel: ObservableObject {
         let generation = reloadGeneration
         isLoading = true
         errorMessage = nil
+
+        guard let faceRevision = session?.faceProfile?.faceProfileRevision,
+              !faceRevision.isEmpty else {
+            photos = []
+            CachedGalleryMatches.purgeOtherRevisions(userId: userId, keeping: nil)
+            favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+            isLoading = false
+            return
+        }
+
+        CachedGalleryMatches.purgeOtherRevisions(userId: userId, keeping: faceRevision)
 
         let events: [Event]
         do { events = try await env.events.events(forUserId: userId) }
@@ -95,10 +130,18 @@ final class AllMyPhotosModel: ObservableObject {
         }
 
         guard generation == reloadGeneration else { return }
+        // If Face Setup changed while network work was in flight, discard this
+        // entire response rather than caching results under the new identity.
+        guard session?.faceProfile?.faceProfileRevision == faceRevision else {
+            photos = []
+            isLoading = false
+            return
+        }
+
         let refreshed = PhotoMatchDeduplication.unique(allMatches).sorted { $0.capturedAt > $1.capturedAt }
         photos = refreshed
         ownerNames = names
-        CachedGalleryMatches.save(refreshed, userId: userId)
+        CachedGalleryMatches.save(refreshed, userId: userId, faceRevision: faceRevision)
         favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
         errorMessage = firstError.map { ($0 as NSError).localizedDescription }
         isLoading = false
@@ -120,7 +163,9 @@ final class AllMyPhotosModel: ObservableObject {
     func markNotMe(_ match: PhotoMatch) async {
         guard let env, let userId = session?.user?.id else { return }
         photos.removeAll { $0.ownerUserId == match.ownerUserId && $0.assetLocalId == match.assetLocalId }
-        CachedGalleryMatches.save(photos, userId: userId)
+        if let revision = session?.faceProfile?.faceProfileRevision, !revision.isEmpty {
+            CachedGalleryMatches.save(photos, userId: userId, faceRevision: revision)
+        }
         favoriteIds.remove(match.id)
         LocalPhotoFavoritesStore.set(false, matchId: match.id, userId: userId)
         do { try await env.matches.dismissAppearance(matchId: match.id, participantUserId: userId) }
