@@ -14,16 +14,12 @@ const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
 const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";
 
 function requireAuth(request) {
-  if (!request.auth || !request.auth.uid) {
-    throw new HttpsError("unauthenticated", "You must be signed in.");
-  }
+  if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
   return request.auth.uid;
 }
 
 function requireString(value, name) {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new HttpsError("invalid-argument", `${name} is required.`);
-  }
+  if (typeof value !== "string" || value.trim().length === 0) throw new HttpsError("invalid-argument", `${name} is required.`);
   return value.trim();
 }
 
@@ -49,8 +45,11 @@ function profileRevision(profile) {
     .map((item) => item && typeof item.id === "string" ? item.id.trim() : "")
     .filter(Boolean)
     .sort();
-  if (version <= 0 || ids.length === 0) return null;
-  return `v${version}:${ids.join("|")}`;
+  return version > 0 && ids.length ? `v${version}:${ids.join("|")}` : null;
+}
+
+function profileIdentity(profile) {
+  return profile && typeof profile.faceIdentityId === "string" ? profile.faceIdentityId.trim() : "";
 }
 
 function profileIsCurrent(profile) {
@@ -61,7 +60,8 @@ function profileIsCurrent(profile) {
     && profile.consentDisclosureSHA256 === CONSENT_DISCLOSURE_SHA256
     && profile.expiresAt instanceof Timestamp
     && profile.expiresAt.toMillis() > Date.now()
-    && !!profileRevision(profile);
+    && !!profileRevision(profile)
+    && !!profileIdentity(profile);
 }
 
 async function requireMember(eventId, uid) {
@@ -73,9 +73,7 @@ async function requireMember(eventId, uid) {
 async function commitUpdates(items) {
   for (let offset = 0; offset < items.length; offset += 400) {
     const batch = db.batch();
-    for (const item of items.slice(offset, offset + 400)) {
-      batch.update(item.ref, item.data);
-    }
+    for (const item of items.slice(offset, offset + 400)) batch.update(item.ref, item.data);
     await batch.commit();
   }
 }
@@ -98,18 +96,17 @@ async function scrubUserFromAllEventMatches(uid) {
       const matchedUserIds = Array.isArray(data.matchedUserIds)
         ? data.matchedUserIds.filter((userId) => userId !== uid)
         : [];
+      const matchedFaceIdentityIds = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
+        ? { ...data.matchedFaceIdentityIds }
+        : {};
       const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
         ? { ...data.matchedProfileRevisions }
         : {};
+      delete matchedFaceIdentityIds[uid];
       delete matchedProfileRevisions[uid];
       return {
         ref: doc.ref,
-        data: {
-          appearances,
-          matchedUserIds,
-          matchedProfileRevisions,
-          updatedAt: Timestamp.now(),
-        },
+        data: { appearances, matchedUserIds, matchedFaceIdentityIds, matchedProfileRevisions, updatedAt: Timestamp.now() },
       };
     });
 
@@ -128,15 +125,10 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
   const eventId = requireString(data.eventId, "eventId");
   const assetLocalId = requireString(data.assetLocalId, "assetLocalId");
   const matchId = requireString(data.id, "id");
-  const canonicalMatchId = `${eventId}:${assetLocalId}`;
-  if (matchId !== canonicalMatchId) {
-    throw new HttpsError("invalid-argument", "Photo identity is invalid.");
-  }
+  if (matchId !== `${eventId}:${assetLocalId}`) throw new HttpsError("invalid-argument", "Photo identity is invalid.");
 
   const sourceMember = await requireMember(eventId, uid);
-  if (sourceMember.sharingEnabled === false) {
-    throw new HttpsError("failed-precondition", "Photo sharing is turned off for this event.");
-  }
+  if (sourceMember.sharingEnabled === false) throw new HttpsError("failed-precondition", "Photo sharing is turned off for this event.");
 
   const eventSnap = await db.doc(`events/${eventId}`).get();
   if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
@@ -145,74 +137,59 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
 
   const capturedAtMillis = requireMillis(data.capturedAtMillis, "capturedAt");
   const matchedAtMillis = requireMillis(data.matchedAtMillis, "matchedAt");
-  if (matchedAtMillis > Date.now() + MAX_CLOCK_SKEW_MS) {
-    throw new HttpsError("invalid-argument", "Match time is invalid.");
-  }
-  if (event.startsAt instanceof Timestamp && capturedAtMillis < event.startsAt.toMillis()) {
-    throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
-  }
-  if (event.endsAt instanceof Timestamp && capturedAtMillis > event.endsAt.toMillis()) {
-    throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
-  }
+  if (matchedAtMillis > Date.now() + MAX_CLOCK_SKEW_MS) throw new HttpsError("invalid-argument", "Match time is invalid.");
+  if (event.startsAt instanceof Timestamp && capturedAtMillis < event.startsAt.toMillis()) throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
+  if (event.endsAt instanceof Timestamp && capturedAtMillis > event.endsAt.toMillis()) throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
 
-  if (!Array.isArray(data.appearances) || data.appearances.length > MAX_APPEARANCES) {
-    throw new HttpsError("invalid-argument", "Appearances are invalid.");
-  }
+  if (!Array.isArray(data.appearances) || data.appearances.length > MAX_APPEARANCES) throw new HttpsError("invalid-argument", "Appearances are invalid.");
 
   const seen = new Set();
   const appearances = [];
+  const matchedFaceIdentityIds = {};
   const matchedProfileRevisions = {};
 
   for (const raw of data.appearances) {
     const participantUserId = requireString(raw && raw.participantUserId, "participantUserId");
     const confidence = Number(raw && raw.confidence);
+    const suppliedIdentity = requireString(raw && raw.faceIdentityId, "faceIdentityId");
     const suppliedRevision = requireString(raw && raw.faceProfileRevision, "faceProfileRevision");
-    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-      throw new HttpsError("invalid-argument", "Appearance confidence is invalid.");
-    }
-    if (seen.has(participantUserId)) {
-      throw new HttpsError("invalid-argument", "Duplicate participant appearance.");
-    }
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new HttpsError("invalid-argument", "Appearance confidence is invalid.");
+    if (seen.has(participantUserId)) throw new HttpsError("invalid-argument", "Duplicate participant appearance.");
     seen.add(participantUserId);
 
     const [memberSnap, profileSnap] = await Promise.all([
       db.doc(`events/${eventId}/members/${participantUserId}`).get(),
       db.doc(`users/${participantUserId}/faceProfile/current`).get(),
     ]);
-    if (!memberSnap.exists) {
-      throw new HttpsError("invalid-argument", "A matched person is not a member of this event.");
-    }
+    if (!memberSnap.exists) throw new HttpsError("invalid-argument", "A matched person is not a member of this event.");
     const profile = profileSnap.exists ? profileSnap.data() || {} : null;
-    if (!profileIsCurrent(profile)) {
-      throw new HttpsError("failed-precondition", "A matched person's Face Setup is no longer active. Refresh the Event and scan again.");
-    }
+    if (!profileIsCurrent(profile)) throw new HttpsError("failed-precondition", "A matched person's Face Setup is no longer active. Refresh the Event and scan again.");
+
+    const currentIdentity = profileIdentity(profile);
     const currentRevision = profileRevision(profile);
-    if (suppliedRevision !== currentRevision) {
+    if (suppliedIdentity !== currentIdentity || suppliedRevision !== currentRevision) {
       throw new HttpsError("failed-precondition", "A Face Setup changed while this photo was being matched. Refresh the Event and scan again.");
     }
 
     appearances.push({
       participantUserId,
       confidence,
+      faceIdentityId: currentIdentity,
       faceProfileRevision: currentRevision,
       dismissedByUser: false,
     });
+    matchedFaceIdentityIds[participantUserId] = currentIdentity;
     matchedProfileRevisions[participantUserId] = currentRevision;
   }
 
   const docId = photoDocumentId(matchId);
   const thumbnailPath = requireString(data.thumbnailPath, "thumbnailPath");
-  const expectedPath = expectedThumbnailPath(eventId, uid, docId);
-  if (thumbnailPath !== expectedPath) {
-    throw new HttpsError("invalid-argument", "Thumbnail path is invalid.");
-  }
+  if (thumbnailPath !== expectedThumbnailPath(eventId, uid, docId)) throw new HttpsError("invalid-argument", "Thumbnail path is invalid.");
 
   try {
     const [metadata] = await admin.storage().bucket().file(thumbnailPath).getMetadata();
     const size = Number(metadata.size || 0);
-    if (metadata.contentType !== "image/jpeg" || !Number.isFinite(size) || size <= 0 || size > MAX_THUMBNAIL_BYTES) {
-      throw new Error("invalid thumbnail metadata");
-    }
+    if (metadata.contentType !== "image/jpeg" || !Number.isFinite(size) || size <= 0 || size > MAX_THUMBNAIL_BYTES) throw new Error("invalid thumbnail metadata");
   } catch (error) {
     console.error("thumbnail verification failed", { eventId, uid, thumbnailPath, error });
     throw new HttpsError("failed-precondition", "Thumbnail upload could not be verified.");
@@ -225,6 +202,7 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
     assetLocalId,
     appearances,
     matchedUserIds: appearances.map((appearance) => appearance.participantUserId),
+    matchedFaceIdentityIds,
     matchedProfileRevisions,
     capturedAt: Timestamp.fromMillis(capturedAtMillis),
     matchedAt: Timestamp.fromMillis(matchedAtMillis),
@@ -244,11 +222,7 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
   const profileSnap = await db.doc(`users/${uid}/faceProfile/current`).get();
   const profile = profileSnap.exists ? profileSnap.data() || {} : null;
   if (!profileIsCurrent(profile)) return { eventId, photos: [] };
-  const currentRevision = profileRevision(profile);
-
-  if (profile.identityRevision !== currentRevision) {
-    await profileSnap.ref.set({ identityRevision: currentRevision }, { merge: true });
-  }
+  const currentIdentity = profileIdentity(profile);
 
   const snap = await db.collection(`events/${eventId}/photos`)
     .where("matchedUserIds", "array-contains", uid)
@@ -257,14 +231,14 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
   const result = [];
   for (const doc of snap.docs) {
     const data = doc.data() || {};
-    const revisionMap = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
-      ? data.matchedProfileRevisions
+    const identityMap = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
+      ? data.matchedFaceIdentityIds
       : {};
-    if (revisionMap[uid] !== currentRevision) continue;
+    if (identityMap[uid] !== currentIdentity) continue;
     const appearances = Array.isArray(data.appearances) ? data.appearances : [];
     const currentAppearance = appearances.find((appearance) =>
       appearance && appearance.participantUserId === uid
-        && appearance.faceProfileRevision === currentRevision
+        && appearance.faceIdentityId === currentIdentity
         && appearance.dismissedByUser !== true
     );
     if (!currentAppearance) continue;
@@ -287,24 +261,20 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
 
 exports.scrubMatchesOnFaceProfileChange = onDocumentWritten("users/{userId}/faceProfile/current", async (event) => {
   const uid = event.params.userId;
-  const beforeExists = !!(event.data && event.data.before && event.data.before.exists);
-  const afterExists = !!(event.data && event.data.after && event.data.after.exists);
-  const before = beforeExists ? event.data.before.data() || {} : null;
-  const after = afterExists ? event.data.after.data() || {} : null;
+  const before = event.data && event.data.before && event.data.before.exists ? event.data.before.data() || {} : null;
+  const after = event.data && event.data.after && event.data.after.exists ? event.data.after.data() || {} : null;
+  const beforeIdentity = profileIdentity(before);
+  const afterIdentity = profileIdentity(after);
   const beforeRevision = profileRevision(before);
   const afterRevision = profileRevision(after);
 
-  if (afterExists && afterRevision && after.identityRevision !== afterRevision) {
-    await event.data.after.ref.set({ identityRevision: afterRevision }, { merge: true });
+  if (beforeIdentity && beforeIdentity !== afterIdentity) {
+    const scrubbedPhotos = await scrubUserFromAllEventMatches(uid);
+    console.log("Face identity changed; old face-derived matches scrubbed", { uid, scrubbedPhotos });
+    return;
   }
 
-  if (beforeRevision !== afterRevision) {
-    const scrubbedPhotos = await scrubUserFromAllEventMatches(uid);
-    console.log("Face Setup identity revision changed; stale matches scrubbed", {
-      uid,
-      scrubbedPhotos,
-      hadPreviousRevision: !!beforeRevision,
-      hasCurrentRevision: !!afterRevision,
-    });
+  if (beforeIdentity && beforeIdentity === afterIdentity && beforeRevision !== afterRevision) {
+    console.log("Face Setup refreshed for the same identity; existing positive matches preserved", { uid });
   }
 });
