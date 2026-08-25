@@ -62,9 +62,10 @@ final class PrivacyModel: ObservableObject {
         }
     }
 
-    func deleteFaceProfile() async {
-        guard let env, let userId = session?.user?.id else { return }
+    func deleteFaceProfile() async -> Bool {
+        guard let env, let userId = session?.user?.id else { return false }
         busy = true
+        message = nil
         defer { busy = false }
         do {
             try await env.makeErasureService().deleteFaceProfile(userId: userId)
@@ -72,8 +73,10 @@ final class PrivacyModel: ObservableObject {
             session?.requireFaceSetupAfterDeletion()
             await refreshConsent()
             message = nil
+            return true
         } catch {
             message = AppError.unknown("\(error)").userMessage
+            return false
         }
     }
 
@@ -105,6 +108,7 @@ final class PrivacyModel: ObservableObject {
 struct PrivacyView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var model = PrivacyModel()
     @State private var confirmProfile = false
     @State private var confirmAccount = false
@@ -153,10 +157,16 @@ struct PrivacyView: View {
             )
         }
         .confirmationDialog("Delete your Face Setup?", isPresented: $confirmProfile, titleVisibility: .visible) {
-            Button("Delete Face Setup", role: .destructive) { Task { await model.deleteFaceProfile() } }
+            Button("Delete Face Setup", role: .destructive) {
+                Task {
+                    if await model.deleteFaceProfile() {
+                        dismiss()
+                    }
+                }
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the local Face Setup images, stored face-template metadata, and matching derivatives. Automatic face matching stops until you set it up again. Your existing Face Match consent remains on record unless you separately withdraw it or it expires after 12 months without biometric activity.")
+            Text("Deletes your local Face Setup image, cloud face template, and related match data. Face Match stops until you set it up again. Your consent record remains until you withdraw it or it expires.")
         }
         .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
@@ -273,14 +283,17 @@ struct PrivacyView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Label("Delete Face Setup", systemImage: "faceid")
                     .font(.headline)
-                    .foregroundStyle(.red)
-                Text("Removes your local Face Setup reference images, private face-template metadata, and your face matches from Event metadata. You can set it up again later.")
+                    .foregroundStyle(session.hasFaceProfile ? .red : .secondary)
+                Text(session.hasFaceProfile
+                     ? "Removes your local Face Setup image, cloud face template, and related match data. You can set it up again later."
+                     : "No Face Setup is currently stored for this account.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 Button(role: .destructive) { confirmProfile = true } label: {
                     Label("Delete Face Setup", systemImage: "trash.fill")
                 }
-                .disabled(model.busy)
+                .disabled(model.busy || !session.hasFaceProfile)
+                .opacity(session.hasFaceProfile ? 1 : 0.45)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
