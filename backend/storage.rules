@@ -15,6 +15,10 @@ service firebase.storage {
       return /databases/(default)/documents/events/$(eventId)/photos/$(photoId);
     }
 
+    function faceProfilePath(userId) {
+      return /databases/(default)/documents/users/$(userId)/faceProfile/current;
+    }
+
     function isMember(eventId) {
       return isSignedIn() && firestore.exists(memberPath(eventId, request.auth.uid));
     }
@@ -31,9 +35,14 @@ service firebase.storage {
 
     function publishedPhotoVisibleToViewer(eventId, ownerUserId, photoId) {
       return firestore.exists(photoPath(eventId, photoId))
+        && firestore.exists(faceProfilePath(request.auth.uid))
         && firestore.get(photoPath(eventId, photoId)).data.sourceUserId == ownerUserId
         && firestore.get(photoPath(eventId, photoId)).data.matchedUserIds is list
-        && firestore.get(photoPath(eventId, photoId)).data.matchedUserIds.hasAny([request.auth.uid]);
+        && firestore.get(photoPath(eventId, photoId)).data.matchedUserIds.hasAny([request.auth.uid])
+        && firestore.get(photoPath(eventId, photoId)).data.matchedProfileRevisions is map
+        && firestore.get(photoPath(eventId, photoId)).data.matchedProfileRevisions.get(request.auth.uid, '') != ''
+        && firestore.get(photoPath(eventId, photoId)).data.matchedProfileRevisions.get(request.auth.uid, '') ==
+           firestore.get(faceProfilePath(request.auth.uid)).data.get('identityRevision', '');
     }
 
     match /events/{eventId}/cover.jpg {
@@ -45,8 +54,9 @@ service firebase.storage {
     }
 
     match /events/{eventId}/photos/{ownerUserId}/{photoId}/thumbnail.jpg {
-      // Cloud previews are private to people who are actually matched in the
-      // photo. Membership alone is not enough to retrieve another person's image.
+      // Preview access is bound to the exact Face Setup revision that produced
+      // the viewer's match. Replacing Face Setup immediately invalidates older
+      // preview authorization even before asynchronous cleanup completes.
       allow read: if isMember(eventId)
         && publishedPhotoVisibleToViewer(eventId, ownerUserId, photoId);
 
