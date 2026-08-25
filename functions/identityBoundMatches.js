@@ -246,6 +246,13 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
   if (!profileIsCurrent(profile)) return { eventId, photos: [] };
   const currentRevision = profileRevision(profile);
 
+  // Backfill the authorization marker for profiles created before identity-bound
+  // matching was deployed. This occurs before the client requests thumbnails,
+  // so Storage Rules can compare the photo revision with the current profile.
+  if (profile.identityRevision !== currentRevision) {
+    await profileSnap.ref.set({ identityRevision: currentRevision }, { merge: true });
+  }
+
   const snap = await db.collection(`events/${eventId}/photos`)
     .where("matchedUserIds", "array-contains", uid)
     .get();
