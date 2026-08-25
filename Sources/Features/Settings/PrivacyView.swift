@@ -33,7 +33,8 @@ final class PrivacyModel: ObservableObject {
                 userId: userId,
                 acceptedAt: env.clock.now(),
                 jurisdictionCountry: jurisdiction.countryCode,
-                jurisdictionSubdivision: jurisdiction.subdivisionCode
+                jurisdictionSubdivision: jurisdiction.subdivisionCode,
+                ownFaceAttested: true
             ))
             consentActive = true
             message = nil
@@ -68,10 +69,14 @@ final class PrivacyModel: ObservableObject {
         message = nil
         defer { busy = false }
         do {
-            try await env.makeErasureService().deleteFaceProfile(userId: userId)
+            // Deleting Face Setup is an authorization boundary in consent v5.
+            // The backend records the current consent as withdrawn while it
+            // deletes the active profile and matching derivatives. A future
+            // enrollment therefore requires fresh express consent.
+            try await env.biometricConsent.withdraw(userId: userId, at: env.clock.now())
             LocalFaceReferenceStore.delete(userId: userId)
             session?.requireFaceSetupAfterDeletion()
-            await refreshConsent()
+            consentActive = false
             message = nil
             return true
         } catch {
@@ -166,7 +171,7 @@ struct PrivacyView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Deletes your local Face Setup image, cloud face template, and related match data. Face Match stops until you set it up again. Your consent record remains until you withdraw it or it expires.")
+            Text("Deletes your Face Setup and matched face data, and turns Face Match off. To use it again, you'll need fresh consent and a new Face Setup.")
         }
         .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
@@ -285,7 +290,7 @@ struct PrivacyView: View {
                     .font(.headline)
                     .foregroundStyle(session.hasFaceProfile ? .red : .secondary)
                 Text(session.hasFaceProfile
-                     ? "Removes your local Face Setup image, cloud face template, and related match data. You can set it up again later."
+                     ? "Deletes your Face Setup, matched face data, and current Face Match authorization. You can start again later with fresh consent."
                      : "No Face Setup is currently stored for this account.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
