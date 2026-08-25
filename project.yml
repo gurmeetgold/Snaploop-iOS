@@ -153,3 +153,15 @@ schemes:
     test:
       targets:
         - SnapLoopTests
+
+  SnapLoopCoverage:
+    build:
+      targets:
+        SnapLoop: all
+        SnapLoopTests: [test]
+    test:
+      gatherCoverageData: true
+      coverageTargets:
+        - SnapLoop
+      targets:
+        - SnapLoopTests
