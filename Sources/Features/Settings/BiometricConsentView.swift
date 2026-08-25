@@ -239,7 +239,7 @@ struct BiometricConsentView: View {
 
                 checkboxRow(
                     checked: noticeConfirmed,
-                    text: "I read the Face Match Notice and expressly consent to creation, storage, Event-scoped disclosure, on-device comparison, retention, and deletion of my numerical face template."
+                    text: "I read the Face Match Notice, confirm Face Setup will use my own face only, and expressly consent to the described biometric processing."
                 ) { noticeConfirmed.toggle() }
             }
         }
