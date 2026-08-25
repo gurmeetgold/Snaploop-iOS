@@ -209,6 +209,20 @@ final class BiometricConsentPolicyTests: XCTestCase {
         )
     }
 
+    private func faceProfile(ids: [String], vector: [Float]) -> FaceProfile {
+        let poses: [FaceTemplate.Pose] = [.center, .sideA, .sideB, .tilted, .alternate]
+        let templates = zip(ids, poses).map { id, pose in
+            FaceTemplate(id: id, embedding: FaceEmbedding(vector)!, pose: pose, quality: 1, createdAt: Date())
+        }
+        return FaceProfile(
+            userId: "user",
+            embedding: FaceEmbedding(vector)!,
+            templates: templates,
+            version: FaceModelPolicy.currentVersion,
+            updatedAt: Date()
+        )
+    }
+
     func testIndiaIsSupportedWithoutStateSelection() {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
         XCTAssertTrue(record(country: "IN").isActive)
@@ -247,10 +261,25 @@ final class BiometricConsentPolicyTests: XCTestCase {
         XCTAssertFalse(record(country: "IN", expiresAt: Date().addingTimeInterval(-1)).isActive)
     }
 
-    func testCanonicalDisclosureHashIsPinned() {
+    func testCanonicalDisclosureV5IsPinned() {
+        XCTAssertEqual(BiometricConsentRecord.currentPolicyVersion, 5)
+        XCTAssertEqual(BiometricConsentRecord.currentDisclosureId, "biometric-consent-v5")
         XCTAssertEqual(
             BiometricConsentRecord.currentDisclosureSHA256,
-            "3a8bf78ce8ece5232e25f6ad742845a29f974722ade8e7cc086b372e95558cf4"
+            "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f"
         )
+    }
+
+    func testFaceSetupReplacementAcceptsSameIdentityWithNewTemplateIds() {
+        let existing = faceProfile(ids: ["a", "b", "c", "d", "e"], vector: [1, 0, 0])
+        let replacement = faceProfile(ids: ["f", "g", "h", "i", "j"], vector: [1, 0, 0])
+        XCTAssertTrue(FirebaseFaceProfileStore.isSameIdentityReplacement(newProfile: replacement, existingProfile: existing))
+        XCTAssertNotEqual(existing.faceProfileRevision, replacement.faceProfileRevision)
+    }
+
+    func testFaceSetupReplacementRejectsClearlyDifferentIdentity() {
+        let existing = faceProfile(ids: ["a", "b", "c", "d", "e"], vector: [1, 0, 0])
+        let differentPerson = faceProfile(ids: ["f", "g", "h", "i", "j"], vector: [0, 1, 0])
+        XCTAssertFalse(FirebaseFaceProfileStore.isSameIdentityReplacement(newProfile: differentPerson, existingProfile: existing))
     }
 }
