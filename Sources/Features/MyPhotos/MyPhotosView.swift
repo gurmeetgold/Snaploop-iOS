@@ -506,7 +506,16 @@ final class StorageThumbnailLoader: ObservableObject {
             return
         }
 
-        if loadedPath != path { image = nil }
+        // Full-screen pages can immediately reuse the grid's already-decoded
+        // 640px image while their sharper 2048px representation is prepared.
+        // That keeps an adjacent page visually populated during a fast swipe
+        // instead of replacing it with a spinner for a frame.
+        if maxPixelSize > 640,
+           let preview = Self.cachedImage(path: path, maxPixelSize: 640) {
+            image = preview
+        } else if loadedPath != path {
+            image = nil
+        }
         loadedPath = path
         failed = false
 
@@ -545,7 +554,7 @@ final class StorageThumbnailLoader: ObservableObject {
         return decoded
     }
 
-    static func prefetch(paths: [String], maxPixelSize: Int = 1800) async {
+    static func prefetch(paths: [String], maxPixelSize: Int = 2048) async {
         for path in Array(paths.prefix(2)) where cachedImage(path: path, maxPixelSize: maxPixelSize) == nil {
             do { _ = try await image(path: path, maxPixelSize: maxPixelSize) }
             catch { continue }
@@ -750,7 +759,8 @@ struct PhotoDetailView: View {
     @State private var showShareSheet = false
     @State private var confirmNotMe = false
     @State private var actionBusy = false
-    @GestureState private var pagerDrag: CGSize = .zero
+    @State private var pagerDrag: CGSize = .zero
+    @State private var isSettlingPage = false
 
     init(
         matches: [PhotoMatch],
@@ -798,6 +808,7 @@ struct PhotoDetailView: View {
                         HorizontalPhotoPage(
                             match: matches[index],
                             onTap: {
+                                guard !isSettlingPage else { return }
                                 withAnimation(.easeInOut(duration: 0.16)) { chromeVisible.toggle() }
                             },
                             onZoomChanged: { zoomed in
@@ -915,13 +926,13 @@ struct PhotoDetailView: View {
     }
 
     private func pagerGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 10)
-            .updating($pagerDrag) { value, state, _ in
-                guard !currentPageZoomed else { return }
-                state = value.translation
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard !currentPageZoomed, !isSettlingPage else { return }
+                pagerDrag = value.translation
             }
             .onEnded { value in
-                guard !currentPageZoomed else { return }
+                guard !currentPageZoomed, !isSettlingPage else { return }
                 let x = value.translation.width
                 let y = value.translation.height
                 let predictedX = value.predictedEndTranslation.width
@@ -931,20 +942,62 @@ struct PhotoDetailView: View {
                     return
                 }
 
-                guard abs(x) > abs(y) * 0.82 else { return }
-                let shouldPage = abs(x) > min(80, width * 0.18) || abs(predictedX) > min(180, width * 0.38)
-                guard shouldPage else { return }
+                guard abs(x) > abs(y) * 0.82 else {
+                    settleBackToCenter()
+                    return
+                }
+
+                let shouldPage = abs(x) > min(72, width * 0.17)
+                    || abs(predictedX) > min(165, width * 0.36)
+                guard shouldPage else {
+                    settleBackToCenter()
+                    return
+                }
 
                 if x < 0, selectedIndex < matches.count - 1 {
-                    withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.90)) {
-                        selectedIndex += 1
-                    }
+                    settlePage(to: selectedIndex + 1, terminalOffset: -width)
                 } else if x > 0, selectedIndex > 0 {
-                    withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.90)) {
-                        selectedIndex -= 1
-                    }
+                    settlePage(to: selectedIndex - 1, terminalOffset: width)
+                } else {
+                    settleBackToCenter()
                 }
             }
+    }
+
+    private func settleBackToCenter() {
+        withAnimation(.easeOut(duration: 0.18)) {
+            pagerDrag = .zero
+        }
+    }
+
+    private func settlePage(to newIndex: Int, terminalOffset: CGFloat) {
+        guard matches.indices.contains(newIndex) else {
+            settleBackToCenter()
+            return
+        }
+
+        isSettlingPage = true
+
+        // First finish the physical slide while the old index remains selected.
+        // The incoming page is already mounted, loaded and travelling with the
+        // finger, so there is no view replacement during this animation.
+        withAnimation(.easeOut(duration: 0.20)) {
+            pagerDrag = CGSize(width: terminalOffset, height: 0)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            // At this point the incoming page is exactly centered. Switch the
+            // bookkeeping index and reset the offset in one non-animated
+            // transaction; its visual position therefore does not move at all.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                selectedIndex = newIndex
+                pagerDrag = .zero
+            }
+            currentPageZoomed = false
+            isSettlingPage = false
+        }
     }
 
     private func toggleFavorite() {
@@ -1002,7 +1055,7 @@ struct PhotoDetailView: View {
         var paths: [String] = []
         if index + 1 < matches.count, let path = matches[index + 1].thumbnailPath { paths.append(path) }
         if index > 0, let path = matches[index - 1].thumbnailPath { paths.append(path) }
-        await StorageThumbnailLoader.prefetch(paths: paths, maxPixelSize: 1800)
+        await StorageThumbnailLoader.prefetch(paths: paths, maxPixelSize: 2048)
     }
 }
 
@@ -1034,6 +1087,11 @@ private struct HorizontalPhotoPage: View {
         }
         .background(Color.black)
         .contentShape(Rectangle())
+        .transaction { transaction in
+            // Image-quality upgrades (640px preview -> 2048px viewer image)
+            // should sharpen in place, never cross-fade during a page gesture.
+            transaction.animation = nil
+        }
         .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
     }
 }
