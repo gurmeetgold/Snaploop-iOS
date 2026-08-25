@@ -97,6 +97,7 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
     public let userId: String
     public var displayName: String?
     public var phoneNumber: String?
+    public var faceIdentityId: String?
     public var faceEmbedding: FaceEmbedding
     public var faceTemplates: [FaceTemplate]
     public var faceProfileVersion: Int
@@ -106,6 +107,7 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
         userId: String,
         displayName: String?,
         phoneNumber: String? = nil,
+        faceIdentityId: String? = nil,
         faceEmbedding: FaceEmbedding,
         faceTemplates: [FaceTemplate] = [],
         faceProfileVersion: Int,
@@ -114,18 +116,20 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
         self.userId = userId
         self.displayName = displayName
         self.phoneNumber = phoneNumber
+        self.faceIdentityId = faceIdentityId
         self.faceEmbedding = faceEmbedding
         self.faceTemplates = faceTemplates
         self.faceProfileVersion = faceProfileVersion
         self.joinedAt = joinedAt
     }
 
-    /// Opaque identity revision for the exact Face Setup used for matching.
-    /// Enrollment template IDs are random identifiers, not biometric vectors.
-    /// A new Selfie Scan creates a new template set, so this value changes even
-    /// when the face-model version remains the same. Cloud match writes are
-    /// bound to this revision to prevent stale devices from re-publishing a
-    /// match produced against a previous person's Face Setup.
+    public var stableFaceIdentityId: String {
+        faceIdentityId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// Audit revision for the exact template set that produced a new match.
+    /// Same-person Face Setup refreshes change this revision but keep the stable
+    /// face identity ID, so existing positive matches remain valid.
     public var faceProfileRevision: String {
         let templateIds = faceTemplates
             .map(\.id)
