@@ -25,10 +25,6 @@ public enum FaceTemplateMatchPolicy {
             && (second.map { $0 >= supportingFloor } ?? false)
         let strongSingle = best >= threshold + FaceModelPolicy.strongSingleTemplateBonus
 
-        // Only blend the runner-up when it independently supports the identity.
-        // This avoids pulling a strong pose-specific hit down with an unrelated
-        // side/tilt template while still rewarding agreement across enrollment
-        // poses in the near-threshold band.
         let decision: Double
         if let second, corroborated {
             decision = best * 0.90 + second * 0.10
@@ -50,6 +46,7 @@ public enum FaceTemplateMatchPolicy {
 public struct FaceMatcher {
     public struct ParticipantScore: Equatable, Sendable {
         public let participantUserId: String
+        public let faceIdentityId: String
         public let faceProfileRevision: String
         public let bestTemplate: Double
         public let secondTemplate: Double?
@@ -65,7 +62,7 @@ public struct FaceMatcher {
 
     public func appearances(in faces: [DetectedFace], participants: [EventParticipant]) -> [PhotoMatch.Appearance] {
         guard !faces.isEmpty, !participants.isEmpty else { return [] }
-        var bestByParticipant: [String: (confidence: Double, revision: String)] = [:]
+        var bestByParticipant: [String: (confidence: Double, identityId: String, revision: String)] = [:]
 
         for face in faces {
             guard face.sizeFraction >= config.minFaceSizeFraction else { continue }
@@ -74,6 +71,7 @@ public struct FaceMatcher {
             if existing == nil || winner.decisionScore > existing!.confidence {
                 bestByParticipant[winner.participantUserId] = (
                     winner.decisionScore,
+                    winner.faceIdentityId,
                     winner.faceProfileRevision
                 )
             }
@@ -83,6 +81,7 @@ public struct FaceMatcher {
             PhotoMatch.Appearance(
                 participantUserId: $0.key,
                 confidence: $0.value.confidence,
+                faceIdentityId: $0.value.identityId,
                 faceProfileRevision: $0.value.revision
             )
         }.sorted { $0.confidence > $1.confidence }
@@ -90,12 +89,9 @@ public struct FaceMatcher {
 
     private func participantScore(face: DetectedFace, participant: EventParticipant) -> ParticipantScore? {
         guard participant.faceProfileVersion == FaceModelPolicy.currentVersion else { return nil }
+        guard !participant.stableFaceIdentityId.isEmpty else { return nil }
         guard !participant.faceProfileRevision.isEmpty else { return nil }
 
-        // Rank templates by how well they match this particular face. This is
-        // deliberately pose-adaptive: a frontal gallery photo should not be
-        // dragged down by the enrollee's weakest side/tilt template, and vice
-        // versa. Near the operating threshold, two enrollment poses must agree.
         let scores = participant.effectiveEmbeddings.compactMap {
             face.embedding.cosineSimilarity(to: $0)
         }
@@ -106,6 +102,7 @@ public struct FaceMatcher {
 
         return ParticipantScore(
             participantUserId: participant.userId,
+            faceIdentityId: participant.stableFaceIdentityId,
             faceProfileRevision: participant.faceProfileRevision,
             bestTemplate: evaluation.bestTemplate,
             secondTemplate: evaluation.secondTemplate,
