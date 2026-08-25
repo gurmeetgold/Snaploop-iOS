@@ -63,28 +63,6 @@ final class PrivacyModel: ObservableObject {
         }
     }
 
-    func deleteFaceProfile() async -> Bool {
-        guard let env, let userId = session?.user?.id else { return false }
-        busy = true
-        message = nil
-        defer { busy = false }
-        do {
-            // Deleting Face Setup is an authorization boundary in consent v5.
-            // The backend records the current consent as withdrawn while it
-            // deletes the active profile and matching derivatives. A future
-            // enrollment therefore requires fresh express consent.
-            try await env.biometricConsent.withdraw(userId: userId, at: env.clock.now())
-            LocalFaceReferenceStore.delete(userId: userId)
-            session?.requireFaceSetupAfterDeletion()
-            consentActive = false
-            message = nil
-            return true
-        } catch {
-            message = AppError.unknown("\(error)").userMessage
-            return false
-        }
-    }
-
     func deleteAccount() async {
         guard let env, let userId = session?.user?.id else { return }
         busy = true; defer { busy = false }
@@ -113,9 +91,7 @@ final class PrivacyModel: ObservableObject {
 struct PrivacyView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var model = PrivacyModel()
-    @State private var confirmProfile = false
     @State private var confirmAccount = false
     @State private var showConsent = false
 
@@ -132,7 +108,6 @@ struct PrivacyView: View {
                     faceConsentCard
                     retentionCard
                     legalResourcesCard
-                    deleteFaceCard
                     deleteAccountCard
                     if let message = model.message {
                         PremiumCard {
@@ -161,23 +136,11 @@ struct PrivacyView: View {
                 onWithdraw: { await model.withdrawConsent() }
             )
         }
-        .confirmationDialog("Delete your Face Setup?", isPresented: $confirmProfile, titleVisibility: .visible) {
-            Button("Delete Face Setup", role: .destructive) {
-                Task {
-                    if await model.deleteFaceProfile() {
-                        dismiss()
-                    }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Deletes your Face Setup and matched face data, and turns Face Match off. To use it again, you'll need fresh consent and a new Face Setup.")
-        }
         .confirmationDialog("Delete your SnapLoop account?", isPresented: $confirmAccount, titleVisibility: .visible) {
             Button("Delete Account", role: .destructive) { Task { await model.deleteAccount() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently removes your account, face data, Event memberships, and photo previews sourced from your account. It cannot be undone.")
+            Text("This permanently removes your account, face data, Event memberships, and photo previews sourced from this account. It cannot be undone.")
         }
     }
 
@@ -281,28 +244,6 @@ struct PrivacyView: View {
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
         }
         .padding(.vertical, 8)
-    }
-
-    private var deleteFaceCard: some View {
-        PremiumCard {
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Delete Face Setup", systemImage: "faceid")
-                    .font(.headline)
-                    .foregroundStyle(session.hasFaceProfile ? .red : .secondary)
-                Text(session.hasFaceProfile
-                     ? "Deletes your Face Setup, matched face data, and current Face Match authorization. You can start again later with fresh consent."
-                     : "No Face Setup is currently stored for this account.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Button(role: .destructive) { confirmProfile = true } label: {
-                    Label("Delete Face Setup", systemImage: "trash.fill")
-                }
-                .disabled(model.busy || !session.hasFaceProfile)
-                .opacity(session.hasFaceProfile ? 1 : 0.45)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal)
     }
 
     private var deleteAccountCard: some View {
