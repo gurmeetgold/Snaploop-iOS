@@ -31,23 +31,27 @@ async function scrubUserFromEventPhotos(eventId, uid) {
     const matchedUserIds = Array.isArray(data.matchedUserIds)
       ? data.matchedUserIds.filter((userId) => userId !== uid)
       : [];
+    const matchedFaceIdentityIds = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
+      ? { ...data.matchedFaceIdentityIds }
+      : {};
     const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
       ? { ...data.matchedProfileRevisions }
       : {};
+    delete matchedFaceIdentityIds[uid];
     delete matchedProfileRevisions[uid];
     return {
       ref: doc.ref,
-      data: { appearances, matchedUserIds, matchedProfileRevisions, updatedAt: Timestamp.now() },
+      data: { appearances, matchedUserIds, matchedFaceIdentityIds, matchedProfileRevisions, updatedAt: Timestamp.now() },
     };
   });
   if (updates.length) await commitUpdates(updates);
   return updates.length;
 }
 
-// Deleting Face Setup removes the active biometric identity and also
-// deactivates its current consent authorization. The versioned historical
-// consent record remains as audit evidence, but cannot authorize a future Face
-// Setup; the user must expressly consent again before re-enrolling.
+// Deleting Face Setup is the explicit identity boundary. It removes the active
+// biometric identity, scrubs its face-derived photo associations, and
+// deactivates the current consent authorization. A future Face Setup therefore
+// requires fresh consent and receives a new server-issued faceIdentityId.
 exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
   const uid = requireAuth(request);
   if (typeof (request.data || {}).userId === "string" && request.data.userId !== uid) {
@@ -70,11 +74,12 @@ exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
     scrubbedPhotos += await scrubUserFromEventPhotos(eventId, uid);
   }
 
+  const now = Timestamp.now();
   const batch = db.batch();
   batch.delete(db.doc(`users/${uid}/faceProfile/current`));
-  batch.set(userRef, { hasFaceProfile: false, updatedAt: Timestamp.now() }, { merge: true });
+  batch.set(userRef, { hasFaceProfile: false, updatedAt: now }, { merge: true });
   batch.set(db.doc(`users/${uid}/privacy/biometricConsent`), {
-    withdrawnAt: Timestamp.now(),
+    withdrawnAt: now,
     withdrawalReason: "face-setup-deleted",
   }, { merge: true });
   await batch.commit();
