@@ -41,13 +41,23 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
     public struct Appearance: Equatable, Codable, Sendable {
         public let participantUserId: String
         public let confidence: Double     // cosine similarity of the winning face
+        /// Opaque revision of the participant's exact Face Setup used for this
+        /// decision. The backend verifies it before accepting the match, so a
+        /// stale device cannot re-attach photos from an older/different face.
+        public let faceProfileRevision: String
         /// User correction: a participant can mark a match "Not Me". Suppressed
         /// appearances stay recorded (for precision tuning) but never surface.
         public var dismissedByUser: Bool
 
-        public init(participantUserId: String, confidence: Double, dismissedByUser: Bool = false) {
+        public init(
+            participantUserId: String,
+            confidence: Double,
+            faceProfileRevision: String = "",
+            dismissedByUser: Bool = false
+        ) {
             self.participantUserId = participantUserId
             self.confidence = confidence
+            self.faceProfileRevision = faceProfileRevision
             self.dismissedByUser = dismissedByUser
         }
     }
