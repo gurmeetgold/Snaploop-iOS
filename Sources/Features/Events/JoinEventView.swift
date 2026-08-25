@@ -41,9 +41,9 @@ final class JoinEventModel: ObservableObject {
             switch event.status {
             case .active: break
             case .endedByOrganizer:
-                phase = .error("The organizer ended this Event."); return
+                phase = .error("This Event has ended."); return
             case .deletedByOrganizer:
-                phase = .error("This Event is no longer accepting joins."); return
+                phase = .error("This Event is no longer available."); return
             case .expired:
                 phase = .error("This Event has expired."); return
             }
@@ -117,10 +117,12 @@ struct JoinEventView: View {
             Group {
                 switch model.phase {
                 case .loading:
-                    VStack(spacing: 16) {
-                        BrandMark(size: 62)
+                    VStack(spacing: 14) {
+                        BrandMark(size: 58)
                         ProgressView()
-                        Text("Opening invitation…").font(.subheadline).foregroundStyle(.secondary)
+                        Text("Opening invitation…")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 case .ready(let event):
                     joinCard(event, needsFaceSetup: false)
@@ -128,11 +130,16 @@ struct JoinEventView: View {
                     joinCard(event, needsFaceSetup: true)
                 case .error(let message):
                     PremiumCard {
-                        VStack(spacing: 14) {
+                        VStack(spacing: 12) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 38)).foregroundStyle(Theme.sunset)
-                            Text("Couldn't open this invite").font(.title3.bold())
-                            Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                                .font(.system(size: 36))
+                                .foregroundStyle(Theme.sunset)
+                            Text("Couldn't open this invite")
+                                .font(.title3.bold())
+                            Text(message)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -145,17 +152,19 @@ struct JoinEventView: View {
                 case .declined:
                     PremiumCard {
                         VStack(spacing: 12) {
-                            Image(systemName: "hand.raised.fill").font(.system(size: 36)).foregroundStyle(.secondary)
+                            Image(systemName: "hand.raised.fill")
+                                .font(.system(size: 34))
+                                .foregroundStyle(.secondary)
                             Text("Invitation declined").font(.title3.bold())
-                            Text("You have not joined this Event.").foregroundStyle(.secondary)
-                            Button("Done") { dismiss() }.buttonStyle(MyPicsTubePrimaryButtonStyle())
+                            Button("Done") { dismiss() }
+                                .buttonStyle(MyPicsTubePrimaryButtonStyle())
                         }
                     }
                     .padding(24)
                 }
             }
         }
-        .navigationTitle("Join Event")
+        .navigationTitle("Invitation")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             model.configure(env: env, session: session)
@@ -175,34 +184,59 @@ struct JoinEventView: View {
     @ViewBuilder
     private func joinCard(_ event: Event, needsFaceSetup: Bool) -> some View {
         ScrollView {
-            VStack(spacing: 18) {
+            VStack(spacing: 16) {
+                Spacer(minLength: 4)
+
                 ZStack {
                     Circle().fill(Theme.sky.opacity(0.14))
                     Image(systemName: event.category.systemImage)
-                        .font(.system(size: 38)).foregroundStyle(Theme.violet)
+                        .font(.system(size: 34))
+                        .foregroundStyle(Theme.violet)
                 }
-                .frame(width: 86, height: 86)
+                .frame(width: 76, height: 76)
 
-                Text("Join \(event.name)")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.ink)
-                    .multilineTextAlignment(.center)
-                Text(event.category.displayName.uppercased())
-                    .font(.caption.bold()).foregroundStyle(Theme.sunset)
-                Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                if model.participantCount > 0 {
-                    Label("\(model.participantCount) already joined", systemImage: "person.2.fill")
-                        .font(.footnote).foregroundStyle(.secondary)
+                VStack(spacing: 6) {
+                    Text("You're invited to")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(event.name)
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.ink)
+                        .multilineTextAlignment(.center)
+                    Text(event.category.displayName)
+                        .font(.caption.bold())
+                        .foregroundStyle(Theme.sunset)
                 }
 
-                Text("Join this Event to get photos of you from participating members’ phones. SnapLoop checks only the Event's selected date range and matches faces on-device.")
+                PremiumCard {
+                    VStack(spacing: 10) {
+                        Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.ink)
+
+                        if model.participantCount > 0 {
+                            Label("\(model.participantCount) members", systemImage: "person.2.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Divider()
+
+                        HStack(spacing: 10) {
+                            Label("Event dates only", systemImage: "calendar.badge.checkmark")
+                            Label("On-device matching", systemImage: "iphone")
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                Text("Join to automatically receive photos you're matched in from participating members.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 4)
-
-                consentBox
+                    .padding(.horizontal, 8)
 
                 if needsFaceSetup {
                     NavigationLink {
@@ -212,8 +246,10 @@ struct JoinEventView: View {
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
 
-                    Text("Face Setup is required for photo matching. After saving it, you'll return here to join this Event.")
-                        .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Text("Face Setup is needed before you can join and receive matched photos.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 } else {
                     Button {
                         guard !model.isJoining, !model.isDeclining else { return }
@@ -239,26 +275,15 @@ struct JoinEventView: View {
                 }
 
                 if isPhoneInvitation {
-                    Button("Decline Invitation", role: .destructive) {
+                    Button("Decline", role: .destructive) {
                         guard !model.isJoining, !model.isDeclining else { return }
                         Task { await model.decline(event: event) }
                     }
+                    .font(.subheadline.weight(.semibold))
                     .disabled(model.isJoining || model.isDeclining)
                 }
             }
             .padding(22)
-        }
-    }
-
-    private var consentBox: some View {
-        PremiumCard {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("How SnapLoop works here", systemImage: "sparkles")
-                    .font(.subheadline.bold()).foregroundStyle(Theme.ink)
-                Text("Participating members scan their own photo libraries on-device only for this Event's selected date range. Only confident matches are shared into the Event.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
