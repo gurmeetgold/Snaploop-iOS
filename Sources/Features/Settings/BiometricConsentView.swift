@@ -33,16 +33,13 @@ struct BiometricConsentView: View {
     }
 
     private var requiresSubdivision: Bool {
-        selectedCountry == "CA" || selectedCountry == "US"
+        selectedCountry == "CA"
     }
 
     private var jurisdictionAvailabilityMessage: String? {
         guard !selectedJurisdiction.isFaceMatchAvailable else { return nil }
         if selectedCountry == "CA" && selectedSubdivision == "QC" {
             return "Face Match is not currently available in Quebec. You can use SnapLoop without Face Match."
-        }
-        if selectedCountry == "US" && !selectedSubdivision.isEmpty {
-            return "Face Match is not currently available in this state or territory under SnapLoop's launch privacy policy."
         }
         return "Face Match is not currently available in the selected jurisdiction."
     }
@@ -195,7 +192,7 @@ struct BiometricConsentView: View {
 
                 if requiresSubdivision {
                     HStack {
-                        Text(selectedCountry == "CA" ? "Province / territory" : "State / territory")
+                        Text("Province / territory")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
