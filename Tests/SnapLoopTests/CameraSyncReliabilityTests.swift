@@ -41,10 +41,16 @@ final class CameraSyncReliabilityTests: XCTestCase {
             createdAt: now - day
         )
         let asset = PhotoAsset(id: "a1", creationDate: now)
+        let embedding = FaceEmbedding(normalized: [1, 0, 0])
         let participant = EventParticipant(
             userId: "bob",
             displayName: "Bob",
-            faceEmbedding: FaceEmbedding(normalized: [1, 0, 0]),
+            faceIdentityId: "bob-face",
+            faceEmbedding: embedding,
+            faceTemplates: [
+                FaceTemplate(id: "bob-center", embedding: embedding, pose: .center, quality: 1, createdAt: now),
+                FaceTemplate(id: "bob-side", embedding: embedding, pose: .sideA, quality: 1, createdAt: now)
+            ],
             faceProfileVersion: FaceModelPolicy.currentVersion,
             joinedAt: now
         )
@@ -70,7 +76,16 @@ final class CameraSyncReliabilityTests: XCTestCase {
         XCTAssertEqual(summary.remaining, 1)
         XCTAssertFalse(summary.alreadyCaughtUp)
 
-        let key = [event.id, "alice", FaceModelPolicy.scanGeneration].joined(separator: "::")
+        let rosterIdentity = "bob=bob-face"
+        let key = [
+            event.id,
+            "alice",
+            FaceModelPolicy.scanGeneration,
+            "sharing-v5",
+            "own-off",
+            "default",
+            rosterIdentity,
+        ].joined(separator: "::")
         XCTAssertFalse(scanStore.load(eventId: key).hasScanned(asset.id))
     }
 
