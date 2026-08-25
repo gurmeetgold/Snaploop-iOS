@@ -64,27 +64,24 @@ public struct CameraSyncCoordinator {
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
 
-        // A scan is valid only for the exact Face Setup revisions in the roster
-        // that produced it. If any Event member updates Face Setup, the revision
-        // changes and every device receives a fresh scan-state namespace on its
-        // next sync. This prevents "already scanned" state from preserving stale
-        // identity decisions after a participant's face profile changes.
-        let rosterRevision = participants
-            .map { "\($0.userId)=\($0.faceProfileRevision)" }
+        // Local scan state follows the stable biometric identities in the Event,
+        // not the exact template revisions. A verified same-person Face Setup
+        // refresh therefore keeps prior positive matches and does not trigger a
+        // wasteful full rescan. Deleting Face Setup and enrolling a new identity
+        // changes the stable ID and creates a fresh scan namespace.
+        let rosterIdentityRevision = participants
+            .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
             .sorted()
             .joined(separator: ";")
 
-        // Preference revision is also part of the local scan-state key so
-        // turning sharing back on or changing own-photo visibility causes a
-        // clean pass.
         let scanStateKey = [
             event.id,
             currentUserId,
             FaceModelPolicy.scanGeneration,
-            "sharing-v4",
+            "sharing-v5",
             includeOwnMatches ? "own-on" : "own-off",
             preferenceRevision,
-            rosterRevision,
+            rosterIdentityRevision,
         ].joined(separator: "::")
         var state = scanStateStore.load(eventId: scanStateKey)
         state.retainScannedAssetIds(Set(assets.map(\.id)))
@@ -176,13 +173,6 @@ public struct CameraSyncCoordinator {
         )
         try Task.checkCancellation()
 
-        // Privacy invariant: detected candidate faces — including unmatched
-        // bystanders — exist only inside this local scope. Their embeddings are
-        // used in memory for immediate comparison and are never passed to the
-        // repository, logs, scan-state store, analytics, or any upload API.
-        // Only identity-level appearances for consenting Event participants can
-        // leave this scope. Exiting the scope releases the candidate array before
-        // any cloud persistence occurs.
         var appearances: [PhotoMatch.Appearance]
         do {
             let transientCandidateFaces = try await faceDetection.detectFaces(in: working)
@@ -217,9 +207,6 @@ public struct CameraSyncCoordinator {
             ? lowPowerSafetyBatchCap
             : normalSafetyBatchCap
 
-        // At Apple's `.serious` thermal state we continue conservatively with a
-        // much smaller batch instead of presenting a hard-stop message. Only a
-        // `.critical` state stops face scanning outright.
         if ProcessInfo.processInfo.thermalState == .serious {
             return min(baseCap, elevatedThermalBatchCap)
         }
