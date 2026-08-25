@@ -4,11 +4,6 @@ import FirebaseFunctions
 
 /// Firestore-backed private face-profile store.
 /// Path: users/{uid}/faceProfile/current
-///
-/// Reads are self-only. Writes are intentionally routed through the
-/// saveMyFaceProfile callable so the backend can enforce active, current-version
-/// biometric consent, jurisdiction eligibility, payload validation, and the
-/// 12-month biometric-retention clock before any template is persisted.
 public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendable {
     private let db: Firestore
     private let functions: Functions
@@ -25,13 +20,6 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
         do {
             let snapshot = try await ref(userId: userId).getDocument()
             guard snapshot.exists, let data = snapshot.data() else { return nil }
-
-            // A legacy model-v5 profile is not enough by itself. Only profiles
-            // persisted by the current consent-gated backend and still inside
-            // their server-issued retention window may enter AppSession as an
-            // active Face Setup. This prevents an old consent/profile pair from
-            // making Create Event or Test Face Setup look enabled after a policy
-            // upgrade.
             guard Self.isCurrentEligibleProfile(data) else { return nil }
             return try Self.decodeProfile(userId: userId, data: data)
         } catch let error as AppError {
@@ -42,12 +30,6 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
     }
 
     public func save(_ profile: FaceProfile) async throws {
-        // A normal "Update Face Setup" is an update of the same biometric
-        // subject, not a way to transfer this account's face identity to another
-        // person. Compare the new guided enrollment against the currently active
-        // profile before sending the replacement to the backend. A user who has
-        // intentionally deleted Face Setup has no active profile and must give
-        // fresh consent before creating a new one.
         if let existing = try await load(userId: profile.userId),
            existing.version == FaceModelPolicy.currentVersion,
            !existing.faceProfileRevision.isEmpty,
@@ -122,9 +104,6 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
             }
         }
 
-        // Require agreement from a majority of the guided enrollment frames,
-        // with at least two independently accepted frames. This catches a clear
-        // identity replacement while allowing ordinary pose/expression changes.
         let required = max(2, Int(ceil(Double(newEmbeddings.count) * 0.60)))
         return accepted >= required
     }
@@ -134,10 +113,12 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
             (data["consentPolicyVersion"] as? NSNumber)?.intValue
             ?? data["consentPolicyVersion"] as? Int
             ?? 0
+        let identityId = (data["faceIdentityId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         guard consentPolicyVersion == BiometricConsentRecord.currentPolicyVersion,
               data["consentDisclosureId"] as? String == BiometricConsentRecord.currentDisclosureId,
               data["consentDisclosureSHA256"] as? String == BiometricConsentRecord.currentDisclosureSHA256,
+              !identityId.isEmpty,
               let expiresAt = data["expiresAt"] as? Timestamp,
               expiresAt.dateValue() > Date()
         else {
@@ -158,6 +139,11 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
 
         guard !vector.isEmpty else {
             throw AppError.decoding("faceProfile/current has empty embedding")
+        }
+
+        let identityId = (data["faceIdentityId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !identityId.isEmpty else {
+            throw AppError.decoding("faceProfile/current missing faceIdentityId")
         }
 
         let version = data["version"] as? Int ?? (data["version"] as? NSNumber)?.intValue ?? 1
@@ -214,6 +200,7 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
 
         return FaceProfile(
             userId: userId,
+            faceIdentityId: identityId,
             embedding: FaceEmbedding(normalized: vector),
             templates: templates,
             version: version,
