@@ -12,6 +12,7 @@ final class FaceSetupModel: ObservableObject {
     @Published var didSave = false
     @Published var consentActive = false
     @Published var hasChanges = false
+    @Published var differentIdentityDetected = false
 
     private var env: AppEnvironment?
     private var session: AppSession?
@@ -24,6 +25,7 @@ final class FaceSetupModel: ObservableObject {
         self.env = env
         self.session = session
         pendingGuidedReferenceData = nil
+        differentIdentityDetected = false
 
         guard let userId = session.user?.id else {
             previewData = nil
@@ -65,7 +67,8 @@ final class FaceSetupModel: ObservableObject {
                 userId: userId,
                 acceptedAt: env.clock.now(),
                 jurisdictionCountry: jurisdiction.countryCode,
-                jurisdictionSubdivision: jurisdiction.subdivisionCode
+                jurisdictionSubdivision: jurisdiction.subdivisionCode,
+                ownFaceAttested: true
             ))
             consentActive = true
             return true
@@ -80,6 +83,7 @@ final class FaceSetupModel: ObservableObject {
         guard let env else { return }
         isBusy = true
         didSave = false
+        differentIdentityDetected = false
         message = "Building your multi-angle face profile…"
 
         do {
@@ -97,6 +101,20 @@ final class FaceSetupModel: ObservableObject {
 
             guard newGuidedTemplates.count >= 3 else { throw AppError.faceEmbeddingFailed }
             let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }.prefix(FaceModelPolicy.targetTemplateCount))
+
+            if let currentProfile = session?.faceProfile,
+               session?.hasFaceProfile == true,
+               !sameIdentityReplacement(
+                    currentProfile: currentProfile,
+                    newTemplates: guided,
+                    threshold: env.config.current.matchConfidenceThreshold
+               ) {
+                isBusy = false
+                message = nil
+                differentIdentityDetected = true
+                return
+            }
+
             templates = guided
 
             // Prefer the final straight-on capture for the saved local preview.
@@ -189,6 +207,7 @@ final class FaceSetupModel: ObservableObject {
             return
         }
 
+        let wasUpdate = session.hasFaceProfile
         isBusy = true
         message = automatic ? "Saving Face Setup…" : nil
         didSave = false
@@ -218,9 +237,73 @@ final class FaceSetupModel: ObservableObject {
             pendingGuidedReferenceData = nil
             hasChanges = false
             didSave = true
-            message = automatic ? "Face Setup updated automatically." : "Face Setup saved."
-        } catch let error as AppError { message = error.userMessage }
-        catch { message = (error as NSError).localizedDescription }
+            if wasUpdate {
+                message = "Face Setup updated. Manually rescan your Events to refresh matched photos."
+            } else {
+                message = automatic ? "Face Setup saved." : "Face Setup saved."
+            }
+        } catch let error as AppError {
+            message = error.userMessage
+        } catch {
+            let text = (error as NSError).localizedDescription
+            if text.localizedCaseInsensitiveContains("does not match your current Face Setup")
+                || text.localizedCaseInsensitiveContains("same person") {
+                message = nil
+                differentIdentityDetected = true
+            } else {
+                message = text
+            }
+        }
+    }
+
+    func deleteFaceSetupAndStartOver() async -> Bool {
+        guard let env, let session, let userId = session.user?.id else { return false }
+        isBusy = true
+        message = nil
+        defer { isBusy = false }
+
+        do {
+            // Deletion is also an authorization boundary: fresh v5 consent is
+            // required before another Face Setup can be enrolled.
+            try await env.biometricConsent.withdraw(userId: userId, at: env.clock.now())
+            LocalFaceReferenceStore.delete(userId: userId)
+            templates = []
+            previewData = nil
+            pendingGuidedReferenceData = nil
+            hasChanges = false
+            didSave = false
+            consentActive = false
+            differentIdentityDetected = false
+            session.requireFaceSetupAfterDeletion()
+            message = "Face Setup deleted. Review consent and run Selfie Scan to start again."
+            return true
+        } catch {
+            message = (error as NSError).localizedDescription
+            return false
+        }
+    }
+
+    private func sameIdentityReplacement(
+        currentProfile: FaceProfile,
+        newTemplates: [FaceTemplate],
+        threshold: Double
+    ) -> Bool {
+        let references = currentProfile.effectiveEmbeddings
+        guard references.count >= 2 else { return false }
+
+        let accepted = newTemplates.reduce(into: 0) { count, template in
+            let similarities = references.compactMap {
+                template.embedding.cosineSimilarity(to: $0)
+            }
+            if let evaluation = FaceTemplateMatchPolicy.evaluate(
+                similarities: similarities,
+                threshold: threshold
+            ), evaluation.isAccepted {
+                count += 1
+            }
+        }
+        let required = max(2, Int(ceil(Double(newTemplates.count) * 0.60)))
+        return accepted >= required
     }
 
     private func refreshEventFaceProfiles() async throws {
@@ -245,6 +328,7 @@ struct FaceSetupView: View {
     @StateObject private var model = FaceSetupModel()
     @State private var showSelfieEnrollment = false
     @State private var showConsent = false
+    @State private var showUpdateWarning = false
     @State private var pendingAction: PendingAction?
     @State private var restorePreviewItem: PhotosPickerItem?
 
@@ -267,11 +351,10 @@ struct FaceSetupView: View {
                     PremiumCard { templateStatus }
 
                     actionButton("Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.brandGradient) {
-                        if model.consentActive {
-                            showSelfieEnrollment = true
+                        if session.hasFaceProfile {
+                            showUpdateWarning = true
                         } else {
-                            pendingAction = .selfie
-                            showConsent = true
+                            startSelfieFlow()
                         }
                     }
                     .disabled(model.isBusy)
@@ -338,6 +421,38 @@ struct FaceSetupView: View {
                 onAccept: { jurisdiction in await model.acceptConsent(jurisdiction) },
                 onWithdraw: { false }
             )
+        }
+        .confirmationDialog(
+            "Update Face Setup?",
+            isPresented: $showUpdateWarning,
+            titleVisibility: .visible
+        ) {
+            Button("Continue to Selfie Scan") { startSelfieFlow() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Updating replaces your Face Setup. Existing matched photos may disappear, and you'll need to manually rescan each Event. Save any photos you want to keep first.")
+        }
+        .confirmationDialog(
+            "Different Face Detected",
+            isPresented: $model.differentIdentityDetected,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Face Setup & Start Over", role: .destructive) {
+                Task { _ = await model.deleteFaceSetupAndStartOver() }
+            }
+            Button("Keep Current Face Setup", role: .cancel) {}
+        } message: {
+            Text("This scan looks like a different person. Face Setup can only be updated for the same person. Delete the current Face Setup to start over.")
+        }
+    }
+
+    @MainActor
+    private func startSelfieFlow() {
+        if model.consentActive {
+            showSelfieEnrollment = true
+        } else {
+            pendingAction = .selfie
+            showConsent = true
         }
     }
 
