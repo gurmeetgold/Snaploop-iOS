@@ -3,26 +3,26 @@ import UIKit
 
 private enum CachedGalleryMatches {
     private static func prefix(userId: String) -> String { "snaploop.gallery.cache.\(userId)" }
-    private static func key(userId: String, faceRevision: String) -> String {
-        "\(prefix(userId: userId)).\(faceRevision)"
+    private static func key(userId: String, faceIdentityId: String) -> String {
+        "\(prefix(userId: userId)).\(faceIdentityId)"
     }
 
-    static func load(userId: String, faceRevision: String) -> [PhotoMatch] {
-        guard !faceRevision.isEmpty,
-              let data = UserDefaults.standard.data(forKey: key(userId: userId, faceRevision: faceRevision)),
+    static func load(userId: String, faceIdentityId: String) -> [PhotoMatch] {
+        guard !faceIdentityId.isEmpty,
+              let data = UserDefaults.standard.data(forKey: key(userId: userId, faceIdentityId: faceIdentityId)),
               let matches = try? JSONDecoder().decode([PhotoMatch].self, from: data) else { return [] }
         return matches
     }
 
-    static func save(_ matches: [PhotoMatch], userId: String, faceRevision: String) {
-        guard !faceRevision.isEmpty,
+    static func save(_ matches: [PhotoMatch], userId: String, faceIdentityId: String) {
+        guard !faceIdentityId.isEmpty,
               let data = try? JSONEncoder().encode(matches) else { return }
-        UserDefaults.standard.set(data, forKey: key(userId: userId, faceRevision: faceRevision))
+        UserDefaults.standard.set(data, forKey: key(userId: userId, faceIdentityId: faceIdentityId))
     }
 
-    static func purgeOtherRevisions(userId: String, keeping faceRevision: String?) {
+    static func purgeOtherIdentities(userId: String, keeping faceIdentityId: String?) {
         let base = prefix(userId: userId)
-        let keep = faceRevision.flatMap { $0.isEmpty ? nil : key(userId: userId, faceRevision: $0) }
+        let keep = faceIdentityId.flatMap { $0.isEmpty ? nil : key(userId: userId, faceIdentityId: $0) }
         for existingKey in UserDefaults.standard.dictionaryRepresentation().keys
             where existingKey == base || existingKey.hasPrefix("\(base).") {
             if existingKey != keep { UserDefaults.standard.removeObject(forKey: existingKey) }
@@ -39,6 +39,12 @@ enum PhotoMatchDeduplication {
     }
 }
 
+private struct GalleryEventLoad: Sendable {
+    let matches: [PhotoMatch]
+    let members: [EventMember]
+    let errorMessage: String?
+}
+
 @MainActor
 final class AllMyPhotosModel: ObservableObject {
     @Published var photos: [PhotoMatch] = []
@@ -46,20 +52,23 @@ final class AllMyPhotosModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published private(set) var ownerNames: [String: String] = [:]
+
     private var env: AppEnvironment?
     private var session: AppSession?
     private var reloadGeneration = 0
+    private var lastReloadAt: Date?
+    private let automaticRefreshInterval: TimeInterval = 30
 
     func configure(env: AppEnvironment, session: AppSession) {
         self.env = env
         self.session = session
         guard let userId = session.user?.id else { return }
 
-        let revision = session.faceProfile?.faceProfileRevision
-        CachedGalleryMatches.purgeOtherRevisions(userId: userId, keeping: revision)
-        if let revision, !revision.isEmpty, photos.isEmpty {
-            photos = CachedGalleryMatches.load(userId: userId, faceRevision: revision)
-        } else if revision == nil || revision?.isEmpty == true {
+        let identity = session.faceProfile?.stableFaceIdentityId
+        CachedGalleryMatches.purgeOtherIdentities(userId: userId, keeping: identity)
+        if let identity, !identity.isEmpty, photos.isEmpty {
+            photos = CachedGalleryMatches.load(userId: userId, faceIdentityId: identity)
+        } else if identity == nil || identity?.isEmpty == true {
             photos = []
         }
 
@@ -67,27 +76,37 @@ final class AllMyPhotosModel: ObservableObject {
         if let name = session.user?.displayName, !name.isEmpty { ownerNames[userId] = name }
     }
 
-    func reload() async {
+    func reload(force: Bool = false) async {
         guard let env, let userId = session?.user?.id else { return }
+
+        if !force,
+           !photos.isEmpty,
+           let lastReloadAt,
+           Date().timeIntervalSince(lastReloadAt) < automaticRefreshInterval {
+            favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+            return
+        }
+
         reloadGeneration += 1
         let generation = reloadGeneration
         isLoading = true
         errorMessage = nil
 
-        guard let faceRevision = session?.faceProfile?.faceProfileRevision,
-              !faceRevision.isEmpty else {
+        guard let faceIdentityId = session?.faceProfile?.stableFaceIdentityId,
+              !faceIdentityId.isEmpty else {
             photos = []
-            CachedGalleryMatches.purgeOtherRevisions(userId: userId, keeping: nil)
+            CachedGalleryMatches.purgeOtherIdentities(userId: userId, keeping: nil)
             favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
             isLoading = false
             return
         }
 
-        CachedGalleryMatches.purgeOtherRevisions(userId: userId, keeping: faceRevision)
+        CachedGalleryMatches.purgeOtherIdentities(userId: userId, keeping: faceIdentityId)
 
         let events: [Event]
-        do { events = try await env.events.events(forUserId: userId) }
-        catch {
+        do {
+            events = try await env.events.events(forUserId: userId)
+        } catch {
             guard generation == reloadGeneration else { return }
             favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
             errorMessage = (error as NSError).localizedDescription
@@ -95,51 +114,74 @@ final class AllMyPhotosModel: ObservableObject {
             return
         }
 
-        var allMatches: [PhotoMatch] = []
-        var firstError: Error?
-        var names = ownerNames
-        if let ownName = session?.user?.displayName, !ownName.isEmpty { names[userId] = ownName }
+        let matchRepository = env.matches
+        let eventRepository = env.events
+        let activeEvents = events.filter { $0.status != .deletedByOrganizer }
 
-        for event in events where event.status != .deletedByOrganizer {
-            guard !Task.isCancelled, generation == reloadGeneration else { return }
-            do {
-                async let matchesTask = env.matches.myPhotos(eventId: event.id, userId: userId)
-                async let membersTask = env.events.members(eventId: event.id)
-                let (eventMatches, members) = try await (matchesTask, membersTask)
-                let sharingEnabled = members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
-                allMatches.append(contentsOf: eventMatches.filter { sharingEnabled || $0.ownerUserId != userId })
-
-                for member in members where names[member.userId] == nil {
-                    if member.userId == userId, let ownName = session?.user?.displayName, !ownName.isEmpty {
-                        names[member.userId] = ownName
-                    } else if let user = try? await env.users.fetch(userId: member.userId),
-                              let displayName = user.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                              !displayName.isEmpty {
-                        names[member.userId] = displayName
+        let eventLoads = await withTaskGroup(of: GalleryEventLoad.self, returning: [GalleryEventLoad].self) { group in
+            for event in activeEvents {
+                group.addTask {
+                    do {
+                        async let matchesTask = matchRepository.myPhotos(eventId: event.id, userId: userId)
+                        async let membersTask = eventRepository.members(eventId: event.id)
+                        let (matches, members) = try await (matchesTask, membersTask)
+                        return GalleryEventLoad(matches: matches, members: members, errorMessage: nil)
+                    } catch AppError.notAMember {
+                        return GalleryEventLoad(matches: [], members: [], errorMessage: nil)
+                    } catch AppError.eventNotFound {
+                        return GalleryEventLoad(matches: [], members: [], errorMessage: nil)
+                    } catch {
+                        return GalleryEventLoad(
+                            matches: [],
+                            members: [],
+                            errorMessage: (error as NSError).localizedDescription
+                        )
                     }
                 }
-            } catch AppError.notAMember {
-                continue
-            } catch AppError.eventNotFound {
-                continue
-            } catch {
-                if firstError == nil { firstError = error }
             }
+
+            var loaded: [GalleryEventLoad] = []
+            loaded.reserveCapacity(activeEvents.count)
+            for await item in group { loaded.append(item) }
+            return loaded
         }
 
-        guard generation == reloadGeneration else { return }
-        guard session?.faceProfile?.faceProfileRevision == faceRevision else {
+        guard !Task.isCancelled, generation == reloadGeneration else { return }
+        guard session?.faceProfile?.stableFaceIdentityId == faceIdentityId else {
             photos = []
             isLoading = false
             return
         }
 
+        var allMatches: [PhotoMatch] = []
+        var firstErrorMessage: String?
+        var names = ownerNames
+        if let ownName = session?.user?.displayName, !ownName.isEmpty { names[userId] = ownName }
+
+        for load in eventLoads {
+            if firstErrorMessage == nil { firstErrorMessage = load.errorMessage }
+            let sharingEnabled = load.members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
+            allMatches.append(contentsOf: load.matches.filter { sharingEnabled || $0.ownerUserId != userId })
+
+            for member in load.members where names[member.userId] == nil {
+                if member.userId == userId,
+                   let ownName = session?.user?.displayName,
+                   !ownName.isEmpty {
+                    names[member.userId] = ownName
+                } else if let displayName = member.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !displayName.isEmpty {
+                    names[member.userId] = displayName
+                }
+            }
+        }
+
         let refreshed = PhotoMatchDeduplication.unique(allMatches).sorted { $0.capturedAt > $1.capturedAt }
         photos = refreshed
         ownerNames = names
-        CachedGalleryMatches.save(refreshed, userId: userId, faceRevision: faceRevision)
+        CachedGalleryMatches.save(refreshed, userId: userId, faceIdentityId: faceIdentityId)
         favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
-        errorMessage = firstError.map { ($0 as NSError).localizedDescription }
+        errorMessage = firstErrorMessage
+        lastReloadAt = Date()
         isLoading = false
     }
 
@@ -159,8 +201,8 @@ final class AllMyPhotosModel: ObservableObject {
     func markNotMe(_ match: PhotoMatch) async {
         guard let env, let userId = session?.user?.id else { return }
         photos.removeAll { $0.ownerUserId == match.ownerUserId && $0.assetLocalId == match.assetLocalId }
-        if let revision = session?.faceProfile?.faceProfileRevision, !revision.isEmpty {
-            CachedGalleryMatches.save(photos, userId: userId, faceRevision: revision)
+        if let identity = session?.faceProfile?.stableFaceIdentityId, !identity.isEmpty {
+            CachedGalleryMatches.save(photos, userId: userId, faceIdentityId: identity)
         }
         favoriteIds.remove(match.id)
         LocalPhotoFavoritesStore.set(false, matchId: match.id, userId: userId)
@@ -350,7 +392,7 @@ struct AllMyPhotosView: View {
             model.configure(env: env, session: session)
             Task { await model.reload() }
         }
-        .refreshable { await model.reload() }
+        .refreshable { await model.reload(force: true) }
         .onChange(of: filter) { _, _ in selectedIDs.removeAll(); bulkMessage = nil }
         .onChange(of: model.photos.map(\.id)) { _, ids in selectedIDs.formIntersection(Set(ids)) }
     }
