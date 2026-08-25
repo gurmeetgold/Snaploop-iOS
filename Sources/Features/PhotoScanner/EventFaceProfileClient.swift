@@ -36,7 +36,9 @@ enum EventFaceProfileClient {
             throw AppError.decoding("Trip participant face template is missing")
         }
 
-        guard let userId = data["userId"] as? String, !vector.isEmpty else {
+        guard let userId = data["userId"] as? String, !vector.isEmpty,
+              let faceIdentityId = data["faceIdentityId"] as? String,
+              !faceIdentityId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AppError.decoding("Trip participant identity is missing")
         }
 
@@ -82,6 +84,7 @@ enum EventFaceProfileClient {
             userId: userId,
             displayName: data["displayName"] as? String,
             phoneNumber: nil,
+            faceIdentityId: faceIdentityId,
             faceEmbedding: FaceEmbedding(normalized: vector),
             faceTemplates: templates,
             faceProfileVersion: version,
