@@ -77,13 +77,17 @@ public struct FaceTemplate: Identifiable, Equatable, Codable, Sendable {
 
 /// The user's own face profile.
 ///
+/// `faceIdentityId` is an opaque server-issued identifier for the biometric
+/// subject currently attached to this account. It remains stable when the same
+/// person refreshes Face Setup and changes only after Face Setup is deleted and
+/// a new identity is enrolled. It is not derived from a face embedding.
+///
 /// `embedding` remains as a compatibility/centroid descriptor for older code
 /// and migrations. `templates` is the authoritative multi-pose enrollment set
-/// used by the matcher.
-///
-/// No raw enrollment frame is stored in Firestore.
+/// used by the matcher. No raw enrollment frame is stored in Firestore.
 public struct FaceProfile: Equatable, Codable, Sendable {
     public let userId: String
+    public var faceIdentityId: String?
     public var embedding: FaceEmbedding
     public var templates: [FaceTemplate]
     public var version: Int
@@ -91,22 +95,27 @@ public struct FaceProfile: Equatable, Codable, Sendable {
 
     public init(
         userId: String,
+        faceIdentityId: String? = nil,
         embedding: FaceEmbedding,
         templates: [FaceTemplate] = [],
         version: Int = 1,
         updatedAt: Date
     ) {
         self.userId = userId
+        self.faceIdentityId = faceIdentityId
         self.embedding = embedding
         self.templates = templates
         self.version = version
         self.updatedAt = updatedAt
     }
 
-    /// Opaque identity revision for this exact enrollment. Template IDs are
-    /// random identifiers, not biometric vectors. A fresh guided enrollment
-    /// receives new IDs, so caches and cloud matches can be invalidated without
-    /// persisting or exposing any additional biometric measurement.
+    public var stableFaceIdentityId: String {
+        faceIdentityId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// Opaque revision for this exact enrollment. A verified same-person
+    /// refresh receives new template IDs/revision while retaining the stable
+    /// `faceIdentityId`, so existing positive photo matches remain authorized.
     public var faceProfileRevision: String {
         let templateIds = templates.map(\.id).filter { !$0.isEmpty }.sorted()
         guard !templateIds.isEmpty else { return "" }
