@@ -86,10 +86,14 @@ async function scrubUserFromEventPhotos(eventId, uid) {
     const matchedUserIds = Array.isArray(data.matchedUserIds)
       ? data.matchedUserIds.filter((userId) => userId !== uid)
       : [];
+    const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
+      ? { ...data.matchedProfileRevisions }
+      : {};
+    delete matchedProfileRevisions[uid];
     return {
       type: "update",
       ref: doc.ref,
-      data: { appearances, matchedUserIds, updatedAt: Timestamp.now() },
+      data: { appearances, matchedUserIds, matchedProfileRevisions, updatedAt: Timestamp.now() },
     };
   });
   await commitOperations(operations);
@@ -105,8 +109,6 @@ async function deleteSourcePhotos(eventId, uid) {
   try {
     await admin.storage().bucket().deleteFiles({ prefix: `events/${eventId}/photos/${uid}/` });
   } catch (error) {
-    // Metadata is authoritative. Storage cleanup is best-effort; Storage Rules
-    // deny reads as soon as sharing is disabled or the backing photo doc is gone.
     console.error("thumbnail cleanup failed", { eventId, uid, error });
   }
   return snap.size;
@@ -135,7 +137,7 @@ async function eraseFaceData(uid, withdrawConsent) {
   if (withdrawConsent) {
     batch.set(
       db.doc(`users/${uid}/privacy/biometricConsent`),
-      { withdrawnAt: Timestamp.now() },
+      { withdrawnAt: Timestamp.now(), withdrawalReason: "face-setup-deleted-or-consent-withdrawn" },
       { merge: true }
     );
   }
@@ -262,100 +264,10 @@ exports.setSharingManaged = onCall(async (request) => {
   return { eventId, enabled, removedPhotos };
 });
 
-exports.publishMatch = onCall(async (request) => {
-  const uid = requireAuth(request);
-  const data = request.data || {};
-  const eventId = requireString(data.eventId, "eventId");
-  const assetLocalId = requireString(data.assetLocalId, "assetLocalId");
-  const matchId = requireString(data.id, "id");
-  const canonicalMatchId = `${eventId}:${assetLocalId}`;
-  if (matchId !== canonicalMatchId) {
-    throw new HttpsError("invalid-argument", "Photo identity is invalid.");
-  }
-
-  const { member } = await requireMember(eventId, uid);
-  if (member.sharingEnabled === false) {
-    throw new HttpsError("failed-precondition", "Photo sharing is turned off for this event.");
-  }
-
-  const eventSnap = await db.doc(`events/${eventId}`).get();
-  if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
-  const event = eventSnap.data() || {};
-  if (event.status !== "active") throw new HttpsError("failed-precondition", "This event has ended.");
-
-  const capturedAtMillis = requireMillis(data.capturedAtMillis, "capturedAt");
-  const matchedAtMillis = requireMillis(data.matchedAtMillis, "matchedAt");
-  if (matchedAtMillis > Date.now() + MAX_CLOCK_SKEW_MS) {
-    throw new HttpsError("invalid-argument", "Match time is invalid.");
-  }
-  if (event.startsAt instanceof Timestamp && capturedAtMillis < event.startsAt.toMillis()) {
-    throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
-  }
-  if (event.endsAt instanceof Timestamp && capturedAtMillis > event.endsAt.toMillis()) {
-    throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
-  }
-
-  if (!Array.isArray(data.appearances) || data.appearances.length > MAX_APPEARANCES) {
-    throw new HttpsError("invalid-argument", "Appearances are invalid.");
-  }
-
-  const seen = new Set();
-  const appearances = data.appearances.map((raw) => {
-    const participantUserId = requireString(raw && raw.participantUserId, "participantUserId");
-    const confidence = Number(raw && raw.confidence);
-    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-      throw new HttpsError("invalid-argument", "Appearance confidence is invalid.");
-    }
-    if (seen.has(participantUserId)) {
-      throw new HttpsError("invalid-argument", "Duplicate participant appearance.");
-    }
-    seen.add(participantUserId);
-    return { participantUserId, confidence, dismissedByUser: false };
-  });
-
-  if (appearances.length > 0) {
-    const refs = appearances.map((appearance) =>
-      db.doc(`events/${eventId}/members/${appearance.participantUserId}`)
-    );
-    const snaps = await db.getAll(...refs);
-    if (snaps.some((snap) => !snap.exists)) {
-      throw new HttpsError("invalid-argument", "A matched person is not a member of this event.");
-    }
-  }
-
-  const docId = photoDocumentId(matchId);
-  const thumbnailPath = requireString(data.thumbnailPath, "thumbnailPath");
-  const expectedPath = expectedThumbnailPath(eventId, uid, docId);
-  if (thumbnailPath !== expectedPath) {
-    throw new HttpsError("invalid-argument", "Thumbnail path is invalid.");
-  }
-
-  try {
-    const [metadata] = await admin.storage().bucket().file(thumbnailPath).getMetadata();
-    const size = Number(metadata.size || 0);
-    if (metadata.contentType !== "image/jpeg" || !Number.isFinite(size) || size <= 0 || size > MAX_THUMBNAIL_BYTES) {
-      throw new Error("invalid thumbnail metadata");
-    }
-  } catch (error) {
-    console.error("thumbnail verification failed", { eventId, uid, thumbnailPath, error });
-    throw new HttpsError("failed-precondition", "Thumbnail upload could not be verified.");
-  }
-
-  await db.doc(`events/${eventId}/photos/${docId}`).set({
-    id: matchId,
-    eventId,
-    sourceUserId: uid,
-    assetLocalId,
-    appearances,
-    matchedUserIds: appearances.map((appearance) => appearance.participantUserId),
-    capturedAt: Timestamp.fromMillis(capturedAtMillis),
-    matchedAt: Timestamp.fromMillis(matchedAtMillis),
-    thumbnailPath,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  }, { merge: false });
-
-  return { eventId, photoId: docId };
+// Kept for source compatibility; bootstrap.js exports the stricter
+// identityBoundMatches implementation under the public publishMatch name.
+exports.publishMatch = onCall(async () => {
+  throw new HttpsError("failed-precondition", "This legacy match endpoint is disabled.");
 });
 
 exports.dismissAppearanceTrusted = onCall(async (request) => {
@@ -386,15 +298,22 @@ exports.dismissAppearanceTrusted = onCall(async (request) => {
     const matchedUserIds = Array.isArray(photo.matchedUserIds)
       ? photo.matchedUserIds.filter((userId) => userId !== uid)
       : [];
-    tx.update(photoRef, { appearances, matchedUserIds, updatedAt: Timestamp.now() });
+    const matchedProfileRevisions = photo.matchedProfileRevisions && typeof photo.matchedProfileRevisions === "object"
+      ? { ...photo.matchedProfileRevisions }
+      : {};
+    delete matchedProfileRevisions[uid];
+    tx.update(photoRef, { appearances, matchedUserIds, matchedProfileRevisions, updatedAt: Timestamp.now() });
   });
   return { dismissed: true };
 });
 
 exports.eraseMyFaceProfile = onCall(async (request) => {
   const uid = requireAuth(request);
-  const result = await eraseFaceData(uid, false);
-  return { erased: true, ...result };
+  // Deleting the active biometric identity also deactivates the current
+  // consent authorization. The historical consent record is retained as audit
+  // evidence, but a future Face Setup must obtain fresh express consent.
+  const result = await eraseFaceData(uid, true);
+  return { erased: true, consentDeactivated: true, ...result };
 });
 
 exports.withdrawBiometricConsent = onCall(async (request) => {
@@ -429,29 +348,19 @@ exports.deleteMyAccount = onCall(async (request) => {
       const eventRef = db.doc(`events/${eventId}`);
       const freshEvent = await tx.get(eventRef);
       if (!freshEvent.exists) return;
-      const count = Math.max(0, Number(freshEvent.data().memberCount || 1) - 1);
       tx.delete(db.doc(`events/${eventId}/members/${uid}`));
       tx.delete(db.doc(`events/${eventId}/participants/${uid}`));
       tx.delete(db.doc(`users/${uid}/eventRefs/${eventId}`));
-      tx.update(eventRef, { memberCount: count, updatedAt: Timestamp.now() });
     });
   }
 
-  await Promise.all([
-    deleteCollection(`users/${uid}/eventRefs`),
-    deleteCollection(`users/${uid}/pendingInvites`),
-    deleteCollection(`users/${uid}/notifications`),
-    deleteCollection(`users/${uid}/faceProfile`),
-    deleteCollection(`users/${uid}/privacy`),
-  ]);
-  await userRef.delete();
-
-  try {
-    await admin.auth().deleteUser(uid);
-  } catch (error) {
-    console.error("auth deletion failed after data purge", { uid, error });
-    throw new HttpsError("internal", "Your data was removed, but authentication cleanup needs to be retried.");
-  }
+  await eraseFaceData(uid, true);
+  await deleteCollection(`users/${uid}/pendingInvites`);
+  await deleteCollection(`users/${uid}/notifications`);
+  await deleteCollection(`users/${uid}/eventRefs`);
+  await db.doc(`users/${uid}/privacy/biometricConsent`).delete().catch(() => {});
+  await userRef.delete().catch(() => {});
+  await admin.auth().deleteUser(uid);
 
   return { deleted: true };
 });
