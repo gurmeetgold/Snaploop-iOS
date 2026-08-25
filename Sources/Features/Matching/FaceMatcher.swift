@@ -50,6 +50,7 @@ public enum FaceTemplateMatchPolicy {
 public struct FaceMatcher {
     public struct ParticipantScore: Equatable, Sendable {
         public let participantUserId: String
+        public let faceProfileRevision: String
         public let bestTemplate: Double
         public let secondTemplate: Double?
         public let decisionScore: Double
@@ -64,24 +65,32 @@ public struct FaceMatcher {
 
     public func appearances(in faces: [DetectedFace], participants: [EventParticipant]) -> [PhotoMatch.Appearance] {
         guard !faces.isEmpty, !participants.isEmpty else { return [] }
-        var bestConfidence: [String: Double] = [:]
+        var bestByParticipant: [String: (confidence: Double, revision: String)] = [:]
 
         for face in faces {
             guard face.sizeFraction >= config.minFaceSizeFraction else { continue }
             guard let winner = assign(face: face, to: participants) else { continue }
-            let existing = bestConfidence[winner.participantUserId]
-            if existing == nil || winner.decisionScore > existing! {
-                bestConfidence[winner.participantUserId] = winner.decisionScore
+            let existing = bestByParticipant[winner.participantUserId]
+            if existing == nil || winner.decisionScore > existing!.confidence {
+                bestByParticipant[winner.participantUserId] = (
+                    winner.decisionScore,
+                    winner.faceProfileRevision
+                )
             }
         }
 
-        return bestConfidence.map {
-            PhotoMatch.Appearance(participantUserId: $0.key, confidence: $0.value)
+        return bestByParticipant.map {
+            PhotoMatch.Appearance(
+                participantUserId: $0.key,
+                confidence: $0.value.confidence,
+                faceProfileRevision: $0.value.revision
+            )
         }.sorted { $0.confidence > $1.confidence }
     }
 
     private func participantScore(face: DetectedFace, participant: EventParticipant) -> ParticipantScore? {
         guard participant.faceProfileVersion == FaceModelPolicy.currentVersion else { return nil }
+        guard !participant.faceProfileRevision.isEmpty else { return nil }
 
         // Rank templates by how well they match this particular face. This is
         // deliberately pose-adaptive: a frontal gallery photo should not be
@@ -97,6 +106,7 @@ public struct FaceMatcher {
 
         return ParticipantScore(
             participantUserId: participant.userId,
+            faceProfileRevision: participant.faceProfileRevision,
             bestTemplate: evaluation.bestTemplate,
             secondTemplate: evaluation.secondTemplate,
             decisionScore: evaluation.decisionScore,
