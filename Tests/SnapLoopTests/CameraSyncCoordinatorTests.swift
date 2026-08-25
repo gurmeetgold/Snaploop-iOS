@@ -143,3 +143,67 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         }
     }
 }
+
+final class BiometricConsentPolicyTests: XCTestCase {
+    private func record(
+        country: String,
+        subdivision: String = "",
+        age18: Bool = true,
+        notice: Bool = true,
+        expiresAt: Date = Date().addingTimeInterval(3_600)
+    ) -> BiometricConsentRecord {
+        BiometricConsentRecord(
+            userId: "user",
+            acceptedAt: Date(),
+            expiresAt: expiresAt,
+            jurisdictionCountry: country,
+            jurisdictionSubdivision: subdivision,
+            age18Attested: age18,
+            noticeAcknowledged: notice
+        )
+    }
+
+    func testIndiaIsSupportedWithoutStateSelection() {
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
+        XCTAssertTrue(record(country: "IN").isActive)
+        XCTAssertTrue(BiometricJurisdictionCatalog.subdivisions(for: "IN").isEmpty)
+    }
+
+    func testIndiaRejectsUnexpectedSubdivision() {
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "IN", subdivisionCode: "DL").isFaceMatchAvailable)
+    }
+
+    func testQuebecAndConservativeUSRiskStatesAreBlocked() {
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
+        for state in BiometricJurisdictionCatalog.blockedUnitedStates {
+            XCTAssertFalse(
+                BiometricJurisdiction(countryCode: "US", subdivisionCode: state).isFaceMatchAvailable,
+                "Expected \(state) to remain blocked for Face Match"
+            )
+        }
+    }
+
+    func testKnownLowerRiskLaunchJurisdictionsRemainAvailable() {
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "US", subdivisionCode: "AK").isFaceMatchAvailable)
+    }
+
+    func testAgeAttestationIsRequiredForActiveConsent() {
+        XCTAssertFalse(record(country: "IN", age18: false).isActive)
+    }
+
+    func testNoticeAcknowledgementIsRequiredForActiveConsent() {
+        XCTAssertFalse(record(country: "IN", notice: false).isActive)
+    }
+
+    func testExpiredConsentIsInactive() {
+        XCTAssertFalse(record(country: "IN", expiresAt: Date().addingTimeInterval(-1)).isActive)
+    }
+
+    func testCanonicalDisclosureHashIsPinned() {
+        XCTAssertEqual(
+            BiometricConsentRecord.currentDisclosureSHA256,
+            "23259c73e44fdb2f335a01a53cd6800947d204a5495731580b8c010917b4eab6"
+        )
+    }
+}
