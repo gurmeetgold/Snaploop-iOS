@@ -181,15 +181,11 @@ struct ParticipantsView: View {
                             ))
                             .tint(Theme.sunset)
 
-                            if model.sharingEnabled {
-                                Text("Photos found on your phone can be shared with the Event members they match.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Label("You have turned off photo sharing for this Event. Photos from your phone will not be shared until you turn it back on.", systemImage: "hand.raised.fill")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(Theme.sunset)
-                            }
+                            Text(model.sharingEnabled
+                                 ? "Matched photos from your phone can be shared with the people they match."
+                                 : "Photo sharing from this phone is off for this Event.")
+                                .font(.caption)
+                                .foregroundStyle(model.sharingEnabled ? .secondary : Theme.sunset)
 
                             Divider()
 
@@ -200,12 +196,6 @@ struct ParticipantsView: View {
                             .tint(Theme.violet)
                             .disabled(!model.sharingEnabled)
                             .opacity(model.sharingEnabled ? 1 : 0.45)
-
-                            Text(model.sharingEnabled
-                                 ? "Turn this on if you also want photos of yourself from this phone to appear in your Gallery."
-                                 : "Turn on Event sharing first to use this option.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
 
                             if model.currentUserCanInvite {
                                 NavigationLink { ShareEventView(event: model.event) } label: {
@@ -220,13 +210,16 @@ struct ParticipantsView: View {
                                 .shadow(color: Theme.ink.opacity(0.08), radius: 8, y: 4)
                             }
 
+                            if model.currentUserRole == .organizer || model.currentUserRole == .admin {
+                                Label("Event controls are on the Event screen.", systemImage: model.currentUserRole == .admin ? "shield.fill" : "crown.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
                             if model.currentUserRole != .organizer {
                                 Button(role: .destructive) { confirmLeave = true } label: {
                                     Label("Leave Event", systemImage: "rectangle.portrait.and.arrow.right")
                                 }
-                            } else {
-                                Label("Organizer controls for editing, ending and deleting are on the Event screen.", systemImage: "crown.fill")
-                                    .font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
