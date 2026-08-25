@@ -1,3 +1,4 @@
+import FirebaseFunctions
 import FirebaseStorage
 import Photos
 import SwiftUI
@@ -381,6 +382,7 @@ final class StorageThumbnailLoader: ObservableObject {
         } catch is CancellationError {
             return
         } catch {
+            Log.events.error("Matched photo preview load failed: \(String(describing: error), privacy: .public)")
             failed = true
         }
     }
@@ -405,15 +407,55 @@ final class StorageThumbnailLoader: ObservableObject {
     }
 
     private static func fetchImage(path: String) async throws -> UIImage {
-        let data: Data = try await withCheckedThrowingContinuation { continuation in
-            Storage.storage().reference(withPath: path).getData(maxSize: 12 * 1024 * 1024) { data, error in
+        do {
+            let data: Data = try await withCheckedThrowingContinuation { continuation in
+                Storage.storage().reference(withPath: path).getData(maxSize: 12 * 1024 * 1024) { data, error in
+                    if let error { continuation.resume(throwing: error); return }
+                    guard let data else { continuation.resume(throwing: AppError.originalUnavailable); return }
+                    continuation.resume(returning: data)
+                }
+            }
+            guard let decoded = UIImage(data: data) else { throw AppError.originalUnavailable }
+            return decoded
+        } catch {
+            // A matched-photo row has already passed the backend's membership
+            // and stable-identity authorization. If the second, client-side
+            // Storage read fails, repeat those checks server-side and return
+            // only this optimized preview instead of showing a broken tile.
+            let data = try await authorizedFallbackData(for: path)
+            guard let decoded = UIImage(data: data) else { throw AppError.originalUnavailable }
+            return decoded
+        }
+    }
+
+    private static func authorizedFallbackData(for path: String) async throws -> Data {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count == 6,
+              parts[0] == "events",
+              parts[2] == "photos",
+              parts[5] == "thumbnail.jpg" else {
+            throw AppError.originalUnavailable
+        }
+
+        let eventId = parts[1]
+        let photoId = parts[4]
+        let raw: Any = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+            Functions.functions().httpsCallable("getMatchedThumbnail").call([
+                "eventId": eventId,
+                "photoId": photoId,
+            ]) { result, error in
                 if let error { continuation.resume(throwing: error); return }
-                guard let data else { continuation.resume(throwing: AppError.originalUnavailable); return }
-                continuation.resume(returning: data)
+                continuation.resume(returning: result?.data as Any)
             }
         }
-        guard let decoded = UIImage(data: data) else { throw AppError.originalUnavailable }
-        return decoded
+
+        guard let wrapper = raw as? [String: Any],
+              let base64 = wrapper["base64"] as? String,
+              let data = Data(base64Encoded: base64),
+              !data.isEmpty else {
+            throw AppError.originalUnavailable
+        }
+        return data
     }
 
     private static func store(_ image: UIImage, path: String) {
