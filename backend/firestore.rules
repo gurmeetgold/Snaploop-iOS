@@ -21,9 +21,19 @@ service cloud.firestore {
         get(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
     }
 
+    function faceProfilePath(userId) {
+      return /databases/$(database)/documents/users/$(userId)/faceProfile/current;
+    }
+
     function isMatchedInPhoto() {
-      return resource.data.matchedUserIds is list
-        && resource.data.matchedUserIds.hasAny([request.auth.uid]);
+      return isSignedIn()
+        && resource.data.matchedUserIds is list
+        && resource.data.matchedUserIds.hasAny([request.auth.uid])
+        && resource.data.matchedProfileRevisions is map
+        && exists(faceProfilePath(request.auth.uid))
+        && resource.data.matchedProfileRevisions.get(request.auth.uid, '') != ''
+        && resource.data.matchedProfileRevisions.get(request.auth.uid, '') ==
+           get(faceProfilePath(request.auth.uid)).data.get('identityRevision', '');
     }
 
     match /users/{userId} {
@@ -105,6 +115,9 @@ service cloud.firestore {
       }
 
       match /photos/{photoId} {
+        // A UID match is not enough. The photo must have been matched using the
+        // viewer's current Face Setup revision. Replacing Face Setup therefore
+        // revokes direct Firestore access to all older face-derived results.
         allow read: if isMember(eventId) && isMatchedInPhoto();
         allow create, update, delete: if false;
       }
