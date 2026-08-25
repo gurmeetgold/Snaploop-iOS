@@ -25,6 +25,7 @@ final class FaceMatcherTests: XCTestCase {
         return EventParticipant(
             userId: id,
             displayName: id,
+            faceIdentityId: "\(id)-face",
             faceEmbedding: embedding,
             faceTemplates: [
                 FaceTemplate(embedding: embedding, pose: .center, quality: 1, createdAt: Date()),
@@ -117,6 +118,7 @@ final class FaceMatcherTests: XCTestCase {
         let duplicated = EventParticipant(
             userId: "duplicate",
             displayName: "duplicate",
+            faceIdentityId: "duplicate-face",
             faceEmbedding: base,
             faceTemplates: [
                 FaceTemplate(embedding: base, pose: .center, quality: 0.95, createdAt: Date()),
