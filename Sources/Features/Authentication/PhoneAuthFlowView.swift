@@ -21,8 +21,6 @@ final class PhoneAuthModel: ObservableObject {
         self.session = session
     }
 
-    deinit { authTask?.cancel() }
-
     /// Starts the visual busy state synchronously from the button tap, then lets
     /// SwiftUI render that feedback before Firebase begins app verification.
     /// This prevents a slow Firebase/APNs/reCAPTCHA setup from making the button
