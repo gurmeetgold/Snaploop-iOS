@@ -102,6 +102,9 @@ final class FaceSetupModel: ObservableObject {
             guard newGuidedTemplates.count >= 3 else { throw AppError.faceEmbeddingFailed }
             let guided = Array(newGuidedTemplates.sorted { $0.quality > $1.quality }.prefix(FaceModelPolicy.targetTemplateCount))
 
+            // Updating Face Setup is allowed only for the same biometric subject.
+            // A mismatch leaves the current profile, preview and matched photos
+            // untouched and lets the user explicitly choose whether to delete it.
             if let currentProfile = session?.faceProfile,
                session?.hasFaceProfile == true,
                !sameIdentityReplacement(
@@ -117,8 +120,6 @@ final class FaceSetupModel: ObservableObject {
 
             templates = guided
 
-            // Prefer the final straight-on capture for the saved local preview.
-            // Fall back to the opening center frame, then the best-quality frame.
             let straightReferenceFrame = frames.first(where: { $0.pose == .alternate })
                 ?? frames.first(where: { $0.pose == .center })
                 ?? frames.max(by: { $0.quality < $1.quality })
@@ -223,6 +224,9 @@ final class FaceSetupModel: ObservableObject {
                 updatedAt: env.clock.now()
             )
             try await env.faceProfiles.save(profile)
+            guard let persistedProfile = try await env.faceProfiles.load(userId: user.id) else {
+                throw AppError.decoding("Face Setup was saved but could not be reloaded")
+            }
 
             if let pendingGuidedReferenceData {
                 try LocalFaceReferenceStore.save(pendingGuidedReferenceData, userId: user.id, kind: .guided)
@@ -231,23 +235,25 @@ final class FaceSetupModel: ObservableObject {
             user.hasFaceProfile = true
             try await env.users.save(user)
             try await refreshEventFaceProfiles()
-            session.setResolvedFaceProfile(profile, forUserId: user.id)
+            session.setResolvedFaceProfile(persistedProfile, forUserId: user.id)
             session.updateUser(user)
+            templates = persistedProfile.templates.filter { $0.pose != .imported }
             previewData = LocalFaceReferenceStore.load(userId: user.id, kind: .guided) ?? previewData
             pendingGuidedReferenceData = nil
             hasChanges = false
             didSave = true
-            if wasUpdate {
-                message = "Face Setup updated. Manually rescan your Events to refresh matched photos."
-            } else {
-                message = automatic ? "Face Setup saved." : "Face Setup saved."
-            }
+            message = wasUpdate ? "Face Setup updated." : "Face Setup saved."
         } catch let error as AppError {
-            message = error.userMessage
+            if error == .faceIdentityMismatch {
+                message = nil
+                differentIdentityDetected = true
+            } else {
+                message = error.userMessage
+            }
         } catch {
             let text = (error as NSError).localizedDescription
             if text.localizedCaseInsensitiveContains("does not match your current Face Setup")
-                || text.localizedCaseInsensitiveContains("same person") {
+                || text.localizedCaseInsensitiveContains("delete the current Face Setup") {
                 message = nil
                 differentIdentityDetected = true
             } else {
@@ -256,16 +262,14 @@ final class FaceSetupModel: ObservableObject {
         }
     }
 
-    func deleteFaceSetupAndStartOver() async -> Bool {
+    func deleteFaceSetup() async -> Bool {
         guard let env, let session, let userId = session.user?.id else { return false }
         isBusy = true
         message = nil
         defer { isBusy = false }
 
         do {
-            // Deletion is also an authorization boundary: fresh v5 consent is
-            // required before another Face Setup can be enrolled.
-            try await env.biometricConsent.withdraw(userId: userId, at: env.clock.now())
+            try await env.faceProfiles.delete(userId: userId)
             LocalFaceReferenceStore.delete(userId: userId)
             templates = []
             previewData = nil
@@ -275,7 +279,6 @@ final class FaceSetupModel: ObservableObject {
             consentActive = false
             differentIdentityDetected = false
             session.requireFaceSetupAfterDeletion()
-            message = "Face Setup deleted. Review consent and run Selfie Scan to start again."
             return true
         } catch {
             message = (error as NSError).localizedDescription
@@ -328,7 +331,7 @@ struct FaceSetupView: View {
     @StateObject private var model = FaceSetupModel()
     @State private var showSelfieEnrollment = false
     @State private var showConsent = false
-    @State private var showUpdateWarning = false
+    @State private var showDeleteFaceSetup = false
     @State private var pendingAction: PendingAction?
     @State private var restorePreviewItem: PhotosPickerItem?
 
@@ -351,11 +354,7 @@ struct FaceSetupView: View {
                     PremiumCard { templateStatus }
 
                     actionButton("Selfie Scan", icon: "viewfinder.circle.fill", gradient: Theme.brandGradient) {
-                        if session.hasFaceProfile {
-                            showUpdateWarning = true
-                        } else {
-                            startSelfieFlow()
-                        }
+                        startSelfieFlow()
                     }
                     .disabled(model.isBusy)
                     .opacity(model.isBusy ? 0.62 : 1)
@@ -370,6 +369,17 @@ struct FaceSetupView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.magenta)
                         .background(Theme.magenta.opacity(0.09), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                        Button(role: .destructive) { showDeleteFaceSetup = true } label: {
+                            Label("Delete Face Setup", systemImage: "trash.fill")
+                                .font(.subheadline.bold())
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 48)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.red)
+                        .background(.red.opacity(0.07), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .disabled(model.isBusy)
                     }
 
                     if let message = model.message {
@@ -423,26 +433,37 @@ struct FaceSetupView: View {
             )
         }
         .confirmationDialog(
-            "Update Face Setup?",
-            isPresented: $showUpdateWarning,
-            titleVisibility: .visible
-        ) {
-            Button("Continue to Selfie Scan") { startSelfieFlow() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Updating replaces your Face Setup. Existing matched photos may disappear, and you'll need to manually rescan each Event. Save any photos you want to keep first.")
-        }
-        .confirmationDialog(
             "Different Face Detected",
             isPresented: $model.differentIdentityDetected,
             titleVisibility: .visible
         ) {
             Button("Delete Face Setup & Start Over", role: .destructive) {
-                Task { _ = await model.deleteFaceSetupAndStartOver() }
+                Task {
+                    if await model.deleteFaceSetup() {
+                        pendingAction = .selfie
+                        showConsent = true
+                    }
+                }
             }
             Button("Keep Current Face Setup", role: .cancel) {}
         } message: {
-            Text("This scan looks like a different person. Face Setup can only be updated for the same person. Delete the current Face Setup to start over.")
+            Text("This scan doesn't appear to be the same person as your current Face Setup. To use a different face, delete the current Face Setup and start again.")
+        }
+        .confirmationDialog(
+            "Delete Face Setup?",
+            isPresented: $showDeleteFaceSetup,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Face Setup", role: .destructive) {
+                Task {
+                    if await model.deleteFaceSetup() {
+                        dismiss()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes your Face Setup and face-matched data and turns Face Match off. You'll need fresh consent to set it up again.")
         }
     }
 
