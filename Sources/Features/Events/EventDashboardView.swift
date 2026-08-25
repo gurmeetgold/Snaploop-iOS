@@ -118,7 +118,7 @@ struct EventDashboardView: View {
                 Task { await changeStatus { try await env.events.moveEventToDeleted(id: currentEvent.id) } }
             }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("Only the organizer can delete an Event.") }
+        } message: { Text("The Event will move to Deleted and can be restored while it is still retained.") }
     }
 
     @MainActor
