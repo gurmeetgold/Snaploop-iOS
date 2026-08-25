@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct SnapLoopApp: App {
@@ -65,6 +66,16 @@ private struct AppLaunchView: View {
         await Task.yield()
 
         let liveEnvironment = AppEnvironment.current()
+
+        // Firebase phone authentication verifies a real iPhone with a silent
+        // APNs notification before it falls back to browser-based reCAPTCHA.
+        // Register as soon as Firebase is configured, before the phone-auth UI
+        // can be used. Silent APNs registration itself does not ask the user for
+        // notification permission.
+        if AppEnvironment.useLiveServices {
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+
         let liveSession = AppEnvironment.useLiveServices ? AppSession() : .dev()
         environment = liveEnvironment
         session = liveSession
