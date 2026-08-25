@@ -142,22 +142,28 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
             (data["consentPolicyVersion"] as? NSNumber)?.intValue
             ?? data["consentPolicyVersion"] as? Int
             ?? 0
+        let expiresAt = (data["expiresAt"] as? Timestamp)?.dateValue() ?? .distantPast
 
         return version == FaceModelPolicy.currentVersion
             && consentPolicyVersion == BiometricConsentRecord.currentPolicyVersion
             && data["consentDisclosureId"] as? String == BiometricConsentRecord.currentDisclosureId
             && data["consentDisclosureSHA256"] as? String == BiometricConsentRecord.currentDisclosureSHA256
-            && (data["expiresAt"] as? Timestamp)?.dateValue() ?? .distantPast > Date()
+            && expiresAt > Date()
     }
 
     private static func isCurrentEligibleProfile(_ data: [String: Any]) -> Bool {
+        let version =
+            (data["version"] as? NSNumber)?.intValue
+            ?? data["version"] as? Int
+            ?? 0
         let consentPolicyVersion =
             (data["consentPolicyVersion"] as? NSNumber)?.intValue
             ?? data["consentPolicyVersion"] as? Int
             ?? 0
         let identityId = (data["faceIdentityId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        guard consentPolicyVersion == BiometricConsentRecord.currentPolicyVersion,
+        guard version == FaceModelPolicy.currentVersion,
+              consentPolicyVersion == BiometricConsentRecord.currentPolicyVersion,
               data["consentDisclosureId"] as? String == BiometricConsentRecord.currentDisclosureId,
               data["consentDisclosureSHA256"] as? String == BiometricConsentRecord.currentDisclosureSHA256,
               !identityId.isEmpty,
