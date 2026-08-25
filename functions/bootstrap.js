@@ -16,6 +16,7 @@ const privacy = require("./privacyHardening");
 const memberDirectory = require("./memberDirectory");
 const memberPreferences = require("./memberPreferences");
 const identityBoundMatches = require("./identityBoundMatches");
+const faceErasure = require("./faceErasure");
 const invitePreview = require("./invitePreview");
 
 exports.createEvent = managed.createEventMVP;
@@ -46,7 +47,7 @@ exports.updateDisplayName = security.updateDisplayNameTrusted;
 exports.refreshMyFaceProfile = profile.refreshMyFaceProfileManaged;
 exports.acceptBiometricConsent = privacy.acceptBiometricConsent;
 exports.saveMyFaceProfile = privacy.saveMyFaceProfile;
-exports.eraseMyFaceProfile = security.eraseMyFaceProfile;
+exports.eraseMyFaceProfile = faceErasure.eraseMyFaceProfileIdentityBound;
 exports.withdrawBiometricConsent = security.withdrawBiometricConsent;
 exports.deleteMyAccount = security.deleteMyAccount;
 exports.listEventFaceProfiles = privacy.listEventFaceProfiles;
