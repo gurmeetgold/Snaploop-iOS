@@ -1,8 +1,57 @@
 import FirebaseFunctions
 import FirebaseStorage
+import ImageIO
 import Photos
 import SwiftUI
 import UIKit
+
+private struct EventGalleryCacheEnvelope: Codable {
+    let photos: [PhotoMatch]
+    let members: [EventMember]
+    let savedAt: Date
+}
+
+private enum CachedEventGallery {
+    private static func prefix(userId: String, eventId: String) -> String {
+        "snaploop.event.gallery.cache.\(userId).\(eventId)"
+    }
+
+    private static func key(userId: String, eventId: String, faceIdentityId: String) -> String {
+        "\(prefix(userId: userId, eventId: eventId)).\(faceIdentityId)"
+    }
+
+    static func load(userId: String, eventId: String, faceIdentityId: String) -> EventGalleryCacheEnvelope? {
+        guard !faceIdentityId.isEmpty,
+              let data = UserDefaults.standard.data(forKey: key(userId: userId, eventId: eventId, faceIdentityId: faceIdentityId)) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(EventGalleryCacheEnvelope.self, from: data)
+    }
+
+    static func save(
+        photos: [PhotoMatch],
+        members: [EventMember],
+        userId: String,
+        eventId: String,
+        faceIdentityId: String
+    ) {
+        guard !faceIdentityId.isEmpty else { return }
+        let envelope = EventGalleryCacheEnvelope(photos: photos, members: members, savedAt: Date())
+        guard let data = try? JSONEncoder().encode(envelope) else { return }
+        UserDefaults.standard.set(data, forKey: key(userId: userId, eventId: eventId, faceIdentityId: faceIdentityId))
+    }
+
+    static func purgeOtherIdentities(userId: String, eventId: String, keeping faceIdentityId: String?) {
+        let base = prefix(userId: userId, eventId: eventId)
+        let keep = faceIdentityId.flatMap {
+            $0.isEmpty ? nil : key(userId: userId, eventId: eventId, faceIdentityId: $0)
+        }
+        for existingKey in UserDefaults.standard.dictionaryRepresentation().keys
+            where existingKey == base || existingKey.hasPrefix("\(base).") {
+            if existingKey != keep { UserDefaults.standard.removeObject(forKey: existingKey) }
+        }
+    }
+}
 
 @MainActor
 final class MyPhotosModel: ObservableObject {
@@ -15,6 +64,8 @@ final class MyPhotosModel: ObservableObject {
     private var env: AppEnvironment?
     private var session: AppSession?
     private var reloadGeneration = 0
+    private var lastReloadAt: Date?
+    private let automaticRefreshInterval: TimeInterval = 30
     let event: Event
 
     init(event: Event) { self.event = event }
@@ -22,20 +73,45 @@ final class MyPhotosModel: ObservableObject {
     func configure(env: AppEnvironment, session: AppSession) {
         self.env = env
         self.session = session
+        guard let userId = session.user?.id else { return }
+
+        let identity = session.faceProfile?.stableFaceIdentityId
+        CachedEventGallery.purgeOtherIdentities(userId: userId, eventId: event.id, keeping: identity)
+        if photos.isEmpty,
+           let identity,
+           !identity.isEmpty,
+           let cached = CachedEventGallery.load(userId: userId, eventId: event.id, faceIdentityId: identity) {
+            photos = cached.photos
+            members = cached.members
+            lastReloadAt = cached.savedAt
+        }
+        favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
     }
 
-    func reload() async {
+    func reload(force: Bool = false) async {
         guard let env, let userId = session?.user?.id else { return }
+
+        if !force,
+           !photos.isEmpty,
+           let lastReloadAt,
+           Date().timeIntervalSince(lastReloadAt) < automaticRefreshInterval {
+            favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
+            return
+        }
+
         reloadGeneration += 1
         let generation = reloadGeneration
         isLoading = true
         errorMessage = nil
+        defer {
+            if generation == reloadGeneration { isLoading = false }
+        }
 
         async let photosResult = env.matches.myPhotos(eventId: event.id, userId: userId)
         async let membersResult = env.events.members(eventId: event.id)
 
-        var loadedPhotos: [PhotoMatch] = []
-        var loadedMembers: [EventMember] = []
+        var loadedPhotos: [PhotoMatch]?
+        var loadedMembers: [EventMember]?
         var firstError: Error?
 
         do { loadedPhotos = try await photosResult }
@@ -45,12 +121,26 @@ final class MyPhotosModel: ObservableObject {
         catch { if firstError == nil { firstError = error } }
 
         guard generation == reloadGeneration, session?.user?.id == userId else { return }
-        let sharingEnabled = loadedMembers.first(where: { $0.userId == userId })?.sharingEnabled ?? false
-        photos = loadedPhotos.filter { sharingEnabled || $0.ownerUserId != userId }
-        members = loadedMembers
+
+        if let loadedMembers { members = loadedMembers }
+        if let loadedPhotos {
+            let sharingEnabled = members.first(where: { $0.userId == userId })?.sharingEnabled ?? false
+            photos = loadedPhotos.filter { sharingEnabled || $0.ownerUserId != userId }
+        }
+
         favoriteIds = LocalPhotoFavoritesStore.load(userId: userId)
         errorMessage = firstError.map { ($0 as NSError).localizedDescription }
-        isLoading = false
+        lastReloadAt = Date()
+
+        if let identity = session?.faceProfile?.stableFaceIdentityId, !identity.isEmpty {
+            CachedEventGallery.save(
+                photos: photos,
+                members: members,
+                userId: userId,
+                eventId: event.id,
+                faceIdentityId: identity
+            )
+        }
     }
 
     func ownerLabel(for userId: String) -> String {
@@ -76,6 +166,17 @@ final class MyPhotosModel: ObservableObject {
         photos.removeAll { $0.id == match.id }
         favoriteIds.remove(match.id)
         LocalPhotoFavoritesStore.set(false, matchId: match.id, userId: userId)
+
+        if let identity = session?.faceProfile?.stableFaceIdentityId, !identity.isEmpty {
+            CachedEventGallery.save(
+                photos: photos,
+                members: members,
+                userId: userId,
+                eventId: event.id,
+                faceIdentityId: identity
+            )
+        }
+
         do { try await env.matches.dismissAppearance(matchId: match.id, participantUserId: userId) }
         catch { errorMessage = "Couldn't save the Not Me correction. Pull to refresh and try again." }
     }
@@ -250,8 +351,11 @@ struct MyPhotosView: View {
         .sheet(isPresented: $showBulkShare) {
             ActivityView(items: bulkShareImages.map { $0 as Any })
         }
-        .task { model.configure(env: env, session: session); await model.reload() }
-        .refreshable { await model.reload() }
+        .task {
+            model.configure(env: env, session: session)
+            await model.reload()
+        }
+        .refreshable { await model.reload(force: true) }
         .onChange(of: filter) { _, _ in selectedIDs.removeAll(); bulkMessage = nil }
         .onChange(of: model.photos.map(\.id)) { _, ids in selectedIDs.formIntersection(Set(ids)) }
     }
@@ -366,65 +470,111 @@ final class StorageThumbnailLoader: ObservableObject {
     @Published var image: UIImage?
     @Published var failed = false
 
-    private static let cache: NSCache<NSString, UIImage> = {
+    private let maxPixelSize: Int
+    private var loadedPath: String?
+
+    private static let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 18
+        cache.countLimit = 120
         cache.totalCostLimit = 128 * 1024 * 1024
         return cache
     }()
 
+    private static let compressedDataCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.countLimit = 32
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+
+    init(maxPixelSize: Int = 640) {
+        self.maxPixelSize = max(320, maxPixelSize)
+    }
+
     func load(path: String?) async {
-        image = nil; failed = false
+        guard let path, !path.isEmpty else {
+            image = nil
+            failed = true
+            loadedPath = nil
+            return
+        }
+
+        if let cached = Self.cachedImage(path: path, maxPixelSize: maxPixelSize) {
+            image = cached
+            failed = false
+            loadedPath = path
+            return
+        }
+
+        if loadedPath != path { image = nil }
+        loadedPath = path
+        failed = false
+
         do {
-            let decoded = try await Self.image(path: path)
+            let decoded = try await Self.image(path: path, maxPixelSize: maxPixelSize)
             try Task.checkCancellation()
+            guard loadedPath == path else { return }
             image = decoded
         } catch is CancellationError {
             return
         } catch {
+            guard loadedPath == path else { return }
             Log.events.error("Matched photo preview load failed: \(String(describing: error), privacy: .public)")
             failed = true
         }
     }
 
-    static func image(path: String?) async throws -> UIImage {
+    static func image(path: String?, maxPixelSize: Int = 2560) async throws -> UIImage {
         guard let path, !path.isEmpty else { throw AppError.originalUnavailable }
-        if let cached = cache.object(forKey: path as NSString) { return cached }
-        let decoded = try await fetchImage(path: path)
-        store(decoded, path: path)
+        let target = max(320, maxPixelSize)
+
+        if let cached = cachedImage(path: path, maxPixelSize: target) { return cached }
+
+        let data: Data
+        if let cachedData = compressedDataCache.object(forKey: path as NSString) {
+            data = cachedData as Data
+        } else {
+            data = try await fetchData(path: path)
+            compressedDataCache.setObject(data as NSData, forKey: path as NSString, cost: data.count)
+        }
+
+        guard let decoded = downsample(data: data, maxPixelSize: target) else {
+            throw AppError.originalUnavailable
+        }
+        store(decoded, path: path, maxPixelSize: target)
         return decoded
     }
 
-    static func prefetch(paths: [String]) async {
-        for path in Array(paths.prefix(2)) where cache.object(forKey: path as NSString) == nil {
-            do {
-                let image = try await fetchImage(path: path)
-                store(image, path: path)
-            } catch {
-                continue
-            }
+    static func prefetch(paths: [String], maxPixelSize: Int = 1800) async {
+        for path in Array(paths.prefix(2)) where cachedImage(path: path, maxPixelSize: maxPixelSize) == nil {
+            do { _ = try await image(path: path, maxPixelSize: maxPixelSize) }
+            catch { continue }
         }
     }
 
-    private static func fetchImage(path: String) async throws -> UIImage {
+    private static func cachedImage(path: String, maxPixelSize: Int) -> UIImage? {
+        imageCache.object(forKey: cacheKey(path: path, maxPixelSize: maxPixelSize) as NSString)
+    }
+
+    private static func cacheKey(path: String, maxPixelSize: Int) -> String {
+        "\(maxPixelSize)::\(path)"
+    }
+
+    private static func fetchData(path: String) async throws -> Data {
         do {
-            let data: Data = try await withCheckedThrowingContinuation { continuation in
+            return try await withCheckedThrowingContinuation { continuation in
                 Storage.storage().reference(withPath: path).getData(maxSize: 12 * 1024 * 1024) { data, error in
                     if let error { continuation.resume(throwing: error); return }
                     guard let data else { continuation.resume(throwing: AppError.originalUnavailable); return }
                     continuation.resume(returning: data)
                 }
             }
-            guard let decoded = UIImage(data: data) else { throw AppError.originalUnavailable }
-            return decoded
         } catch {
             // A matched-photo row has already passed the backend's membership
             // and stable-identity authorization. If the second, client-side
             // Storage read fails, repeat those checks server-side and return
             // only this optimized preview instead of showing a broken tile.
-            let data = try await authorizedFallbackData(for: path)
-            guard let decoded = UIImage(data: data) else { throw AppError.originalUnavailable }
-            return decoded
+            return try await authorizedFallbackData(for: path)
         }
     }
 
@@ -458,22 +608,41 @@ final class StorageThumbnailLoader: ObservableObject {
         return data
     }
 
-    private static func store(_ image: UIImage, path: String) {
+    private static func downsample(data: Data, maxPixelSize: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private static func store(_ image: UIImage, path: String, maxPixelSize: Int) {
         let decodedCost: Int
         if let cgImage = image.cgImage { decodedCost = cgImage.bytesPerRow * cgImage.height }
         else { decodedCost = 4 * Int(image.size.width * image.size.height) }
-        cache.setObject(image, forKey: path as NSString, cost: decodedCost)
+        imageCache.setObject(
+            image,
+            forKey: cacheKey(path: path, maxPixelSize: maxPixelSize) as NSString,
+            cost: decodedCost
+        )
     }
 }
 
 struct ThumbnailCell: View {
     let path: String?
-    @StateObject private var loader = StorageThumbnailLoader()
+    @StateObject private var loader = StorageThumbnailLoader(maxPixelSize: 640)
 
     var body: some View {
         Group {
-            if let image = loader.image { Image(uiImage: image).resizable().scaledToFill() }
-            else {
+            if let image = loader.image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
                 Rectangle().fill(Theme.softWash).overlay {
                     if loader.failed { Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary) }
                     else { ProgressView() }
@@ -490,7 +659,7 @@ enum PhotoBulkActions {
         var images: [UIImage] = []
         for match in matches {
             guard !Task.isCancelled else { break }
-            if let image = try? await StorageThumbnailLoader.image(path: match.thumbnailPath) {
+            if let image = try? await StorageThumbnailLoader.image(path: match.thumbnailPath, maxPixelSize: 2560) {
                 images.append(image)
             }
         }
@@ -572,14 +741,16 @@ struct PhotoDetailView: View {
     let onNotMe: (PhotoMatch) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedMatchID: String
+    @State private var selectedIndex: Int
     @State private var chromeVisible = true
+    @State private var currentPageZoomed = false
     @State private var favoriteOverrides: [String: Bool] = [:]
     @State private var statusMessage: String?
     @State private var shareImage: UIImage?
     @State private var showShareSheet = false
     @State private var confirmNotMe = false
     @State private var actionBusy = false
+    @GestureState private var pagerDrag: CGSize = .zero
 
     init(
         matches: [PhotoMatch],
@@ -594,16 +765,12 @@ struct PhotoDetailView: View {
         self.isFavorite = isFavorite
         self.onFavoriteChanged = onFavoriteChanged
         self.onNotMe = onNotMe
-        _selectedMatchID = State(initialValue: initialMatchID)
+        let initialIndex = matches.firstIndex(where: { $0.id == initialMatchID }) ?? 0
+        _selectedIndex = State(initialValue: initialIndex)
     }
 
     private var currentMatch: PhotoMatch? {
-        matches.first(where: { $0.id == selectedMatchID }) ?? matches.first
-    }
-
-    private var currentIndex: Int {
-        guard let currentMatch, let index = matches.firstIndex(where: { $0.id == currentMatch.id }) else { return 0 }
-        return index
+        matches.indices.contains(selectedIndex) ? matches[selectedIndex] : matches.first
     }
 
     private var currentFavorite: Bool {
@@ -611,72 +778,101 @@ struct PhotoDetailView: View {
         return favoriteOverrides[currentMatch.id] ?? isFavorite(currentMatch)
     }
 
+    private var visibleIndices: [Int] {
+        guard !matches.isEmpty else { return [] }
+        return [selectedIndex - 1, selectedIndex, selectedIndex + 1]
+            .filter { matches.indices.contains($0) }
+    }
+
     var body: some View {
-        ZStack {
-            (chromeVisible ? Color(uiColor: .systemBackground) : Color.black)
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            let width = max(1, proxy.size.width)
+            let horizontal = horizontalOffset(width: width)
+            let vertical = verticalDismissOffset
 
-            TabView(selection: $selectedMatchID) {
-                ForEach(matches) { match in
-                    HorizontalPhotoPage(match: match, chromeVisible: chromeVisible) {
-                        withAnimation(.easeInOut(duration: 0.18)) { chromeVisible.toggle() }
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                ZStack {
+                    ForEach(visibleIndices, id: \.self) { index in
+                        HorizontalPhotoPage(
+                            match: matches[index],
+                            onTap: {
+                                withAnimation(.easeInOut(duration: 0.16)) { chromeVisible.toggle() }
+                            },
+                            onZoomChanged: { zoomed in
+                                if index == selectedIndex { currentPageZoomed = zoomed }
+                            }
+                        )
+                        .frame(width: width, height: proxy.size.height)
+                        .offset(x: CGFloat(index - selectedIndex) * width + horizontal)
                     }
-                    .tag(match.id)
                 }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+                .offset(y: vertical)
+                .scaleEffect(1 - min(vertical / max(proxy.size.height, 1), 0.08))
 
-            if chromeVisible, let currentMatch {
-                VStack(spacing: 0) {
-                    HStack {
-                        Text("\(currentIndex + 1) / \(matches.count)")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial, in: Capsule())
+                if chromeVisible, let currentMatch {
+                    VStack(spacing: 0) {
+                        HStack {
+                            Button { dismiss() } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.title3.bold())
+                                    .foregroundStyle(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(.black.opacity(0.42), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+
+                            Spacer()
+
+                            Text("\(selectedIndex + 1) / \(matches.count)")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 7)
+                                .background(.black.opacity(0.42), in: Capsule())
+                        }
+                        .padding(.horizontal, 16)
+                        .safeAreaPadding(.top, 8)
+
                         Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
 
-                    Spacer()
-
-                    VStack(spacing: 9) {
-                        Text("\(ownerLabel(currentMatch)) · \(DateFormatting.longDate(currentMatch.capturedAt))")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(.ultraThinMaterial, in: Capsule())
-
-                        HStack(spacing: 28) {
-                            detailAction("square.and.arrow.down", accessibility: "Save photo") { Task { await saveCurrent() } }
-                            detailAction("square.and.arrow.up", accessibility: "Share photo") { Task { await shareCurrent() } }
-                            detailAction(currentFavorite ? "heart.fill" : "heart", accessibility: currentFavorite ? "Remove from Favorites" : "Favorite photo") { toggleFavorite() }
-                            detailAction("person.crop.circle.badge.xmark", accessibility: "Not Me", destructive: true) { confirmNotMe = true }
-                        }
-                        .disabled(actionBusy)
-
-                        if let statusMessage {
-                            Text(statusMessage)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                        VStack(spacing: 10) {
+                            Text("\(ownerLabel(currentMatch)) · \(DateFormatting.longDate(currentMatch.capturedAt))")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.88))
                                 .lineLimit(1)
+
+                            HStack(spacing: 30) {
+                                detailAction("square.and.arrow.down", accessibility: "Save photo") { Task { await saveCurrent() } }
+                                detailAction("square.and.arrow.up", accessibility: "Share photo") { Task { await shareCurrent() } }
+                                detailAction(currentFavorite ? "heart.fill" : "heart", accessibility: currentFavorite ? "Remove from Favorites" : "Favorite photo") { toggleFavorite() }
+                                detailAction("person.crop.circle.badge.xmark", accessibility: "Not Me", destructive: true) { confirmNotMe = true }
+                            }
+                            .disabled(actionBusy)
+
+                            if let statusMessage {
+                                Text(statusMessage)
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.82))
+                                    .lineLimit(1)
+                            }
                         }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 12)
+                        .safeAreaPadding(.bottom, 10)
+                        .background(.black.opacity(0.48))
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial)
+                    .transition(.opacity)
                 }
-                .transition(.opacity)
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(pagerGesture(width: width))
         }
-        .navigationTitle("Photo")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(chromeVisible ? .visible : .hidden, for: .navigationBar)
+        .ignoresSafeArea()
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showShareSheet) {
             if let shareImage { ActivityView(items: [shareImage]) }
         }
@@ -691,11 +887,64 @@ struct PhotoDetailView: View {
         } message: {
             Text("SnapLoop will hide this photo and record the false match so matching can improve.")
         }
-        .task { await prefetchAdjacent(to: selectedMatchID) }
-        .onChange(of: selectedMatchID) { _, newValue in
+        .task { await prefetchAdjacent(to: selectedIndex) }
+        .onChange(of: selectedIndex) { _, newValue in
+            currentPageZoomed = false
             statusMessage = nil
             Task { await prefetchAdjacent(to: newValue) }
         }
+    }
+
+    private var verticalDismissOffset: CGFloat {
+        guard !currentPageZoomed else { return 0 }
+        let y = pagerDrag.height
+        let x = abs(pagerDrag.width)
+        guard y > 0, y > x * 1.12 else { return 0 }
+        return y
+    }
+
+    private func horizontalOffset(width: CGFloat) -> CGFloat {
+        guard !currentPageZoomed else { return 0 }
+        let x = pagerDrag.width
+        let y = abs(pagerDrag.height)
+        guard abs(x) > y * 0.88 else { return 0 }
+
+        let movingPastFirst = selectedIndex == 0 && x > 0
+        let movingPastLast = selectedIndex == matches.count - 1 && x < 0
+        return (movingPastFirst || movingPastLast) ? x * 0.22 : x
+    }
+
+    private func pagerGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 10)
+            .updating($pagerDrag) { value, state, _ in
+                guard !currentPageZoomed else { return }
+                state = value.translation
+            }
+            .onEnded { value in
+                guard !currentPageZoomed else { return }
+                let x = value.translation.width
+                let y = value.translation.height
+                let predictedX = value.predictedEndTranslation.width
+
+                if y > 105, y > abs(x) * 1.15 {
+                    dismiss()
+                    return
+                }
+
+                guard abs(x) > abs(y) * 0.82 else { return }
+                let shouldPage = abs(x) > min(80, width * 0.18) || abs(predictedX) > min(180, width * 0.38)
+                guard shouldPage else { return }
+
+                if x < 0, selectedIndex < matches.count - 1 {
+                    withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.90)) {
+                        selectedIndex += 1
+                    }
+                } else if x > 0, selectedIndex > 0 {
+                    withAnimation(.interactiveSpring(response: 0.25, dampingFraction: 0.90)) {
+                        selectedIndex -= 1
+                    }
+                }
+            }
     }
 
     private func toggleFavorite() {
@@ -712,7 +961,7 @@ struct PhotoDetailView: View {
         statusMessage = nil
         defer { actionBusy = false }
         do {
-            let image = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath)
+            let image = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath, maxPixelSize: 2560)
             try await PhotoBulkActions.saveToPhotoLibrary([image])
             statusMessage = "Saved to Photos."
         } catch AppError.photoLibraryAccessDenied {
@@ -729,7 +978,7 @@ struct PhotoDetailView: View {
         statusMessage = nil
         defer { actionBusy = false }
         do {
-            shareImage = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath)
+            shareImage = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath, maxPixelSize: 2560)
             showShareSheet = true
         } catch {
             statusMessage = "Couldn't prepare this photo."
@@ -740,47 +989,50 @@ struct PhotoDetailView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.title3.weight(.semibold))
-                .frame(width: 46, height: 42)
+                .frame(width: 48, height: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(destructive ? .red : Theme.ink)
+        .foregroundStyle(destructive ? Color.red : Color.white)
         .accessibilityLabel(accessibility)
     }
 
-    private func prefetchAdjacent(to matchID: String) async {
-        guard let index = matches.firstIndex(where: { $0.id == matchID }) else { return }
+    private func prefetchAdjacent(to index: Int) async {
+        guard matches.indices.contains(index) else { return }
         var paths: [String] = []
         if index + 1 < matches.count, let path = matches[index + 1].thumbnailPath { paths.append(path) }
         if index > 0, let path = matches[index - 1].thumbnailPath { paths.append(path) }
-        await StorageThumbnailLoader.prefetch(paths: paths)
+        await StorageThumbnailLoader.prefetch(paths: paths, maxPixelSize: 1800)
     }
 }
 
 private struct HorizontalPhotoPage: View {
     let match: PhotoMatch
-    let chromeVisible: Bool
     let onTap: () -> Void
-    @StateObject private var loader = StorageThumbnailLoader()
+    let onZoomChanged: (Bool) -> Void
+    @StateObject private var loader = StorageThumbnailLoader(maxPixelSize: 2048)
 
     var body: some View {
         Group {
             if let image = loader.image {
-                ZoomablePhotoView(image: image)
+                ZoomablePhotoView(image: image, onZoomChanged: onZoomChanged)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .simultaneousGesture(TapGesture().onEnded(onTap))
             } else if loader.failed {
-                ContentUnavailableViewCompat(title: "Photo unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .foregroundStyle(chromeVisible ? Theme.ink : .white)
+                ContentUnavailableViewCompat(
+                    title: "Photo unavailable",
+                    message: "Try the photo again.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(.white)
             } else {
                 ProgressView()
-                    .tint(chromeVisible ? Theme.ink : .white)
+                    .tint(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .padding(.vertical, chromeVisible ? 70 : 0)
-        .padding(.horizontal, chromeVisible ? 6 : 0)
+        .background(Color.black)
         .contentShape(Rectangle())
         .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
     }
