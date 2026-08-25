@@ -29,36 +29,44 @@ final class CameraSyncCoordinatorTests: XCTestCase {
               createdAt: now.addingTimeInterval(-day))
     }
 
-    private func bobRoster() -> [EventParticipant] {
+    private func bobRoster(revision: String = "A") -> [EventParticipant] {
         [EventParticipant(userId: "bob", displayName: "Bob",
                           faceEmbedding: FaceEmbedding([1, 0, 0])!,
                           faceTemplates: [
-                            FaceTemplate(embedding: FaceEmbedding([1, 0, 0])!, pose: .center, quality: 1, createdAt: Date()),
-                            FaceTemplate(embedding: FaceEmbedding([1, 0, 0])!, pose: .sideA, quality: 1, createdAt: Date())
+                            FaceTemplate(id: "bob-\(revision)-center", embedding: FaceEmbedding([1, 0, 0])!, pose: .center, quality: 1, createdAt: Date(timeIntervalSince1970: 1)),
+                            FaceTemplate(id: "bob-\(revision)-side", embedding: FaceEmbedding([1, 0, 0])!, pose: .sideA, quality: 1, createdAt: Date(timeIntervalSince1970: 1))
                           ],
                           faceProfileVersion: FaceModelPolicy.currentVersion,
-                          joinedAt: Date())]
+                          joinedAt: Date(timeIntervalSince1970: 1))]
     }
 
     private func scanKey(
         eventId: String = "e1",
         userId: String = "alice",
         includeOwnMatches: Bool = false,
-        preferenceRevision: String = "default"
+        preferenceRevision: String = "default",
+        participants: [EventParticipant]? = nil
     ) -> String {
-        [
+        let roster = participants ?? bobRoster()
+        let rosterRevision = roster
+            .map { "\($0.userId)=\($0.faceProfileRevision)" }
+            .sorted()
+            .joined(separator: ";")
+        return [
             eventId,
             userId,
             FaceModelPolicy.scanGeneration,
-            "sharing-v3",
+            "sharing-v4",
             includeOwnMatches ? "own-on" : "own-off",
             preferenceRevision,
+            rosterRevision,
         ].joined(separator: "::")
     }
 
     func testUploadsOnlyMatchesForOtherMembersAndMarksAllScanned() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let event = makeEvent(now: now)
+        let roster = bobRoster()
         let assets = [
             PhotoAsset(id: "a1", creationDate: now),
             PhotoAsset(id: "a2", creationDate: now),
@@ -82,7 +90,7 @@ final class CameraSyncCoordinatorTests: XCTestCase {
             scanStateStore: scanStore
         )
 
-        let summary = try await coordinator.sync(event: event, participants: bobRoster(), currentUserId: "alice")
+        let summary = try await coordinator.sync(event: event, participants: roster, currentUserId: "alice")
 
         XCTAssertEqual(summary.scanned, 3)
         XCTAssertEqual(summary.matchedPhotos, 2)
@@ -90,9 +98,12 @@ final class CameraSyncCoordinatorTests: XCTestCase {
 
         let bobPhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "bob")
         XCTAssertEqual(Set(bobPhotos.map(\.assetLocalId)), ["a1", "a3"])
+        XCTAssertTrue(bobPhotos.allSatisfy { match in
+            match.appearances.allSatisfy { $0.faceProfileRevision == roster[0].faceProfileRevision }
+        })
         let alicePhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "alice")
         XCTAssertTrue(alicePhotos.isEmpty)
-        XCTAssertEqual(scanStore.load(eventId: scanKey()).scannedCount, 3)
+        XCTAssertEqual(scanStore.load(eventId: scanKey(participants: roster)).scannedCount, 3)
     }
 
     func testSecondPassIsCaughtUpAndRescansNothing() async throws {
@@ -101,6 +112,7 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         let assets = [PhotoAsset(id: "a1", creationDate: now)]
         let detector = ScriptedDetector(facesByAsset: ["a1": [face([1, 0, 0])]])
         let scanStore = InMemoryScanStateStore()
+        let roster = bobRoster()
 
         let coordinator = CameraSyncCoordinator(
             config: StaticConfigProvider(.default),
@@ -112,11 +124,45 @@ final class CameraSyncCoordinatorTests: XCTestCase {
             scanStateStore: scanStore
         )
 
-        _ = try await coordinator.sync(event: event, participants: bobRoster(), currentUserId: "alice")
-        let second = try await coordinator.sync(event: event, participants: bobRoster(), currentUserId: "alice")
+        _ = try await coordinator.sync(event: event, participants: roster, currentUserId: "alice")
+        let second = try await coordinator.sync(event: event, participants: roster, currentUserId: "alice")
 
         XCTAssertEqual(second.scanned, 0)
         XCTAssertTrue(second.alreadyCaughtUp)
+    }
+
+    func testFaceSetupRevisionChangeForcesRescanOfPreviouslyScannedAssets() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let event = makeEvent(now: now)
+        let assets = [PhotoAsset(id: "a1", creationDate: now)]
+        let detector = ScriptedDetector(facesByAsset: ["a1": [face([1, 0, 0])]])
+        let scanStore = InMemoryScanStateStore()
+        let matchRepo = InMemoryMatchRepository()
+        let coordinator = CameraSyncCoordinator(
+            config: StaticConfigProvider(.default),
+            clock: FixedClock(now),
+            photoLibrary: ScriptedLibrary(assetsList: assets),
+            faceDetection: detector,
+            thumbnailEncoder: PassthroughThumbnailEncoder(),
+            matches: matchRepo,
+            scanStateStore: scanStore
+        )
+
+        let oldRoster = bobRoster(revision: "A")
+        let newRoster = bobRoster(revision: "B")
+        XCTAssertNotEqual(oldRoster[0].faceProfileRevision, newRoster[0].faceProfileRevision)
+
+        let first = try await coordinator.sync(event: event, participants: oldRoster, currentUserId: "alice")
+        let second = try await coordinator.sync(event: event, participants: oldRoster, currentUserId: "alice")
+        let afterFaceChange = try await coordinator.sync(event: event, participants: newRoster, currentUserId: "alice")
+
+        XCTAssertEqual(first.scanned, 1)
+        XCTAssertEqual(second.scanned, 0)
+        XCTAssertEqual(afterFaceChange.scanned, 1, "A new Face Setup revision must invalidate prior local scan state")
+
+        let bobPhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "bob")
+        XCTAssertEqual(bobPhotos.count, 1)
+        XCTAssertEqual(bobPhotos[0].appearances.first?.faceProfileRevision, newRoster[0].faceProfileRevision)
     }
 
     func testRefusesToSyncExpiredEvent() async {
