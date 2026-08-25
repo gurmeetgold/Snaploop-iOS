@@ -31,14 +31,17 @@ final class ErasureTests: XCTestCase {
 
     // MARK: Biometric launch policy
 
-    func testFaceMatchJurisdictionAllowsSupportedCanadaAndUS() {
+    func testFaceMatchJurisdictionAllowsSupportedCanadaUSAndIndia() {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
-        XCTAssertTrue(BiometricJurisdiction(countryCode: "US", subdivisionCode: "NY").isFaceMatchAvailable)
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "US", subdivisionCode: "AK").isFaceMatchAvailable)
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
     }
 
-    func testFaceMatchJurisdictionBlocksQuebecIllinoisAndUnsupportedCountries() {
+    func testFaceMatchJurisdictionBlocksHeightenedRiskAndUnsupportedJurisdictions() {
         XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
         XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "IL").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "NY").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "TX").isFaceMatchAvailable)
         XCTAssertFalse(BiometricJurisdiction(countryCode: "GB", subdivisionCode: "ENG").isFaceMatchAvailable)
     }
 
