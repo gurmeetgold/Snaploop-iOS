@@ -70,6 +70,27 @@ async function requireMember(eventId, uid) {
   return snap.data() || {};
 }
 
+async function requireCurrentIdentity(uid) {
+  const profileSnap = await db.doc(`users/${uid}/faceProfile/current`).get();
+  const profile = profileSnap.exists ? profileSnap.data() || {} : null;
+  if (!profileIsCurrent(profile)) throw new HttpsError("failed-precondition", "Face Setup is not active.");
+  return profileIdentity(profile);
+}
+
+function appearanceAllowsViewer(data, uid, currentIdentity) {
+  const identityMap = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
+    ? data.matchedFaceIdentityIds
+    : {};
+  if (identityMap[uid] !== currentIdentity) return false;
+
+  const appearances = Array.isArray(data.appearances) ? data.appearances : [];
+  return appearances.some((appearance) =>
+    appearance && appearance.participantUserId === uid
+      && appearance.faceIdentityId === currentIdentity
+      && appearance.dismissedByUser !== true
+  );
+}
+
 async function commitUpdates(items) {
   for (let offset = 0; offset < items.length; offset += 400) {
     const batch = db.batch();
@@ -231,24 +252,14 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
   const result = [];
   for (const doc of snap.docs) {
     const data = doc.data() || {};
-    const identityMap = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
-      ? data.matchedFaceIdentityIds
-      : {};
-    if (identityMap[uid] !== currentIdentity) continue;
-    const appearances = Array.isArray(data.appearances) ? data.appearances : [];
-    const currentAppearance = appearances.find((appearance) =>
-      appearance && appearance.participantUserId === uid
-        && appearance.faceIdentityId === currentIdentity
-        && appearance.dismissedByUser !== true
-    );
-    if (!currentAppearance) continue;
+    if (!appearanceAllowsViewer(data, uid, currentIdentity)) continue;
 
     result.push({
       id: data.id || "",
       eventId: data.eventId || eventId,
       sourceUserId: data.sourceUserId || "",
       assetLocalId: data.assetLocalId || "",
-      appearances,
+      appearances: Array.isArray(data.appearances) ? data.appearances : [],
       capturedAtMillis: data.capturedAt instanceof Timestamp ? data.capturedAt.toMillis() : null,
       matchedAtMillis: data.matchedAt instanceof Timestamp ? data.matchedAt.toMillis() : null,
       thumbnailPath: typeof data.thumbnailPath === "string" ? data.thumbnailPath : null,
@@ -257,6 +268,43 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
 
   result.sort((a, b) => Number(b.capturedAtMillis || 0) - Number(a.capturedAtMillis || 0));
   return { eventId, photos: result };
+});
+
+// Secure fallback for clients whose direct Firebase Storage read fails after the
+// match itself has already passed identity authorization. The callable repeats
+// the same membership + stable-identity checks, then returns only that one
+// optimized JPEG preview. Candidate faces and originals are never exposed.
+exports.getMatchedThumbnailIdentityBound = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const data = request.data || {};
+  const eventId = requireString(data.eventId, "eventId");
+  const photoId = requireString(data.photoId, "photoId");
+  await requireMember(eventId, uid);
+  const currentIdentity = await requireCurrentIdentity(uid);
+
+  const photoSnap = await db.doc(`events/${eventId}/photos/${photoId}`).get();
+  if (!photoSnap.exists) throw new HttpsError("not-found", "This matched photo is no longer available.");
+  const photo = photoSnap.data() || {};
+  if (!appearanceAllowsViewer(photo, uid, currentIdentity)) {
+    throw new HttpsError("permission-denied", "This photo is not available to your current Face Setup.");
+  }
+
+  const sourceUserId = requireString(photo.sourceUserId, "sourceUserId");
+  const thumbnailPath = requireString(photo.thumbnailPath, "thumbnailPath");
+  if (thumbnailPath !== expectedThumbnailPath(eventId, sourceUserId, photoId)) {
+    throw new HttpsError("failed-precondition", "Matched photo storage metadata is invalid.");
+  }
+
+  try {
+    const [buffer] = await admin.storage().bucket().file(thumbnailPath).download();
+    if (!buffer || buffer.length <= 0 || buffer.length > MAX_THUMBNAIL_BYTES) {
+      throw new Error("invalid thumbnail size");
+    }
+    return { contentType: "image/jpeg", base64: buffer.toString("base64") };
+  } catch (error) {
+    console.error("authorized thumbnail fallback failed", { eventId, photoId, uid, thumbnailPath, error });
+    throw new HttpsError("unavailable", "This photo preview could not be loaded right now.");
+  }
 });
 
 exports.scrubMatchesOnFaceProfileChange = onDocumentWritten("users/{userId}/faceProfile/current", async (event) => {
