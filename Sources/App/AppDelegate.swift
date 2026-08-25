@@ -34,11 +34,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
         guard AppEnvironment.useLiveServices else { return }
-        #if DEBUG
-        Auth.auth().setAPNSToken(deviceToken, type: .sandbox)
-        #else
-        Auth.auth().setAPNSToken(deviceToken, type: .prod)
-        #endif
+
+        // Do not infer APNs environment from the Swift build configuration.
+        // A Release build installed directly from Xcode can still use a
+        // development provisioning profile (sandbox APNs), while TestFlight /
+        // App Store builds use production APNs. Firebase can reliably detect
+        // the actual token environment from the embedded provisioning profile.
+        Auth.auth().setAPNSToken(deviceToken, type: .unknown)
     }
 
     func application(
