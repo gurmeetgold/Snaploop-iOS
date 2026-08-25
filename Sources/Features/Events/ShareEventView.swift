@@ -24,11 +24,17 @@ struct ActivityView: UIViewControllerRepresentable {
 }
 
 struct ShareEventView: View {
+    private enum CopyAction: Equatable {
+        case code
+        case link
+    }
+
     let event: Event
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
     @State private var showShareSheet = false
     @State private var copiedMessage: String?
+    @State private var copiedAction: CopyAction?
     @State private var canManageInvites = false
 
     private var token: InviteToken { InviteToken(event.inviteToken) ?? InviteToken(unchecked: event.inviteToken) }
@@ -58,13 +64,21 @@ struct ShareEventView: View {
                     .shadow(color: Theme.sunset.opacity(0.18), radius: 12, y: 6)
 
                     HStack(spacing: 12) {
-                        secondaryAction("Copy Code", icon: "doc.on.doc.fill") {
+                        secondaryAction(
+                            copiedAction == .code ? "Copied" : "Copy Code",
+                            icon: copiedAction == .code ? "checkmark.circle.fill" : "doc.on.doc.fill",
+                            confirmed: copiedAction == .code
+                        ) {
                             UIPasteboard.general.string = JoinCode(canonical: event.joinCode).formatted
-                            copiedMessage = "Event code copied"
+                            showCopyFeedback(.code, message: "Event code copied")
                         }
-                        secondaryAction("Copy Link", icon: "link") {
+                        secondaryAction(
+                            copiedAction == .link ? "Copied" : "Copy Link",
+                            icon: copiedAction == .link ? "checkmark.circle.fill" : "link",
+                            confirmed: copiedAction == .link
+                        ) {
                             UIPasteboard.general.string = url.absoluteString
-                            copiedMessage = "Invite link copied"
+                            showCopyFeedback(.link, message: "Invite link copied")
                         }
                     }
 
@@ -107,13 +121,22 @@ struct ShareEventView: View {
                         }
                         .frame(maxWidth: .infinity)
                     }
-
-                    if let copiedMessage {
-                        Label(copiedMessage, systemImage: "checkmark.circle.fill")
-                            .font(.caption.weight(.semibold)).foregroundStyle(.green)
-                    }
                 }
                 .padding(20)
+            }
+        }
+        .overlay(alignment: .top) {
+            if let copiedMessage {
+                Label(copiedMessage, systemImage: "checkmark.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .shadow(radius: 8, y: 3)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
             }
         }
         .navigationTitle("Invite")
@@ -123,6 +146,24 @@ struct ShareEventView: View {
             // The share text already contains the canonical URL. Passing the URL
             // as a second activity item made apps such as WhatsApp render it twice.
             ActivityView(items: [InviteLink.shareText(eventName: event.name, token: token)])
+        }
+    }
+
+    @MainActor
+    private func showCopyFeedback(_ action: CopyAction, message: String) {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        withAnimation(.easeOut(duration: 0.16)) {
+            copiedAction = action
+            copiedMessage = message
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard copiedAction == action else { return }
+            withAnimation(.easeIn(duration: 0.16)) {
+                copiedAction = nil
+                copiedMessage = nil
+            }
         }
     }
 
@@ -137,13 +178,26 @@ struct ShareEventView: View {
         canManageInvites = roster.first(where: { $0.userId == userId })?.role.canManageMembers == true
     }
 
-    private func secondaryAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func secondaryAction(
+        _ title: String,
+        icon: String,
+        confirmed: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon)
                 .font(.subheadline.bold()).frame(maxWidth: .infinity).frame(height: 50)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain).foregroundStyle(Theme.sunset)
-        .background(.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 17).strokeBorder(Theme.sunset.opacity(0.18)))
+        .buttonStyle(.plain)
+        .foregroundStyle(confirmed ? Color.green : Theme.sunset)
+        .background(
+            confirmed ? Color.green.opacity(0.10) : Color.white.opacity(0.92),
+            in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 17)
+                .strokeBorder((confirmed ? Color.green : Theme.sunset).opacity(0.22))
+        )
     }
 }
