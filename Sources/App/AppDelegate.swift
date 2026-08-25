@@ -41,13 +41,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // App Store builds use production APNs. Firebase can reliably detect
         // the actual token environment from the embedded provisioning profile.
         Auth.auth().setAPNSToken(deviceToken, type: .unknown)
+        print("✅ Firebase Auth APNs token registered (\(deviceToken.count) bytes)")
     }
 
     func application(
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
-        print("APNs registration failed: \(error.localizedDescription)")
+        print("❌ APNs registration failed: \(error.localizedDescription)")
     }
 
     func application(
@@ -61,6 +62,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
 
         if Auth.auth().canHandleNotification(userInfo) {
+            print("✅ Firebase Auth silent APNs verification handled")
             completionHandler(.noData)
             return
         }
@@ -74,7 +76,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
         guard AppEnvironment.useLiveServices else { return false }
-        if Auth.auth().canHandle(url) { return true }
+        if Auth.auth().canHandle(url) {
+            print("✅ Firebase Auth callback URL handled")
+            return true
+        }
         return false
     }
 }
