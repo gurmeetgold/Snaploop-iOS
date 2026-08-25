@@ -112,6 +112,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
     public let acceptedVia: String
     public let age18Attested: Bool
     public let noticeAcknowledged: Bool
+    public let ownFaceAttested: Bool
     public var lastBiometricActivityAt: Date?
 
     /// This initializer is used by the explicit Face Match acceptance path.
@@ -135,6 +136,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
         acceptedVia: String = Self.consentMethod,
         age18Attested: Bool = true,
         noticeAcknowledged: Bool = true,
+        ownFaceAttested: Bool = true,
         lastBiometricActivityAt: Date? = nil
     ) {
         self.userId = userId
@@ -155,6 +157,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
         self.acceptedVia = acceptedVia
         self.age18Attested = age18Attested
         self.noticeAcknowledged = noticeAcknowledged
+        self.ownFaceAttested = ownFaceAttested
         self.lastBiometricActivityAt = lastBiometricActivityAt
     }
 
@@ -174,6 +177,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
             && (expiresAt.map { $0 > Date() } ?? false)
             && age18Attested
             && noticeAcknowledged
+            && ownFaceAttested
             && jurisdiction.isFaceMatchAvailable
     }
 }
