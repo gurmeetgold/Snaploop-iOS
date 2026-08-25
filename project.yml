@@ -150,9 +150,14 @@ schemes:
       targets:
         SnapLoop: all
         SnapLoopTests: [test]
+    run:
+      config: Release
     test:
+      config: Debug
       targets:
         - SnapLoopTests
+    archive:
+      config: Release
 
   SnapLoopCoverage:
     build:
@@ -160,6 +165,7 @@ schemes:
         SnapLoop: all
         SnapLoopTests: [test]
     test:
+      config: Debug
       gatherCoverageData: true
       coverageTargets:
         - SnapLoop
