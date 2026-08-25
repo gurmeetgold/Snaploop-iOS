@@ -10,14 +10,18 @@ const FieldValue = admin.firestore.FieldValue;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIFTEEN_DAY_CLEANUP_AFTER_MS = (14 * DAY_MS) + (23 * 60 * 60 * 1000);
 const BIOMETRIC_INACTIVITY_MS = 365 * DAY_MS;
-const CONSENT_POLICY_VERSION = 4;
-const CONSENT_DISCLOSURE_ID = "biometric-consent-v4";
-const CONSENT_DISCLOSURE_SHA256 = "3a8bf78ce8ece5232e25f6ad742845a29f974722ade8e7cc086b372e95558cf4";
+const CONSENT_POLICY_VERSION = 5;
+const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
+const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";
 const CONSENT_METHOD = "explicit-button";
 const FACE_PROFILE_VERSION = 5;
 const FACE_EMBEDDING_DIMENSION = 512;
 const MAX_FACE_TEMPLATES = 5;
 const MIN_FACE_TEMPLATES = 3;
+const MATCH_THRESHOLD = 0.52;
+const CORROBORATED_BEST_FLOOR = MATCH_THRESHOLD - 0.04;
+const SUPPORTING_FLOOR = MATCH_THRESHOLD - 0.06;
+const STRONG_SINGLE_FLOOR = MATCH_THRESHOLD + 0.10;
 const BIOMETRIC_POLICY_PATH = "systemConfig/biometricFaceMatch";
 const VALID_POSES = new Set(["center", "sideA", "sideB", "tilted", "alternate", "imported"]);
 const CANADIAN_SUBDIVISIONS = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]);
@@ -63,11 +67,6 @@ function jurisdictionUnavailableMessage(country, subdivision) {
   return "Face Match is not currently available in the selected jurisdiction.";
 }
 async function loadBiometricFeaturePolicy() {
-  // This private Admin-SDK-only document is an emergency compliance control.
-  // Missing document means normal launch policy. If it exists, an operator can
-  // disable all biometric processing immediately or block a whole country such
-  // as "IN" or a subdivision such as "CA-AB" without an App Store release.
-  // Client Firestore rules do not grant access to this path.
   const snap = await db.doc(BIOMETRIC_POLICY_PATH).get();
   if (!snap.exists) return { enabled: true, blockedJurisdictions: new Set() };
   const data = snap.data() || {};
@@ -144,13 +143,55 @@ function requireTemplates(rawTemplates, now) {
       ? Math.min(now.toMillis(), Math.max(0, requestedCreatedAt))
       : now.toMillis();
     return {
-      id: typeof item.id === "string" && item.id.length <= 128 ? item.id : null,
+      id: typeof item.id === "string" && item.id.trim() && item.id.length <= 128 ? item.id.trim() : null,
       embedding,
       pose,
       quality,
       createdAt: Timestamp.fromMillis(createdAtMillis),
     };
   });
+}
+function profileRevision(version, templates) {
+  const ids = Array.isArray(templates)
+    ? templates.map((item) => item && typeof item.id === "string" ? item.id.trim() : "").filter(Boolean).sort()
+    : [];
+  if (!ids.length) return null;
+  return `v${version}:${ids.join("|")}`;
+}
+function cosineSimilarity(lhs, rhs) {
+  if (!Array.isArray(lhs) || !Array.isArray(rhs) || lhs.length !== rhs.length || lhs.length === 0) return null;
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let i = 0; i < lhs.length; i += 1) {
+    dot += lhs[i] * rhs[i];
+    leftNorm += lhs[i] * lhs[i];
+    rightNorm += rhs[i] * rhs[i];
+  }
+  if (leftNorm <= 0 || rightNorm <= 0) return null;
+  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+}
+function templateMatchAccepted(queryEmbedding, referenceTemplates) {
+  const scores = referenceTemplates
+    .map((template) => cosineSimilarity(queryEmbedding, template.embedding))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => b - a);
+  if (!scores.length) return false;
+  const best = scores[0];
+  const second = scores.length > 1 ? scores[1] : null;
+  return (best >= CORROBORATED_BEST_FLOOR && second !== null && second >= SUPPORTING_FLOOR)
+    || best >= STRONG_SINGLE_FLOOR;
+}
+function sameIdentityReplacement(existingProfile, newTemplates) {
+  if (!existingProfile || Number(existingProfile.version) !== FACE_PROFILE_VERSION) return true;
+  const oldTemplates = Array.isArray(existingProfile.templates)
+    ? existingProfile.templates.filter((item) => item && Array.isArray(item.embedding) && item.embedding.length === FACE_EMBEDDING_DIMENSION)
+    : [];
+  if (oldTemplates.length < 2) return false;
+  const accepted = newTemplates.reduce((count, template) =>
+    count + (templateMatchAccepted(template.embedding, oldTemplates) ? 1 : 0), 0);
+  const required = Math.max(2, Math.ceil(newTemplates.length * 0.60));
+  return accepted >= required;
 }
 async function commitDeletes(refs) {
   for (let offset = 0; offset < refs.length; offset += 400) {
@@ -185,7 +226,11 @@ async function scrubUserFromEventPhotos(eventId, uid) {
     const matchedUserIds = Array.isArray(data.matchedUserIds)
       ? data.matchedUserIds.filter((userId) => userId !== uid)
       : [];
-    updates.push({ ref: doc.ref, data: { appearances, matchedUserIds, updatedAt: Timestamp.now() } });
+    const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
+      ? { ...data.matchedProfileRevisions }
+      : {};
+    delete matchedProfileRevisions[uid];
+    updates.push({ ref: doc.ref, data: { appearances, matchedUserIds, matchedProfileRevisions, updatedAt: Timestamp.now() } });
   }
   if (updates.length) await commitUpdates(updates);
 }
@@ -307,6 +352,7 @@ exports.acceptBiometricConsent = onCall(async (request) => {
     acceptedVia: CONSENT_METHOD,
     age18Attested: true,
     noticeAcknowledged: true,
+    ownFaceAttested: true,
   }, { merge: false });
 
   return {
@@ -325,10 +371,12 @@ exports.saveMyFaceProfile = onCall(async (request) => {
   const data = request.data || {};
   if (typeof data.userId === "string" && data.userId !== uid) throw new HttpsError("permission-denied", "Face profile identity does not match the signed-in user.");
 
-  const [consentSnap, userSnap, policy] = await Promise.all([
+  const profileRef = db.doc(`users/${uid}/faceProfile/current`);
+  const [consentSnap, userSnap, policy, existingProfileSnap] = await Promise.all([
     db.doc(`users/${uid}/privacy/biometricConsent`).get(),
     db.doc(`users/${uid}`).get(),
     loadBiometricFeaturePolicy(),
+    profileRef.get(),
   ]);
   if (!userSnap.exists) throw new HttpsError("failed-precondition", "Your SnapLoop user profile is missing.");
   const consent = consentSnap.exists ? consentSnap.data() || {} : null;
@@ -344,8 +392,21 @@ exports.saveMyFaceProfile = onCall(async (request) => {
   const now = Timestamp.now();
   const embedding = requireEmbedding(data.embedding, "embedding");
   const templates = requireTemplates(data.templates, now);
+  const identityRevision = profileRevision(FACE_PROFILE_VERSION, templates);
+  if (!identityRevision) throw new HttpsError("invalid-argument", "Face Setup identity revision could not be created.");
+
+  if (existingProfileSnap.exists) {
+    const existingProfile = existingProfileSnap.data() || {};
+    const existingRevision = profileRevision(Number(existingProfile.version || 0), existingProfile.templates);
+    if (existingRevision && existingRevision !== identityRevision && !sameIdentityReplacement(existingProfile, templates)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This scan does not match your current Face Setup. An existing Face Setup can only be updated with the same person."
+      );
+    }
+  }
+
   const expiresAt = Timestamp.fromMillis(now.toMillis() + BIOMETRIC_INACTIVITY_MS);
-  const profileRef = db.doc(`users/${uid}/faceProfile/current`);
   const consentRef = db.doc(`users/${uid}/privacy/biometricConsent`);
   const userRef = db.doc(`users/${uid}`);
 
@@ -355,6 +416,7 @@ exports.saveMyFaceProfile = onCall(async (request) => {
     embedding,
     templates,
     version: FACE_PROFILE_VERSION,
+    identityRevision,
     updatedAt: now,
     lastBiometricActivityAt: now,
     expiresAt,
@@ -366,7 +428,7 @@ exports.saveMyFaceProfile = onCall(async (request) => {
   batch.set(userRef, { hasFaceProfile: true }, { merge: true });
   await batch.commit();
 
-  return { saved: true, version: FACE_PROFILE_VERSION, expiresAtMillis: expiresAt.toMillis() };
+  return { saved: true, version: FACE_PROFILE_VERSION, identityRevision, expiresAtMillis: expiresAt.toMillis() };
 });
 
 exports.listEventFaceProfiles = onCall(async (request) => {
@@ -421,9 +483,6 @@ exports.listEventFaceProfiles = onCall(async (request) => {
       joinedAtMillis: memberData.joinedAt instanceof Timestamp ? memberData.joinedAt.toMillis() : Date.now(),
     });
 
-    // Only the authenticated caller's own action extends that caller's
-    // biometric-retention window. Passive retrieval of another participant's
-    // template must never keep that other person's biometric data alive.
     if (member.id === uid) {
       activityUpdates.push({ ref: profileRef, data: { lastBiometricActivityAt: now, expiresAt: nextExpiry } });
       activityUpdates.push({ ref: consentRef, data: { lastBiometricActivityAt: now, expiresAt: nextExpiry } });
@@ -454,16 +513,10 @@ exports.scrubLegacyParticipantBiometrics = onSchedule("every 24 hours", async ()
   if (updates.length) await commitUpdates(updates);
 });
 
-// Deletes account-level biometric templates and expires their consent after
-// 12 months with no biometric activity initiated by that user's account.
-// Legacy/outdated profiles cannot remain active merely because their model
-// version is still numerically compatible.
 exports.purgeExpiredBiometricProfiles = onSchedule("every 24 hours", async () => {
   const now = Timestamp.now();
   const processed = new Set();
 
-  // Consent can exist even when a user never completed Face Setup, so consent
-  // itself has an independent server-issued expiry and is swept directly.
   const expiredConsents = await db.collectionGroup("privacy").where("expiresAt", "<=", now).limit(250).get();
   for (const doc of expiredConsents.docs) {
     if (doc.id !== "biometricConsent") continue;
@@ -522,8 +575,6 @@ exports.purgeExpiredBiometricProfiles = onSchedule("every 24 hours", async () =>
   }
 });
 
-// A manual delete records the deletion time but keeps the same maximum 15-day
-// retention window. The scheduled cleanup below performs the complete purge.
 exports.purgeDeletedTripPreviews = onDocumentWritten("events/{eventId}", async (event) => {
   const after = event.data && event.data.after;
   if (!after || !after.exists) return;
@@ -533,14 +584,12 @@ exports.purgeDeletedTripPreviews = onDocumentWritten("events/{eventId}", async (
   await after.ref.set({ deletedAt: Timestamp.now(), updatedAt: Timestamp.now() }, { merge: true });
 });
 
-// Ended Events are fully removed no later than 15 days after their selected end.
 exports.purgeExpiredTripPreviews = onSchedule("every 60 minutes", async () => {
   const cutoff = Timestamp.fromMillis(Date.now() - FIFTEEN_DAY_CLEANUP_AFTER_MS);
   const snap = await db.collection("events").where("endsAt", "<=", cutoff).limit(250).get();
   for (const doc of snap.docs) await hardDeleteTrip(doc.id, doc.data() || {});
 });
 
-// Manually deleted Events follow the same 15-day maximum, anchored to deletion.
 exports.hardDeleteDeletedTrips = onSchedule("every 60 minutes", async () => {
   const snap = await db.collection("events").where("status", "==", "deletedByOrganizer").limit(250).get();
   const now = Date.now();
