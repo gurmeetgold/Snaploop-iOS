@@ -10,9 +10,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
 
         if AppEnvironment.useLiveServices {
-            FirebaseBootstrap.configureIfNeeded()
-            application.registerForRemoteNotifications()
-
+            // Keep cold launch lightweight. Firebase and notification setup are
+            // started after onboarding when the live AppEnvironment is created.
             BGTaskScheduler.shared.register(
                 forTaskWithIdentifier: AutomaticEventSync.backgroundTaskIdentifier,
                 using: nil
