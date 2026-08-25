@@ -31,9 +31,6 @@ public struct BiometricJurisdiction: Equatable, Codable, Sendable {
         case "CA":
             return BiometricJurisdictionCatalog.canada.contains(where: { $0.code == subdivisionCode })
                 && !BiometricJurisdictionCatalog.blockedCanada.contains(subdivisionCode)
-        case "US":
-            return BiometricJurisdictionCatalog.unitedStates.contains(where: { $0.code == subdivisionCode })
-                && !BiometricJurisdictionCatalog.blockedUnitedStates.contains(subdivisionCode)
         default:
             return false
         }
@@ -43,26 +40,16 @@ public struct BiometricJurisdiction: Equatable, Codable, Sendable {
 public enum BiometricJurisdictionCatalog {
     /// India is first because it is the default Face Match jurisdiction in the
     /// consent UI. India does not require state selection for this control.
+    /// The United States is intentionally not offered at launch.
     public static let countries = [
         BiometricJurisdictionOption(code: "IN", name: "India"),
-        BiometricJurisdictionOption(code: "CA", name: "Canada"),
-        BiometricJurisdictionOption(code: "US", name: "United States")
+        BiometricJurisdictionOption(code: "CA", name: "Canada")
     ]
 
     /// Quebec is intentionally unavailable at launch because its biometric
     /// regime includes requirements beyond ordinary app consent, including
     /// Commission disclosure requirements for biometric systems/databases.
     public static let blockedCanada: Set<String> = ["QC"]
-
-    /// Conservative U.S. launch blocklist. It covers states with dedicated
-    /// biometric statutes, enacted comprehensive privacy regimes that regulate
-    /// biometric/sensitive data, and New York because local biometric rules can
-    /// apply within New York City. The private server policy can block more
-    /// jurisdictions immediately without an App Store release.
-    public static let blockedUnitedStates: Set<String> = [
-        "AL", "CA", "CO", "CT", "DE", "FL", "IA", "IL", "IN", "KY", "LA", "MD", "MN",
-        "MT", "NE", "NH", "NJ", "NY", "OK", "OR", "RI", "TN", "TX", "UT", "VA", "VT", "WA"
-    ]
 
     public static let canada = [
         BiometricJurisdictionOption(code: "AB", name: "Alberta"),
@@ -80,69 +67,9 @@ public enum BiometricJurisdictionCatalog {
         BiometricJurisdictionOption(code: "YT", name: "Yukon")
     ]
 
-    public static let unitedStates = [
-        BiometricJurisdictionOption(code: "AL", name: "Alabama"),
-        BiometricJurisdictionOption(code: "AK", name: "Alaska"),
-        BiometricJurisdictionOption(code: "AZ", name: "Arizona"),
-        BiometricJurisdictionOption(code: "AR", name: "Arkansas"),
-        BiometricJurisdictionOption(code: "CA", name: "California"),
-        BiometricJurisdictionOption(code: "CO", name: "Colorado"),
-        BiometricJurisdictionOption(code: "CT", name: "Connecticut"),
-        BiometricJurisdictionOption(code: "DE", name: "Delaware"),
-        BiometricJurisdictionOption(code: "DC", name: "District of Columbia"),
-        BiometricJurisdictionOption(code: "FL", name: "Florida"),
-        BiometricJurisdictionOption(code: "GA", name: "Georgia"),
-        BiometricJurisdictionOption(code: "HI", name: "Hawaii"),
-        BiometricJurisdictionOption(code: "ID", name: "Idaho"),
-        BiometricJurisdictionOption(code: "IL", name: "Illinois"),
-        BiometricJurisdictionOption(code: "IN", name: "Indiana"),
-        BiometricJurisdictionOption(code: "IA", name: "Iowa"),
-        BiometricJurisdictionOption(code: "KS", name: "Kansas"),
-        BiometricJurisdictionOption(code: "KY", name: "Kentucky"),
-        BiometricJurisdictionOption(code: "LA", name: "Louisiana"),
-        BiometricJurisdictionOption(code: "ME", name: "Maine"),
-        BiometricJurisdictionOption(code: "MD", name: "Maryland"),
-        BiometricJurisdictionOption(code: "MA", name: "Massachusetts"),
-        BiometricJurisdictionOption(code: "MI", name: "Michigan"),
-        BiometricJurisdictionOption(code: "MN", name: "Minnesota"),
-        BiometricJurisdictionOption(code: "MS", name: "Mississippi"),
-        BiometricJurisdictionOption(code: "MO", name: "Missouri"),
-        BiometricJurisdictionOption(code: "MT", name: "Montana"),
-        BiometricJurisdictionOption(code: "NE", name: "Nebraska"),
-        BiometricJurisdictionOption(code: "NV", name: "Nevada"),
-        BiometricJurisdictionOption(code: "NH", name: "New Hampshire"),
-        BiometricJurisdictionOption(code: "NJ", name: "New Jersey"),
-        BiometricJurisdictionOption(code: "NM", name: "New Mexico"),
-        BiometricJurisdictionOption(code: "NY", name: "New York"),
-        BiometricJurisdictionOption(code: "NC", name: "North Carolina"),
-        BiometricJurisdictionOption(code: "ND", name: "North Dakota"),
-        BiometricJurisdictionOption(code: "OH", name: "Ohio"),
-        BiometricJurisdictionOption(code: "OK", name: "Oklahoma"),
-        BiometricJurisdictionOption(code: "OR", name: "Oregon"),
-        BiometricJurisdictionOption(code: "PA", name: "Pennsylvania"),
-        BiometricJurisdictionOption(code: "RI", name: "Rhode Island"),
-        BiometricJurisdictionOption(code: "SC", name: "South Carolina"),
-        BiometricJurisdictionOption(code: "SD", name: "South Dakota"),
-        BiometricJurisdictionOption(code: "TN", name: "Tennessee"),
-        BiometricJurisdictionOption(code: "TX", name: "Texas"),
-        BiometricJurisdictionOption(code: "UT", name: "Utah"),
-        BiometricJurisdictionOption(code: "VT", name: "Vermont"),
-        BiometricJurisdictionOption(code: "VA", name: "Virginia"),
-        BiometricJurisdictionOption(code: "WA", name: "Washington"),
-        BiometricJurisdictionOption(code: "WV", name: "West Virginia"),
-        BiometricJurisdictionOption(code: "WI", name: "Wisconsin"),
-        BiometricJurisdictionOption(code: "WY", name: "Wyoming"),
-        BiometricJurisdictionOption(code: "AS", name: "American Samoa"),
-        BiometricJurisdictionOption(code: "GU", name: "Guam"),
-        BiometricJurisdictionOption(code: "MP", name: "Northern Mariana Islands"),
-        BiometricJurisdictionOption(code: "PR", name: "Puerto Rico"),
-        BiometricJurisdictionOption(code: "VI", name: "U.S. Virgin Islands")
-    ]
-
     public static func subdivisions(for countryCode: String) -> [BiometricJurisdictionOption] {
         switch countryCode.uppercased() {
         case "CA": return canada
-        case "US": return unitedStates
         default: return []
         }
     }
@@ -165,7 +92,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
     /// expiry for both consent and account-level face templates.
     public static let currentPolicyVersion = 4
     public static let currentDisclosureId = "biometric-consent-v4"
-    public static let currentDisclosureSHA256 = "23259c73e44fdb2f335a01a53cd6800947d204a5495731580b8c010917b4eab6"
+    public static let currentDisclosureSHA256 = "3a8bf78ce8ece5232e25f6ad742845a29f974722ade8e7cc086b372e95558cf4"
     public static let consentMethod = "explicit-button"
 
     public let userId: String
