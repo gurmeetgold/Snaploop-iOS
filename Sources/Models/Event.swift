@@ -120,6 +120,21 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
         self.joinedAt = joinedAt
     }
 
+    /// Opaque identity revision for the exact Face Setup used for matching.
+    /// Enrollment template IDs are random identifiers, not biometric vectors.
+    /// A new Selfie Scan creates a new template set, so this value changes even
+    /// when the face-model version remains the same. Cloud match writes are
+    /// bound to this revision to prevent stale devices from re-publishing a
+    /// match produced against a previous person's Face Setup.
+    public var faceProfileRevision: String {
+        let templateIds = faceTemplates
+            .map(\.id)
+            .filter { !$0.isEmpty }
+            .sorted()
+        guard !templateIds.isEmpty else { return "" }
+        return "v\(faceProfileVersion):\(templateIds.joined(separator: "|"))"
+    }
+
     /// Use one descriptor per distinct enrollment pose. This keeps the
     /// near-threshold corroboration rule honest even if duplicate template
     /// records are ever introduced by migration or malformed remote data.
