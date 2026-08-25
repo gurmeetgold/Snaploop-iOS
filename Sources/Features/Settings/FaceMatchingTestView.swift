@@ -4,31 +4,9 @@ import UIKit
 
 @MainActor
 final class FaceMatchingTestModel: ObservableObject {
-    enum ExpectedIdentity: String, CaseIterable, Identifiable {
-        case me = "This is me"
-        case notMe = "This is NOT me"
-        var id: String { rawValue }
-    }
-
     struct Result {
-        let diagnostics: FacePipelineDiagnostics?
-        let facesFound: Int
-        let bestSimilarity: Double?
-        let secondTemplateSimilarity: Double?
-        let threshold: Double
         let passes: Bool
-        let expected: ExpectedIdentity
-        let decisionReason: String
-        let engineIdentifier: String
-        let embeddingDimension: Int?
-    }
-
-    struct HistoryRow: Identifiable {
-        let id = UUID()
-        let expected: ExpectedIdentity
-        let best: Double?
-        let passed: Bool
-        let faces: Int
+        let facesFound: Int
     }
 
     @Published var selectedItem: PhotosPickerItem?
@@ -36,8 +14,6 @@ final class FaceMatchingTestModel: ObservableObject {
     @Published var isRunning = false
     @Published var result: Result?
     @Published var errorMessage: String?
-    @Published var expected: ExpectedIdentity = .me
-    @Published var history: [HistoryRow] = []
 
     func loadAndTest(env: AppEnvironment, session: AppSession) async {
         guard let selectedItem else { return }
@@ -58,25 +34,7 @@ final class FaceMatchingTestModel: ObservableObject {
             }
             previewData = data
 
-            // Live builds use LazyFaceDetectionService, so diagnostics must be
-            // requested through the diagnostic protocol instead of casting to
-            // the concrete pipeline implementation.
-            let diagnosticsProvider = env.faceDetection as? FaceDiagnosticsProviding
-            let diagnostics = try await diagnosticsProvider?.diagnose(in: data)
-            let faces: [DetectedFace]
-            if let diagnostics {
-                faces = diagnostics.samples.compactMap { sample in
-                    guard let embedding = sample.embedding else { return nil }
-                    return DetectedFace(embedding: embedding, sizeFraction: sample.sizeFraction)
-                }
-            } else {
-                faces = try await env.faceDetection.detectFaces(in: data)
-            }
-
-            // Exercise exactly the same multi-template acceptance policy used
-            // by camera matching. The old Face Test flattened every score and
-            // used only `best >= threshold`, which made this screen disagree
-            // with the production matcher and wasted the five-pose enrollment.
+            let faces = try await env.faceDetection.detectFaces(in: data)
             let threshold = env.config.current.matchConfidenceThreshold
             let evaluations = faces.compactMap { face -> FaceTemplateMatchEvaluation? in
                 let similarities = profile.effectiveEmbeddings.compactMap {
@@ -88,55 +46,16 @@ final class FaceMatchingTestModel: ObservableObject {
                 )
             }
             let evaluation = evaluations.max { $0.decisionScore < $1.decisionScore }
-            let best = evaluation?.bestTemplate
-            let second = evaluation?.secondTemplate
-            let passes = evaluation?.isAccepted == true
-
-            let reason: String
-            if diagnostics?.facesDetected == 0 {
-                reason = "Vision did not detect a face. Try the original/high-resolution photo."
-            } else if diagnostics?.facesWithUsableLandmarks == 0 {
-                reason = "A face was detected, but five-point landmarks were not usable."
-            } else if let rejected = diagnostics?.samples.first(where: { $0.embedding == nil })?.rejectionReason,
-                      faces.isEmpty {
-                reason = "Pre-model rejection: \(rejected)."
-            } else if evaluation == nil {
-                reason = "No comparable embedding was produced."
-            } else if evaluation?.isStrongSingle == true {
-                reason = "Strong single-template identity score passed the precision gate."
-            } else if evaluation?.isCorroborated == true {
-                let bestFloor = threshold - FaceModelPolicy.corroboratedBestTemplateSlack
-                let supportFloor = threshold - FaceModelPolicy.supportingTemplateSlack
-                reason = String(
-                    format: "Two Face Setup poses corroborate this identity (best floor %.3f · support floor %.3f).",
-                    bestFloor,
-                    supportFloor
-                )
-            } else {
-                reason = "Identity evidence is too weak or is not corroborated by a second Face Setup pose."
-            }
-
-            let dimension = faces.first?.embedding.values.count
-            let engineIdentifier = diagnostics?.engineIdentifier ?? env.faceDetection.engineIdentifier
-            let final = Result(
-                diagnostics: diagnostics,
-                facesFound: faces.count,
-                bestSimilarity: best,
-                secondTemplateSimilarity: second,
-                threshold: threshold,
-                passes: passes,
-                expected: expected,
-                decisionReason: reason,
-                engineIdentifier: engineIdentifier,
-                embeddingDimension: dimension
+            result = Result(
+                passes: evaluation?.isAccepted == true,
+                facesFound: faces.count
             )
-            result = final
-            history.insert(HistoryRow(expected: expected, best: best, passed: passes, faces: faces.count), at: 0)
-        } catch let error as AppError { errorMessage = error.userMessage }
-        catch { errorMessage = (error as NSError).localizedDescription }
+        } catch let error as AppError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = (error as NSError).localizedDescription
+        }
     }
-
-    func clearHistory() { history.removeAll() }
 }
 
 struct FaceMatchingTestView: View {
@@ -151,27 +70,27 @@ struct FaceMatchingTestView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     referenceAvatar
+
                     Text("Test My Face Setup")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
-                    Text("Choose a photo, tell SnapLoop whether it really contains you, and record the score. Test both genuine and wrong-person photos before changing the threshold.")
-                        .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
-                    Picker("Expected", selection: $model.expected) {
-                        ForEach(FaceMatchingTestModel.ExpectedIdentity.allCases) { value in
-                            Text(value.rawValue).tag(value)
-                        }
-                    }
-                    .pickerStyle(.segmented)
+                    Text("Choose a clear photo of yourself. SnapLoop will check whether your current Face Setup recognizes you.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
 
                     if let data = model.previewData, let image = UIImage(data: data) {
-                        Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 280)
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 300)
                             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                             .shadow(color: Theme.ink.opacity(0.08), radius: 12, y: 6)
                     }
 
                     PhotosPicker(selection: $model.selectedItem, matching: .images, photoLibrary: .shared()) {
-                        Label("Choose Test Photo", systemImage: "photo.badge.magnifyingglass")
+                        Label("Choose a Photo", systemImage: "photo.badge.magnifyingglass")
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
                     .onChange(of: model.selectedItem) { _, _ in
@@ -182,15 +101,21 @@ struct FaceMatchingTestView: View {
                         PremiumCard {
                             HStack(spacing: 12) {
                                 ProgressView().tint(Theme.sunset)
-                                Text("Running identity pipeline…").font(.subheadline.weight(.semibold))
+                                Text("Checking your Face Setup…")
+                                    .font(.subheadline.weight(.semibold))
                             }
                         }
                     }
-                    if let result = model.result { resultCard(result) }
-                    if !model.history.isEmpty { benchmarkHistory }
+
+                    if let result = model.result {
+                        resultCard(result)
+                    }
+
                     if let error = model.errorMessage {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
                     }
                 }
                 .padding(22)
@@ -236,88 +161,33 @@ struct FaceMatchingTestView: View {
             .overlay(Circle().strokeBorder(.white, lineWidth: 3))
             .shadow(color: Theme.ink.opacity(0.10), radius: 10, y: 5)
 
-            Text(faceReferenceData == nil ? "Face Setup reference" : "Your Face Setup reference")
+            Text("Your Face Setup")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
         }
     }
 
-    @ViewBuilder
     private func resultCard(_ result: FaceMatchingTestModel.Result) -> some View {
         PremiumCard {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    ZStack {
-                        Circle().fill((result.passes ? Color.green : Theme.amber).opacity(0.12))
-                        Image(systemName: result.passes ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(result.passes ? .green : Theme.amber)
-                    }
-                    .frame(width: 38, height: 38)
-                    Text(result.passes ? "Confident match" : "No confident match").font(.headline)
-                    Spacer()
-                }
-                Group {
-                    Text("Engine: \(result.engineIdentifier)")
-                    Text("Model version: \(FaceModelPolicy.currentVersion)")
-                    if let dim = result.embeddingDimension { Text("Embedding: \(dim)-D") }
-                    Text("Embedded faces: \(result.facesFound)")
-                    if let d = result.diagnostics {
-                        Text("Vision faces: \(d.facesDetected) · usable landmarks: \(d.facesWithUsableLandmarks) · alignment failures: \(d.alignmentFailures)")
-                    }
-                    if let best = result.bestSimilarity {
-                        Text(String(format: "Best: %.3f · 2nd: %@ · base threshold: %.3f", best, result.secondTemplateSimilarity.map { String(format: "%.3f", $0) } ?? "—", result.threshold))
-                    }
-                }
-                .font(.system(.caption, design: .monospaced))
+            VStack(spacing: 10) {
+                Image(systemName: result.passes ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 40))
+                    .foregroundStyle(result.passes ? .green : Theme.amber)
 
-                Text(result.decisionReason).font(.caption).foregroundStyle(.secondary)
+                Text(result.passes ? "Face Setup is working" : "No confident match")
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
 
-                if let samples = result.diagnostics?.samples, !samples.isEmpty {
-                    Divider()
-                    Text("What the identity model received").font(.subheadline).bold()
-                    ForEach(samples) { sample in
-                        HStack(alignment: .top, spacing: 10) {
-                            if let jpeg = sample.alignedJPEG, let image = UIImage(data: jpeg) {
-                                Image(uiImage: image).resizable().interpolation(.high).frame(width: 76, height: 76).clipShape(RoundedRectangle(cornerRadius: 12))
-                            }
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Face \(sample.id + 1)").bold()
-                                Text(String(format: "size %.3f · eyes %.1fpx", sample.sizeFraction, sample.interocularPixels))
-                                if let q = sample.quality { Text(String(format: "quality %.2f", q)) }
-                                Text("yaw \(angle(sample.yawDegrees)) · pitch \(angle(sample.pitchDegrees)) · roll \(angle(sample.rollDegrees))")
-                                Text(sample.rejectionReason ?? (sample.embedding == nil ? "not embedded" : "embedded"))
-                                    .foregroundStyle(sample.embedding == nil ? Theme.amber : .secondary)
-                            }
-                            .font(.caption2)
-                        }
-                    }
-                }
+                Text(result.passes
+                     ? "SnapLoop confidently recognized you in this photo."
+                     : (result.facesFound == 0
+                        ? "No clear face was found. Try a sharper, front-facing photo."
+                        : "Try another clear photo of yourself. If this keeps happening, update Face Setup with a new Selfie Scan."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
-        }
-    }
-
-    private var benchmarkHistory: some View {
-        PremiumCard {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Label("This-session benchmark", systemImage: "chart.xyaxis.line")
-                        .font(.headline)
-                    Spacer()
-                    Button("Clear") { model.clearHistory() }.font(.caption)
-                }
-                ForEach(model.history.prefix(20)) { row in
-                    HStack {
-                        Text(row.expected == .me ? "GENUINE" : "IMPOSTOR")
-                        Spacer()
-                        Text(row.best.map { String(format: "%.3f", $0) } ?? "no score")
-                        Text(row.passed ? "PASS" : "FAIL")
-                    }
-                    .font(.system(.caption, design: .monospaced))
-                }
-                Text("For a safe threshold, genuine scores should stay well above impostor scores. This history is local to this screen session and contains no photos or embeddings.")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -327,10 +197,5 @@ struct FaceMatchingTestView: View {
             return
         }
         faceReferenceData = LocalFaceReferenceStore.load(userId: userId)
-    }
-
-    private func angle(_ value: Double?) -> String {
-        guard let value else { return "—" }
-        return String(format: "%.0f°", value)
     }
 }
