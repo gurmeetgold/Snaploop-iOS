@@ -18,8 +18,21 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
 
     public func load(userId: String) async throws -> FaceProfile? {
         do {
-            let snapshot = try await ref(userId: userId).getDocument()
-            guard snapshot.exists, let data = snapshot.data() else { return nil }
+            var snapshot = try await ref(userId: userId).getDocument()
+            guard snapshot.exists, var data = snapshot.data() else { return nil }
+
+            // Build 2 introduces a stable, server-issued face identity ID. Older
+            // v5 tester profiles predate that field, so migrate them before the
+            // app decides Face Setup is missing. The callable validates current
+            // consent and backfills only photo matches produced by this exact
+            // existing enrollment revision.
+            if Self.requiresStableIdentityMigration(data) {
+                try await ensureStableIdentity()
+                snapshot = try await ref(userId: userId).getDocument()
+                guard snapshot.exists, let migratedData = snapshot.data() else { return nil }
+                data = migratedData
+            }
+
             guard Self.isCurrentEligibleProfile(data) else { return nil }
             return try Self.decodeProfile(userId: userId, data: data)
         } catch let error as AppError {
@@ -73,6 +86,15 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
         }
     }
 
+    private func ensureStableIdentity() async throws {
+        _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Any, Error>) in
+            functions.httpsCallable("ensureMyFaceIdentity").call([:]) { result, error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume(returning: result?.data as Any)
+            }
+        }
+    }
+
     private func ref(userId: String) -> DocumentReference {
         db.collection("users")
             .document(userId)
@@ -106,6 +128,26 @@ public final class FirebaseFaceProfileStore: FaceProfileStore, @unchecked Sendab
 
         let required = max(2, Int(ceil(Double(newEmbeddings.count) * 0.60)))
         return accepted >= required
+    }
+
+    private static func requiresStableIdentityMigration(_ data: [String: Any]) -> Bool {
+        let identityId = (data["faceIdentityId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard identityId.isEmpty else { return false }
+
+        let version =
+            (data["version"] as? NSNumber)?.intValue
+            ?? data["version"] as? Int
+            ?? 0
+        let consentPolicyVersion =
+            (data["consentPolicyVersion"] as? NSNumber)?.intValue
+            ?? data["consentPolicyVersion"] as? Int
+            ?? 0
+
+        return version == FaceModelPolicy.currentVersion
+            && consentPolicyVersion == BiometricConsentRecord.currentPolicyVersion
+            && data["consentDisclosureId"] as? String == BiometricConsentRecord.currentDisclosureId
+            && data["consentDisclosureSHA256"] as? String == BiometricConsentRecord.currentDisclosureSHA256
+            && (data["expiresAt"] as? Timestamp)?.dateValue() ?? .distantPast > Date()
     }
 
     private static func isCurrentEligibleProfile(_ data: [String: Any]) -> Bool {
