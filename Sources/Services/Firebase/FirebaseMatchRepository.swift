@@ -35,7 +35,8 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         let appearances: [[String: Any]] = match.appearances.map {
             [
                 "participantUserId": $0.participantUserId,
-                "confidence": $0.confidence
+                "confidence": $0.confidence,
+                "faceProfileRevision": $0.faceProfileRevision
             ]
         }
 
@@ -132,7 +133,12 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             guard let userId = item["participantUserId"] as? String else { return nil }
             let confidence = numeric(item["confidence"]) ?? 0
             let dismissed = item["dismissedByUser"] as? Bool ?? false
-            return PhotoMatch.Appearance(participantUserId: userId, confidence: confidence, dismissedByUser: dismissed)
+            return PhotoMatch.Appearance(
+                participantUserId: userId,
+                confidence: confidence,
+                faceProfileRevision: item["faceProfileRevision"] as? String ?? "",
+                dismissedByUser: dismissed
+            )
         }
 
         let match = PhotoMatch(
