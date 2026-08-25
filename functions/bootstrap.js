@@ -15,7 +15,7 @@ const notifications = require("./notifications");
 const privacy = require("./privacyHardening");
 const memberDirectory = require("./memberDirectory");
 const memberPreferences = require("./memberPreferences");
-const matchRead = require("./matchRead");
+const identityBoundMatches = require("./identityBoundMatches");
 const invitePreview = require("./invitePreview");
 
 exports.createEvent = managed.createEventMVP;
@@ -53,13 +53,14 @@ exports.listEventFaceProfiles = privacy.listEventFaceProfiles;
 exports.listEventMembers = memberDirectory.listEventMembers;
 exports.getMemberPhotoPreferences = memberPreferences.getMemberPhotoPreferences;
 exports.setOwnPhotoVisibility = memberPreferences.setOwnPhotoVisibility;
-exports.listMyMatchedPhotos = matchRead.listMyMatchedPhotos;
+exports.listMyMatchedPhotos = identityBoundMatches.listMyMatchedPhotosIdentityBound;
 exports.scrubParticipantBiometrics = privacy.scrubParticipantBiometrics;
 exports.scrubLegacyParticipantBiometrics = privacy.scrubLegacyParticipantBiometrics;
 exports.purgeExpiredBiometricProfiles = privacy.purgeExpiredBiometricProfiles;
+exports.scrubMatchesOnFaceProfileChange = identityBoundMatches.scrubMatchesOnFaceProfileChange;
 
 exports.setSharing = security.setSharingManaged;
-exports.publishMatch = security.publishMatch;
+exports.publishMatch = identityBoundMatches.publishMatchIdentityBound;
 exports.dismissAppearance = security.dismissAppearanceTrusted;
 
 exports.purgeDeletedTripPreviews = privacy.purgeDeletedTripPreviews;
