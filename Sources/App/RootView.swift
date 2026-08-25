@@ -1,3 +1,4 @@
+import FirebaseAuth
 import SwiftUI
 
 struct RootView: View {
@@ -74,7 +75,7 @@ struct RootView: View {
             guard hasCompletedOnboarding else { return }
             Task { await loadPendingInviteIfNeeded() }
         }
-        .onOpenURL { url in captureInvite(url) }
+        .onOpenURL { url in handleIncomingURL(url) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { captureInvite(url) }
         }
@@ -154,6 +155,15 @@ struct RootView: View {
     private func configureAutomaticSyncAndRun() {
         AutomaticEventSync.shared.configure(environment: environment, session: session)
         AutomaticEventSync.shared.runWhenAppBecomesActive()
+    }
+
+    @MainActor
+    private func handleIncomingURL(_ url: URL) {
+        if AppEnvironment.useLiveServices && Auth.auth().canHandle(url) {
+            Log.auth.info("Firebase Auth callback handled for scheme: \(url.scheme ?? "unknown", privacy: .public)")
+            return
+        }
+        captureInvite(url)
     }
 
     @MainActor
