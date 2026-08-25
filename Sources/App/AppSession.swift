@@ -123,13 +123,16 @@ public final class AppSession: ObservableObject {
         SetupDeferralStore.setSkippedFace(true, userId: userId)
     }
 
+    /// Face Setup deletion is an intentional user choice, not an incomplete
+    /// onboarding step. Keep the user in the main app and let them re-enter
+    /// Face Setup explicitly from You whenever they want to configure it again.
     public func requireFaceSetupAfterDeletion() {
         guard let userId = user?.id else { return }
         faceProfile = nil
         resolvedFaceProfileUserId = userId
-        skippedFaceSetup = false
-        SetupDeferralStore.setSkippedFace(false, userId: userId)
-        faceSetupNotice = "Your Face Setup was deleted. Automatic matching is now off, so SnapLoop cannot find your photos on other participants’ phones until you set it up again."
+        skippedFaceSetup = true
+        SetupDeferralStore.setSkippedFace(true, userId: userId)
+        faceSetupNotice = "Face Setup was deleted. Automatic matching is off until you set it up again."
     }
 
     public func consumeFaceSetupNotice() -> String? {
