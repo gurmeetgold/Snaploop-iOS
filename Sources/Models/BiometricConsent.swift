@@ -12,26 +12,28 @@ public struct BiometricJurisdictionOption: Identifiable, Hashable, Sendable {
 }
 
 /// Minimal jurisdiction information used only to decide whether Face Match can
-/// legally be offered. SnapLoop does not need GPS or a precise address for this
-/// decision; the user selects the country and province/state where they
-/// ordinarily reside before giving biometric consent.
+/// be offered. SnapLoop does not need GPS or a precise address for this
+/// decision; the user declares where they ordinarily reside before giving
+/// biometric consent.
 public struct BiometricJurisdiction: Equatable, Codable, Sendable {
     public let countryCode: String
     public let subdivisionCode: String
 
-    public init(countryCode: String, subdivisionCode: String) {
+    public init(countryCode: String, subdivisionCode: String = "") {
         self.countryCode = countryCode.uppercased()
         self.subdivisionCode = subdivisionCode.uppercased()
     }
 
     public var isFaceMatchAvailable: Bool {
         switch countryCode {
+        case "IN":
+            return subdivisionCode.isEmpty
         case "CA":
             return BiometricJurisdictionCatalog.canada.contains(where: { $0.code == subdivisionCode })
-                && subdivisionCode != "QC"
+                && !BiometricJurisdictionCatalog.blockedCanada.contains(subdivisionCode)
         case "US":
             return BiometricJurisdictionCatalog.unitedStates.contains(where: { $0.code == subdivisionCode })
-                && subdivisionCode != "IL"
+                && !BiometricJurisdictionCatalog.blockedUnitedStates.contains(subdivisionCode)
         default:
             return false
         }
@@ -39,9 +41,27 @@ public struct BiometricJurisdiction: Equatable, Codable, Sendable {
 }
 
 public enum BiometricJurisdictionCatalog {
+    /// India is first because it is the default Face Match jurisdiction in the
+    /// consent UI. India does not require state selection for this control.
     public static let countries = [
+        BiometricJurisdictionOption(code: "IN", name: "India"),
         BiometricJurisdictionOption(code: "CA", name: "Canada"),
         BiometricJurisdictionOption(code: "US", name: "United States")
+    ]
+
+    /// Quebec is intentionally unavailable at launch because its biometric
+    /// regime includes requirements beyond ordinary app consent, including
+    /// Commission disclosure requirements for biometric systems/databases.
+    public static let blockedCanada: Set<String> = ["QC"]
+
+    /// Conservative U.S. launch blocklist. It covers states with dedicated
+    /// biometric statutes, enacted comprehensive privacy regimes that regulate
+    /// biometric/sensitive data, and New York because local biometric rules can
+    /// apply within New York City. The private server policy can block more
+    /// jurisdictions immediately without an App Store release.
+    public static let blockedUnitedStates: Set<String> = [
+        "AL", "CA", "CO", "CT", "DE", "FL", "IA", "IL", "IN", "KY", "LA", "MD", "MN",
+        "MT", "NE", "NH", "NJ", "NY", "OK", "OR", "RI", "TN", "TX", "UT", "VA", "VT", "WA"
     ]
 
     public static let canada = [
@@ -126,6 +146,12 @@ public enum BiometricJurisdictionCatalog {
         default: return []
         }
     }
+
+    public static func firstAvailableSubdivision(for countryCode: String) -> String {
+        subdivisions(for: countryCode).first(where: {
+            BiometricJurisdiction(countryCode: countryCode, subdivisionCode: $0.code).isFaceMatchAvailable
+        })?.code ?? ""
+    }
 }
 
 /// A narrow, auditable record of consent for SnapLoop face matching.
@@ -139,7 +165,7 @@ public struct BiometricConsentRecord: Equatable, Codable, Sendable {
     /// expiry for both consent and account-level face templates.
     public static let currentPolicyVersion = 4
     public static let currentDisclosureId = "biometric-consent-v4"
-    public static let currentDisclosureSHA256 = "3d64afbedd5cd859e1594d77c5d928eda779a6067a48c1cff3d8d401b276fd90"
+    public static let currentDisclosureSHA256 = "23259c73e44fdb2f335a01a53cd6800947d204a5495731580b8c010917b4eab6"
     public static let consentMethod = "explicit-button"
 
     public let userId: String
