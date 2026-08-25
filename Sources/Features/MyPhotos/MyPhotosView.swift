@@ -93,6 +93,12 @@ struct MyPhotosView: View {
     @StateObject private var model: MyPhotosModel
     @State private var filter: PhotoFilter = .all
     @State private var columnCount = 2
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
+    @State private var bulkBusy = false
+    @State private var bulkMessage: String?
+    @State private var bulkShareImages: [UIImage] = []
+    @State private var showBulkShare = false
 
     init(event: Event) { _model = StateObject(wrappedValue: MyPhotosModel(event: event)) }
 
@@ -105,6 +111,14 @@ struct MyPhotosView: View {
         case .all: return model.photos
         case .favorites: return model.photos.filter { model.favoriteIds.contains($0.id) }
         }
+    }
+
+    private var selectedMatches: [PhotoMatch] {
+        filtered.filter { selectedIDs.contains($0.id) }
+    }
+
+    private var allSelectedAreFavorites: Bool {
+        !selectedMatches.isEmpty && selectedMatches.allSatisfy { model.isFavorite($0) }
     }
 
     var body: some View {
@@ -120,21 +134,34 @@ struct MyPhotosView: View {
                             FilterChip(title: f.title, systemImage: f.systemImage, isSelected: filter == f) { filter = f }
                         }
                         Spacer()
-                        Menu {
-                            ForEach([2, 4, 6, 8], id: \.self) { count in
-                                Button {
-                                    withAnimation(.snappy) { columnCount = count }
-                                } label: {
-                                    Label("\(count) per row", systemImage: count == columnCount ? "checkmark" : "square.grid.3x3")
-                                }
-                            }
-                        } label: {
-                            Label("\(columnCount)", systemImage: "square.grid.3x3.fill")
+
+                        if isSelecting {
+                            Text("\(selectedIDs.count) selected")
+                                .font(.caption.bold())
+                                .foregroundStyle(.secondary)
+                            Button("Cancel") { endSelection() }
                                 .font(.subheadline.bold())
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
-                                .background(.white.opacity(0.9), in: Capsule())
-                                .foregroundStyle(Theme.sunset)
+                        } else {
+                            Button("Select") { beginSelection() }
+                                .font(.subheadline.bold())
+                                .disabled(filtered.isEmpty)
+
+                            Menu {
+                                ForEach([2, 4, 6, 8], id: \.self) { count in
+                                    Button {
+                                        withAnimation(.snappy) { columnCount = count }
+                                    } label: {
+                                        Label("\(count) per row", systemImage: count == columnCount ? "checkmark" : "square.grid.3x3")
+                                    }
+                                }
+                            } label: {
+                                Label("\(columnCount)", systemImage: "square.grid.3x3.fill")
+                                    .font(.subheadline.bold())
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 9)
+                                    .background(.white.opacity(0.9), in: Capsule())
+                                    .foregroundStyle(Theme.sunset)
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -162,24 +189,40 @@ struct MyPhotosView: View {
                     } else {
                         LazyVGrid(columns: columns, spacing: columnCount >= 6 ? 4 : 8) {
                             ForEach(filtered) { match in
-                                NavigationLink {
-                                    PhotoDetailView(
-                                        matches: filtered,
-                                        initialMatchID: match.id,
-                                        ownerLabel: { model.ownerLabel(for: $0.ownerUserId) },
-                                        isFavorite: { model.isFavorite($0) },
-                                        onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
-                                        onNotMe: { item in Task { await model.markNotMe(item) } }
-                                    )
-                                } label: {
-                                    PhotoCard(
-                                        match: match,
-                                        ownerLabel: model.ownerLabel(for: match.ownerUserId),
-                                        isFavorite: model.isFavorite(match),
-                                        compact: columnCount >= 6
-                                    )
+                                if isSelecting {
+                                    Button {
+                                        toggleSelection(match.id)
+                                    } label: {
+                                        PhotoCard(
+                                            match: match,
+                                            ownerLabel: model.ownerLabel(for: match.ownerUserId),
+                                            isFavorite: model.isFavorite(match),
+                                            compact: columnCount >= 6,
+                                            selectionMode: true,
+                                            isSelected: selectedIDs.contains(match.id)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    NavigationLink {
+                                        PhotoDetailView(
+                                            matches: filtered,
+                                            initialMatchID: match.id,
+                                            ownerLabel: { model.ownerLabel(for: $0.ownerUserId) },
+                                            isFavorite: { model.isFavorite($0) },
+                                            onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
+                                            onNotMe: { item in Task { await model.markNotMe(item) } }
+                                        )
+                                    } label: {
+                                        PhotoCard(
+                                            match: match,
+                                            ownerLabel: model.ownerLabel(for: match.ownerUserId),
+                                            isFavorite: model.isFavorite(match),
+                                            compact: columnCount >= 6
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, columnCount >= 6 ? 8 : 16)
@@ -190,8 +233,85 @@ struct MyPhotosView: View {
         }
         .navigationTitle("My Photos")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isSelecting {
+                PhotoSelectionToolbar(
+                    selectedCount: selectedIDs.count,
+                    allFavorites: allSelectedAreFavorites,
+                    busy: bulkBusy,
+                    message: bulkMessage,
+                    onSave: { Task { await saveSelected() } },
+                    onShare: { Task { await shareSelected() } },
+                    onFavorite: { favoriteSelected() }
+                )
+            }
+        }
+        .sheet(isPresented: $showBulkShare) {
+            ActivityView(items: bulkShareImages.map { $0 as Any })
+        }
         .task { model.configure(env: env, session: session); await model.reload() }
         .refreshable { await model.reload() }
+        .onChange(of: filter) { _, _ in selectedIDs.removeAll(); bulkMessage = nil }
+        .onChange(of: model.photos.map(\.id)) { _, ids in selectedIDs.formIntersection(Set(ids)) }
+    }
+
+    private func beginSelection() {
+        isSelecting = true
+        selectedIDs.removeAll()
+        bulkMessage = nil
+    }
+
+    private func endSelection() {
+        isSelecting = false
+        selectedIDs.removeAll()
+        bulkMessage = nil
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedIDs.contains(id) { selectedIDs.remove(id) }
+        else { selectedIDs.insert(id) }
+        bulkMessage = nil
+    }
+
+    private func favoriteSelected() {
+        guard !selectedMatches.isEmpty else { return }
+        let nextValue = !allSelectedAreFavorites
+        for match in selectedMatches { model.setFavorite(nextValue, match: match) }
+        bulkMessage = nextValue ? "Added to Favorites." : "Removed from Favorites."
+        if filter == .favorites && !nextValue { selectedIDs.removeAll() }
+    }
+
+    @MainActor
+    private func saveSelected() async {
+        guard !selectedMatches.isEmpty else { return }
+        bulkBusy = true
+        bulkMessage = nil
+        defer { bulkBusy = false }
+        do {
+            let images = await PhotoBulkActions.loadImages(for: selectedMatches)
+            guard !images.isEmpty else { throw AppError.originalUnavailable }
+            try await PhotoBulkActions.saveToPhotoLibrary(images)
+            bulkMessage = images.count == 1 ? "Saved 1 photo." : "Saved \(images.count) photos."
+        } catch AppError.photoLibraryAccessDenied {
+            bulkMessage = "Allow SnapLoop to add photos in iPhone Settings."
+        } catch {
+            bulkMessage = "Some photos couldn't be saved."
+        }
+    }
+
+    @MainActor
+    private func shareSelected() async {
+        guard !selectedMatches.isEmpty else { return }
+        bulkBusy = true
+        bulkMessage = nil
+        let images = await PhotoBulkActions.loadImages(for: selectedMatches)
+        bulkBusy = false
+        guard !images.isEmpty else {
+            bulkMessage = "Selected photos couldn't be prepared."
+            return
+        }
+        bulkShareImages = images
+        showBulkShare = true
     }
 }
 
@@ -200,6 +320,8 @@ struct PhotoCard: View {
     var ownerLabel: String = "Event member"
     var isFavorite = false
     var compact = false
+    var selectionMode = false
+    var isSelected = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -207,11 +329,24 @@ struct PhotoCard: View {
                 .frame(width: geometry.size.width, height: geometry.size.width)
                 .clipped()
                 .overlay(alignment: .topTrailing) {
-                    if isFavorite {
+                    if selectionMode {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(compact ? .caption : .title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(isSelected ? Color.white : Color.white, isSelected ? Theme.coral : Color.black.opacity(0.35))
+                            .padding(compact ? 3 : 7)
+                            .shadow(radius: 2)
+                    } else if isFavorite {
                         Image(systemName: "heart.fill")
                             .font(compact ? .system(size: 8) : .caption)
                             .foregroundStyle(Theme.pink)
                             .padding(compact ? 3 : 7)
+                    }
+                }
+                .overlay {
+                    if selectionMode && isSelected {
+                        RoundedRectangle(cornerRadius: compact ? 6 : 14, style: .continuous)
+                            .strokeBorder(Theme.coral, lineWidth: compact ? 2 : 3)
                     }
                 }
         }
@@ -219,7 +354,9 @@ struct PhotoCard: View {
         .clipShape(RoundedRectangle(cornerRadius: compact ? 6 : 14, style: .continuous))
         .shadow(color: Theme.ink.opacity(compact ? 0 : 0.06), radius: 8, y: 4)
         .contentShape(Rectangle())
-        .accessibilityLabel("Photo taken by \(ownerLabel)")
+        .accessibilityLabel(selectionMode
+            ? "\(isSelected ? "Selected" : "Not selected") photo taken by \(ownerLabel)"
+            : "Photo taken by \(ownerLabel)")
     }
 }
 
@@ -237,18 +374,23 @@ final class StorageThumbnailLoader: ObservableObject {
 
     func load(path: String?) async {
         image = nil; failed = false
-        guard let path, !path.isEmpty else { failed = true; return }
-        if let cached = Self.cache.object(forKey: path as NSString) { image = cached; return }
         do {
-            let decoded = try await Self.fetchImage(path: path)
+            let decoded = try await Self.image(path: path)
             try Task.checkCancellation()
-            Self.store(decoded, path: path)
             image = decoded
         } catch is CancellationError {
             return
         } catch {
             failed = true
         }
+    }
+
+    static func image(path: String?) async throws -> UIImage {
+        guard let path, !path.isEmpty else { throw AppError.originalUnavailable }
+        if let cached = cache.object(forKey: path as NSString) { return cached }
+        let decoded = try await fetchImage(path: path)
+        store(decoded, path: path)
+        return decoded
     }
 
     static func prefetch(paths: [String]) async {
@@ -301,6 +443,85 @@ struct ThumbnailCell: View {
     }
 }
 
+enum PhotoBulkActions {
+    static func loadImages(for matches: [PhotoMatch]) async -> [UIImage] {
+        var images: [UIImage] = []
+        for match in matches {
+            guard !Task.isCancelled else { break }
+            if let image = try? await StorageThumbnailLoader.image(path: match.thumbnailPath) {
+                images.append(image)
+            }
+        }
+        return images
+    }
+
+    @MainActor
+    static func saveToPhotoLibrary(_ images: [UIImage]) async throws {
+        let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard authorization == .authorized || authorization == .limited else {
+            throw AppError.photoLibraryAccessDenied
+        }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges({
+                for image in images {
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }
+            }) { success, error in
+                if let error { continuation.resume(throwing: error) }
+                else if success { continuation.resume(returning: ()) }
+                else { continuation.resume(throwing: AppError.originalUnavailable) }
+            }
+        }
+    }
+}
+
+struct PhotoSelectionToolbar: View {
+    let selectedCount: Int
+    let allFavorites: Bool
+    let busy: Bool
+    let message: String?
+    let onSave: () -> Void
+    let onShare: () -> Void
+    let onFavorite: () -> Void
+
+    var body: some View {
+        VStack(spacing: 4) {
+            if let message {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            HStack(spacing: 36) {
+                selectionAction("square.and.arrow.down", accessibility: "Save selected photos", action: onSave)
+                selectionAction("square.and.arrow.up", accessibility: "Share selected photos", action: onShare)
+                selectionAction(allFavorites ? "heart.slash.fill" : "heart.fill", accessibility: allFavorites ? "Remove selected photos from Favorites" : "Favorite selected photos", action: onFavorite)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 9)
+        .padding(.bottom, 8)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func selectionAction(_ systemImage: String, accessibility: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if busy { ProgressView() }
+                else { Image(systemName: systemImage).font(.title3.weight(.semibold)) }
+            }
+            .frame(width: 48, height: 38)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.ink)
+        .disabled(selectedCount == 0 || busy)
+        .opacity(selectedCount == 0 ? 0.35 : 1)
+        .accessibilityLabel(accessibility)
+    }
+}
+
 struct PhotoDetailView: View {
     let matches: [PhotoMatch]
     let ownerLabel: (PhotoMatch) -> String
@@ -308,7 +529,15 @@ struct PhotoDetailView: View {
     let onFavoriteChanged: (PhotoMatch, Bool) -> Void
     let onNotMe: (PhotoMatch) -> Void
 
-    @State private var selectedMatchID: String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedMatchID: String
+    @State private var chromeVisible = true
+    @State private var favoriteOverrides: [String: Bool] = [:]
+    @State private var statusMessage: String?
+    @State private var shareImage: UIImage?
+    @State private var showShareSheet = false
+    @State private var confirmNotMe = false
+    @State private var actionBusy = false
 
     init(
         matches: [PhotoMatch],
@@ -326,41 +555,159 @@ struct PhotoDetailView: View {
         _selectedMatchID = State(initialValue: initialMatchID)
     }
 
+    private var currentMatch: PhotoMatch? {
+        matches.first(where: { $0.id == selectedMatchID }) ?? matches.first
+    }
+
+    private var currentIndex: Int {
+        guard let currentMatch, let index = matches.firstIndex(where: { $0.id == currentMatch.id }) else { return 0 }
+        return index
+    }
+
+    private var currentFavorite: Bool {
+        guard let currentMatch else { return false }
+        return favoriteOverrides[currentMatch.id] ?? isFavorite(currentMatch)
+    }
+
     var body: some View {
         ZStack {
-            BrandScreenBackground()
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(matches.enumerated()), id: \.element.id) { index, match in
-                        SinglePhotoPage(
-                            match: match,
-                            position: index + 1,
-                            total: matches.count,
-                            ownerLabel: ownerLabel(match),
-                            initialFavorite: isFavorite(match),
-                            onFavoriteChanged: { onFavoriteChanged(match, $0) },
-                            onNotMe: { onNotMe(match) }
-                        )
-                        .containerRelativeFrame(.vertical)
-                        .id(match.id)
+            (chromeVisible ? Color(uiColor: .systemBackground) : Color.black)
+                .ignoresSafeArea()
+
+            TabView(selection: $selectedMatchID) {
+                ForEach(matches) { match in
+                    HorizontalPhotoPage(match: match, chromeVisible: chromeVisible) {
+                        withAnimation(.easeInOut(duration: 0.18)) { chromeVisible.toggle() }
                     }
+                    .tag(match.id)
                 }
-                .scrollTargetLayout()
             }
-            .scrollIndicators(.hidden)
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: $selectedMatchID, anchor: .top)
+            .tabViewStyle(.page(indexDisplayMode: .never))
+
+            if chromeVisible, let currentMatch {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("\(currentIndex + 1) / \(matches.count)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
+                    Spacer()
+
+                    VStack(spacing: 9) {
+                        Text("\(ownerLabel(currentMatch)) · \(DateFormatting.longDate(currentMatch.capturedAt))")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(.ultraThinMaterial, in: Capsule())
+
+                        HStack(spacing: 28) {
+                            detailAction("square.and.arrow.down", accessibility: "Save photo") { Task { await saveCurrent() } }
+                            detailAction("square.and.arrow.up", accessibility: "Share photo") { Task { await shareCurrent() } }
+                            detailAction(currentFavorite ? "heart.fill" : "heart", accessibility: currentFavorite ? "Remove from Favorites" : "Favorite photo") { toggleFavorite() }
+                            detailAction("person.crop.circle.badge.xmark", accessibility: "Not Me", destructive: true) { confirmNotMe = true }
+                        }
+                        .disabled(actionBusy)
+
+                        if let statusMessage {
+                            Text(statusMessage)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background(.ultraThinMaterial)
+                }
+                .transition(.opacity)
+            }
         }
         .navigationTitle("Photo")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(chromeVisible ? .visible : .hidden, for: .navigationBar)
+        .sheet(isPresented: $showShareSheet) {
+            if let shareImage { ActivityView(items: [shareImage]) }
+        }
+        .confirmationDialog("This isn't you?", isPresented: $confirmNotMe, titleVisibility: .visible) {
+            Button("Not Me", role: .destructive) {
+                if let currentMatch {
+                    onNotMe(currentMatch)
+                    dismiss()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("SnapLoop will hide this photo and record the false match so matching can improve.")
+        }
         .task { await prefetchAdjacent(to: selectedMatchID) }
         .onChange(of: selectedMatchID) { _, newValue in
+            statusMessage = nil
             Task { await prefetchAdjacent(to: newValue) }
         }
     }
 
-    private func prefetchAdjacent(to matchID: String?) async {
-        guard let matchID, let index = matches.firstIndex(where: { $0.id == matchID }) else { return }
+    private func toggleFavorite() {
+        guard let currentMatch else { return }
+        let next = !currentFavorite
+        favoriteOverrides[currentMatch.id] = next
+        onFavoriteChanged(currentMatch, next)
+    }
+
+    @MainActor
+    private func saveCurrent() async {
+        guard let currentMatch else { return }
+        actionBusy = true
+        statusMessage = nil
+        defer { actionBusy = false }
+        do {
+            let image = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath)
+            try await PhotoBulkActions.saveToPhotoLibrary([image])
+            statusMessage = "Saved to Photos."
+        } catch AppError.photoLibraryAccessDenied {
+            statusMessage = "Allow Photos access in Settings."
+        } catch {
+            statusMessage = "Couldn't save this photo."
+        }
+    }
+
+    @MainActor
+    private func shareCurrent() async {
+        guard let currentMatch else { return }
+        actionBusy = true
+        statusMessage = nil
+        defer { actionBusy = false }
+        do {
+            shareImage = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath)
+            showShareSheet = true
+        } catch {
+            statusMessage = "Couldn't prepare this photo."
+        }
+    }
+
+    private func detailAction(_ systemImage: String, accessibility: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title3.weight(.semibold))
+                .frame(width: 46, height: 42)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(destructive ? .red : Theme.ink)
+        .accessibilityLabel(accessibility)
+    }
+
+    private func prefetchAdjacent(to matchID: String) async {
+        guard let index = matches.firstIndex(where: { $0.id == matchID }) else { return }
         var paths: [String] = []
         if index + 1 < matches.count, let path = matches[index + 1].thumbnailPath { paths.append(path) }
         if index > 0, let path = matches[index - 1].thumbnailPath { paths.append(path) }
@@ -368,168 +715,31 @@ struct PhotoDetailView: View {
     }
 }
 
-private struct SinglePhotoPage: View {
+private struct HorizontalPhotoPage: View {
     let match: PhotoMatch
-    let position: Int
-    let total: Int
-    let ownerLabel: String
-    let onFavoriteChanged: (Bool) -> Void
-    let onNotMe: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
+    let chromeVisible: Bool
+    let onTap: () -> Void
     @StateObject private var loader = StorageThumbnailLoader()
-    @State private var favorite: Bool
-    @State private var statusMessage: String?
-    @State private var showShareSheet = false
-    @State private var shareImage: UIImage?
-    @State private var confirmNotMe = false
-
-    init(
-        match: PhotoMatch,
-        position: Int,
-        total: Int,
-        ownerLabel: String,
-        initialFavorite: Bool,
-        onFavoriteChanged: @escaping (Bool) -> Void,
-        onNotMe: @escaping () -> Void
-    ) {
-        self.match = match
-        self.position = position
-        self.total = total
-        self.ownerLabel = ownerLabel
-        self.onFavoriteChanged = onFavoriteChanged
-        self.onNotMe = onNotMe
-        _favorite = State(initialValue: initialFavorite)
-    }
 
     var body: some View {
-        GeometryReader { geometry in
-            let photoHeight = max(250, min(geometry.size.height * 0.50, 440))
-
-            VStack(spacing: 10) {
-                HStack {
-                    Text("\(position) of \(total)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if total > 1 {
-                        Label("Swipe up/down", systemImage: "arrow.up.arrow.down")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal, 4)
-
-                preview
-                    .frame(maxWidth: .infinity)
-                    .frame(height: photoHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .shadow(color: Theme.ink.opacity(0.10), radius: 14, y: 6)
-
-                HStack(spacing: 8) {
-                    actionButton("Save", "square.and.arrow.down.fill") { Task { await saveImage() } }
-                    actionButton("Share", "square.and.arrow.up.fill") { shareImageAction() }
-                    actionButton(favorite ? "Favorited" : "Favorite", favorite ? "heart.fill" : "heart") {
-                        favorite.toggle()
-                        onFavoriteChanged(favorite)
-                    }
-                    actionButton("Not Me", "person.crop.circle.badge.xmark", role: .destructive) { confirmNotMe = true }
-                }
-                .disabled(loader.image == nil)
-
-                PremiumCard {
-                    HStack {
-                        ZStack {
-                            Circle().fill(Theme.brandGradient)
-                            Text(String(ownerLabel.prefix(1)).uppercased()).bold().foregroundStyle(.white)
-                        }
-                        .frame(width: 38, height: 38)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Taken by \(ownerLabel)").font(.subheadline.bold())
-                            Text(DateFormatting.longDate(match.capturedAt)).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                }
-
-                if let statusMessage {
-                    Text(statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                }
+        Group {
+            if let image = loader.image {
+                ZoomablePhotoView(image: image)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .simultaneousGesture(TapGesture().onEnded(onTap))
+            } else if loader.failed {
+                ContentUnavailableViewCompat(title: "Photo unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .foregroundStyle(chromeVisible ? Theme.ink : .white)
+            } else {
+                ProgressView()
+                    .tint(chromeVisible ? Theme.ink : .white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
         }
+        .padding(.vertical, chromeVisible ? 70 : 0)
+        .padding(.horizontal, chromeVisible ? 6 : 0)
+        .contentShape(Rectangle())
         .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
-        .sheet(isPresented: $showShareSheet) { if let shareImage { ActivityView(items: [shareImage]) } }
-        .confirmationDialog("This isn't you?", isPresented: $confirmNotMe, titleVisibility: .visible) {
-            Button("Not Me", role: .destructive) {
-                onNotMe()
-                dismiss()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("SnapLoop will hide this photo and record the false match so matching can improve.")
-        }
-    }
-
-    @ViewBuilder private var preview: some View {
-        if let image = loader.image {
-            ZoomablePhotoView(image: image)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if loader.failed {
-            ContentUnavailableViewCompat(title: "Photo unavailable", message: "Try the photo again.", systemImage: "exclamationmark.triangle")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private func shareImageAction() {
-        guard let image = loader.image else { statusMessage = "The photo is still loading."; return }
-        shareImage = image
-        showShareSheet = true
-    }
-
-    @MainActor private func saveImage() async {
-        guard let image = loader.image else { statusMessage = "The photo is still loading."; return }
-        let authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-        guard authorization == .authorized || authorization == .limited else {
-            statusMessage = "Allow SnapLoop to add photos in iPhone Settings, then try Save again."
-            return
-        }
-        do {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                PHPhotoLibrary.shared().performChanges({ PHAssetChangeRequest.creationRequestForAsset(from: image) }) { success, error in
-                    if let error { continuation.resume(throwing: error) }
-                    else if success { continuation.resume(returning: ()) }
-                    else { continuation.resume(throwing: AppError.originalUnavailable) }
-                }
-            }
-            statusMessage = "Saved to Photos."
-        } catch {
-            statusMessage = "Couldn't save this photo."
-        }
-    }
-
-    private func actionButton(_ title: String, _ icon: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
-        Button(role: role, action: action) {
-            VStack(spacing: 5) {
-                ZStack {
-                    Circle().fill(role == .destructive ? Color.red.opacity(0.10) : Theme.peach.opacity(0.26))
-                    Image(systemName: icon).font(.subheadline.weight(.semibold))
-                }
-                .frame(width: 40, height: 40)
-                Text(title).font(.caption2).lineLimit(1).minimumScaleFactor(0.75)
-            }
-            .frame(maxWidth: .infinity)
-            .foregroundStyle(role == .destructive ? .red : Theme.ink)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
