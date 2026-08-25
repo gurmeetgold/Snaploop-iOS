@@ -116,10 +116,6 @@ struct SettingsView: View {
                 menuLink(title: session.hasFaceProfile ? "Update Face Setup" : "Set Up Your Face", icon: "faceid", tint: Theme.violet) {
                     FaceSetupView(onSaved: { refreshFaceReference() })
                 }
-                Divider().padding(.leading, 46)
-                menuLink(title: "Test My Face Setup", icon: "checkmark.circle.fill", tint: Theme.aqua) { FaceMatchingTestView() }
-                    .disabled(!session.hasFaceProfile)
-                    .opacity(session.hasFaceProfile ? 1 : 0.45)
             }
         }
     }
