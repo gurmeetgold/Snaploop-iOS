@@ -29,8 +29,9 @@ final class CameraSyncCoordinatorTests: XCTestCase {
               createdAt: now.addingTimeInterval(-day))
     }
 
-    private func bobRoster(revision: String = "A") -> [EventParticipant] {
+    private func bobRoster(identity: String = "bob-face", revision: String = "A") -> [EventParticipant] {
         [EventParticipant(userId: "bob", displayName: "Bob",
+                          faceIdentityId: identity,
                           faceEmbedding: FaceEmbedding([1, 0, 0])!,
                           faceTemplates: [
                             FaceTemplate(id: "bob-\(revision)-center", embedding: FaceEmbedding([1, 0, 0])!, pose: .center, quality: 1, createdAt: Date(timeIntervalSince1970: 1)),
@@ -48,18 +49,18 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         participants: [EventParticipant]? = nil
     ) -> String {
         let roster = participants ?? bobRoster()
-        let rosterRevision = roster
-            .map { "\($0.userId)=\($0.faceProfileRevision)" }
+        let rosterIdentity = roster
+            .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
             .sorted()
             .joined(separator: ";")
         return [
             eventId,
             userId,
             FaceModelPolicy.scanGeneration,
-            "sharing-v4",
+            "sharing-v5",
             includeOwnMatches ? "own-on" : "own-off",
             preferenceRevision,
-            rosterRevision,
+            rosterIdentity,
         ].joined(separator: "::")
     }
 
@@ -99,7 +100,10 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         let bobPhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "bob")
         XCTAssertEqual(Set(bobPhotos.map(\.assetLocalId)), ["a1", "a3"])
         XCTAssertTrue(bobPhotos.allSatisfy { match in
-            match.appearances.allSatisfy { $0.faceProfileRevision == roster[0].faceProfileRevision }
+            match.appearances.allSatisfy {
+                $0.faceIdentityId == roster[0].stableFaceIdentityId
+                    && $0.faceProfileRevision == roster[0].faceProfileRevision
+            }
         })
         let alicePhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "alice")
         XCTAssertTrue(alicePhotos.isEmpty)
@@ -131,38 +135,57 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         XCTAssertTrue(second.alreadyCaughtUp)
     }
 
-    func testFaceSetupRevisionChangeForcesRescanOfPreviouslyScannedAssets() async throws {
+    func testSameIdentityFaceSetupRefreshPreservesScanState() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let event = makeEvent(now: now)
         let assets = [PhotoAsset(id: "a1", creationDate: now)]
         let detector = ScriptedDetector(facesByAsset: ["a1": [face([1, 0, 0])]])
         let scanStore = InMemoryScanStateStore()
-        let matchRepo = InMemoryMatchRepository()
         let coordinator = CameraSyncCoordinator(
             config: StaticConfigProvider(.default),
             clock: FixedClock(now),
             photoLibrary: ScriptedLibrary(assetsList: assets),
             faceDetection: detector,
             thumbnailEncoder: PassthroughThumbnailEncoder(),
-            matches: matchRepo,
+            matches: InMemoryMatchRepository(),
             scanStateStore: scanStore
         )
 
-        let oldRoster = bobRoster(revision: "A")
-        let newRoster = bobRoster(revision: "B")
-        XCTAssertNotEqual(oldRoster[0].faceProfileRevision, newRoster[0].faceProfileRevision)
+        let oldRoster = bobRoster(identity: "bob-face", revision: "A")
+        let refreshedRoster = bobRoster(identity: "bob-face", revision: "B")
+        XCTAssertNotEqual(oldRoster[0].faceProfileRevision, refreshedRoster[0].faceProfileRevision)
+        XCTAssertEqual(oldRoster[0].stableFaceIdentityId, refreshedRoster[0].stableFaceIdentityId)
 
         let first = try await coordinator.sync(event: event, participants: oldRoster, currentUserId: "alice")
-        let second = try await coordinator.sync(event: event, participants: oldRoster, currentUserId: "alice")
-        let afterFaceChange = try await coordinator.sync(event: event, participants: newRoster, currentUserId: "alice")
+        let afterRefresh = try await coordinator.sync(event: event, participants: refreshedRoster, currentUserId: "alice")
 
         XCTAssertEqual(first.scanned, 1)
-        XCTAssertEqual(second.scanned, 0)
-        XCTAssertEqual(afterFaceChange.scanned, 1, "A new Face Setup revision must invalidate prior local scan state")
+        XCTAssertEqual(afterRefresh.scanned, 0, "Same-person Face Setup refresh must preserve prior scan state and positive matches")
+        XCTAssertTrue(afterRefresh.alreadyCaughtUp)
+    }
 
-        let bobPhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "bob")
-        XCTAssertEqual(bobPhotos.count, 1)
-        XCTAssertEqual(bobPhotos[0].appearances.first?.faceProfileRevision, newRoster[0].faceProfileRevision)
+    func testNewFaceIdentityForcesFreshScanNamespace() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let event = makeEvent(now: now)
+        let assets = [PhotoAsset(id: "a1", creationDate: now)]
+        let detector = ScriptedDetector(facesByAsset: ["a1": [face([1, 0, 0])]])
+        let scanStore = InMemoryScanStateStore()
+        let coordinator = CameraSyncCoordinator(
+            config: StaticConfigProvider(.default),
+            clock: FixedClock(now),
+            photoLibrary: ScriptedLibrary(assetsList: assets),
+            faceDetection: detector,
+            thumbnailEncoder: PassthroughThumbnailEncoder(),
+            matches: InMemoryMatchRepository(),
+            scanStateStore: scanStore
+        )
+
+        let oldRoster = bobRoster(identity: "bob-face-A", revision: "A")
+        let newIdentityRoster = bobRoster(identity: "bob-face-B", revision: "A")
+        _ = try await coordinator.sync(event: event, participants: oldRoster, currentUserId: "alice")
+        let afterIdentityChange = try await coordinator.sync(event: event, participants: newIdentityRoster, currentUserId: "alice")
+
+        XCTAssertEqual(afterIdentityChange.scanned, 1, "A genuinely new face identity must not reuse the old identity's scan state")
     }
 
     func testRefusesToSyncExpiredEvent() async {
@@ -196,6 +219,7 @@ final class BiometricConsentPolicyTests: XCTestCase {
         subdivision: String = "",
         age18: Bool = true,
         notice: Bool = true,
+        ownFace: Bool = true,
         expiresAt: Date = Date().addingTimeInterval(3_600)
     ) -> BiometricConsentRecord {
         BiometricConsentRecord(
@@ -205,17 +229,19 @@ final class BiometricConsentPolicyTests: XCTestCase {
             jurisdictionCountry: country,
             jurisdictionSubdivision: subdivision,
             age18Attested: age18,
-            noticeAcknowledged: notice
+            noticeAcknowledged: notice,
+            ownFaceAttested: ownFace
         )
     }
 
-    private func faceProfile(ids: [String], vector: [Float]) -> FaceProfile {
+    private func faceProfile(ids: [String], vector: [Float], identityId: String = "identity") -> FaceProfile {
         let poses: [FaceTemplate.Pose] = [.center, .sideA, .sideB, .tilted, .alternate]
         let templates = zip(ids, poses).map { id, pose in
             FaceTemplate(id: id, embedding: FaceEmbedding(vector)!, pose: pose, quality: 1, createdAt: Date())
         }
         return FaceProfile(
             userId: "user",
+            faceIdentityId: identityId,
             embedding: FaceEmbedding(vector)!,
             templates: templates,
             version: FaceModelPolicy.currentVersion,
@@ -257,6 +283,10 @@ final class BiometricConsentPolicyTests: XCTestCase {
         XCTAssertFalse(record(country: "IN", notice: false).isActive)
     }
 
+    func testOwnFaceAttestationIsRequiredForActiveConsent() {
+        XCTAssertFalse(record(country: "IN", ownFace: false).isActive)
+    }
+
     func testExpiredConsentIsInactive() {
         XCTAssertFalse(record(country: "IN", expiresAt: Date().addingTimeInterval(-1)).isActive)
     }
@@ -275,6 +305,7 @@ final class BiometricConsentPolicyTests: XCTestCase {
         let replacement = faceProfile(ids: ["f", "g", "h", "i", "j"], vector: [1, 0, 0])
         XCTAssertTrue(FirebaseFaceProfileStore.isSameIdentityReplacement(newProfile: replacement, existingProfile: existing))
         XCTAssertNotEqual(existing.faceProfileRevision, replacement.faceProfileRevision)
+        XCTAssertEqual(existing.stableFaceIdentityId, replacement.stableFaceIdentityId)
     }
 
     func testFaceSetupReplacementRejectsClearlyDifferentIdentity() {
