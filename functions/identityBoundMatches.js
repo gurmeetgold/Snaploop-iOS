@@ -250,7 +250,6 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
     .where("matchedUserIds", "array-contains", uid)
     .get();
 
-  const photos = snap.docs.compactMap ? [] : [];
   const result = [];
   for (const doc of snap.docs) {
     const data = doc.data() || {};
