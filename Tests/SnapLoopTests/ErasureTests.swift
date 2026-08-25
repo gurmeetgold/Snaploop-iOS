@@ -31,6 +31,11 @@ final class ErasureTests: XCTestCase {
 
     // MARK: Biometric launch policy
 
+    func testFaceMatchCountryPickerExcludesUnitedStates() {
+        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["IN", "CA"])
+        XCTAssertFalse(BiometricJurisdictionCatalog.countries.contains(where: { $0.code == "US" }))
+    }
+
     func testFaceMatchJurisdictionAllowsSupportedCanadaAndIndia() {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
         XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
