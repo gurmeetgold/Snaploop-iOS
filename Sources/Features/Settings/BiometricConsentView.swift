@@ -85,7 +85,7 @@ struct BiometricConsentView: View {
                     Text("Face Match Consent")
                         .font(.title3.bold())
                         .foregroundStyle(Theme.ink)
-                    Text(consentActive ? "Consent is active" : "Optional · age 18+")
+                    Text(consentActive ? "Consent is active" : "Optional Face Match")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
