@@ -30,7 +30,7 @@ You can use non-biometric parts of SnapLoop without Face Match. You can review o
 SnapLoop does not sell, lease, trade, or otherwise profit from biometric face-template information. SnapLoop does not disclose biometric face-template information to advertisers or data brokers.
 
 9. Jurisdiction
-Before enabling Face Match, you must select the country and province/state where you ordinarily reside. SnapLoop stores the jurisdiction code for biometric-compliance purposes and does not require GPS or a precise residential address for this determination. Face Match is currently intended only for supported jurisdictions in Canada and the United States and is not currently offered to users who declare ordinary residence in Quebec or Illinois. SnapLoop may disable Face Match globally or in additional jurisdictions for legal, regulatory, security, or operational reasons.
+Before enabling Face Match, you must select the country where you ordinarily reside. Canada and the United States also require a province/state selection; India does not. SnapLoop stores only the declared jurisdiction code for biometric-compliance purposes and does not require GPS or a precise residential address for this determination. Face Match is offered only in jurisdictions that SnapLoop has enabled under its current compliance policy. Some Canadian provinces and U.S. states are intentionally unavailable because of heightened biometric/privacy requirements. SnapLoop may disable Face Match globally or in additional jurisdictions for legal, regulatory, security, or operational reasons.
 
 10. Open-source face technology
 SnapLoop currently uses an on-device Core ML conversion of AuraFace-v1 to generate numerical face embeddings. The open-source model publisher does not receive your Face Setup image through SnapLoop's recognition workflow. Open-source licensing does not change SnapLoop's privacy commitments.
@@ -38,7 +38,7 @@ SnapLoop currently uses an on-device Core ML conversion of AuraFace-v1 to genera
 11. Express consent
 By selecting both required confirmations and then tapping I Agree & Continue, you confirm that:
 - you are at least 18 years old;
-- the country and province/state you selected accurately reflect where you ordinarily reside;
+- the country and, where applicable, province/state you selected accurately reflect where you ordinarily reside;
 - you have read this Face Match notice;
 - you understand the creation, storage, Event-scoped disclosure, on-device comparison, retention, and deletion practices described above; and
 - you expressly consent to SnapLoop processing your numerical biometric face-template information for the Face Match purpose described in this notice.
