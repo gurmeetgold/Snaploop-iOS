@@ -87,12 +87,11 @@ public enum BiometricJurisdictionCatalog {
 /// affirmatively agreed to, when they agreed, the jurisdiction used for
 /// feature availability, and the immutable disclosure version/hash.
 public struct BiometricConsentRecord: Equatable, Codable, Sendable {
-    /// v4 adds server-enforced consent, jurisdiction gating, a versioned
-    /// disclosure hash, stronger consent evidence, and a 12-month inactivity
-    /// expiry for both consent and account-level face templates.
-    public static let currentPolicyVersion = 4
-    public static let currentDisclosureId = "biometric-consent-v4"
-    public static let currentDisclosureSHA256 = "3a8bf78ce8ece5232e25f6ad742845a29f974722ade8e7cc086b372e95558cf4"
+    /// v5 adds the explicit account-holder-only Face Setup rule, identity-bound
+    /// matched-photo lifecycle, and fresh consent after Face Setup deletion.
+    public static let currentPolicyVersion = 5
+    public static let currentDisclosureId = "biometric-consent-v5"
+    public static let currentDisclosureSHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f"
     public static let consentMethod = "explicit-button"
 
     public let userId: String
