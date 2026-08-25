@@ -63,11 +63,7 @@ public final class FirebaseAuthService: AuthService, @unchecked Sendable {
             PhoneAuthProvider.provider().verifyPhoneNumber(phoneNumber, uiDelegate: nil) { verificationId, error in
                 if let error {
                     let nsError = error as NSError
-                    print("❌ FIREBASE PHONE AUTH FAILED")
-                    print("Domain: \(nsError.domain)")
-                    print("Code: \(nsError.code)")
-                    print("Description: \(nsError.localizedDescription)")
-                    print("UserInfo: \(nsError.userInfo)")
+                    Log.auth.error("Firebase phone app verification failed: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)")
                     continuation.resume(throwing: Self.mapError(error))
                     return
                 }
@@ -127,6 +123,12 @@ public final class FirebaseAuthService: AuthService, @unchecked Sendable {
             return .network(underlying: nsError.localizedDescription)
         case .tooManyRequests:
             return .backend(code: "too_many_requests", message: "Too many attempts. Please wait a bit and try again.")
+        case .missingAppToken, .notificationNotForwarded, .appNotVerified,
+             .captchaCheckFailed, .webContextCancelled, .appVerificationUserInteractionFailure:
+            return .backend(
+                code: "phone_app_verification_failed",
+                message: "Phone verification couldn't complete. Please try again."
+            )
         default:
             return .backend(code: "\(code.rawValue)", message: nsError.localizedDescription)
         }
