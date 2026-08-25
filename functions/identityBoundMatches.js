@@ -9,9 +9,9 @@ const MAX_APPEARANCES = 50;
 const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const FACE_PROFILE_VERSION = 5;
-const CONSENT_POLICY_VERSION = 4;
-const CONSENT_DISCLOSURE_ID = "biometric-consent-v4";
-const CONSENT_DISCLOSURE_SHA256 = "3a8bf78ce8ece5232e25f6ad742845a29f974722ade8e7cc086b372e95558cf4";
+const CONSENT_POLICY_VERSION = 5;
+const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
+const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {
@@ -246,9 +246,6 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
   if (!profileIsCurrent(profile)) return { eventId, photos: [] };
   const currentRevision = profileRevision(profile);
 
-  // Backfill the authorization marker for profiles created before identity-bound
-  // matching was deployed. This occurs before the client requests thumbnails,
-  // so Storage Rules can compare the photo revision with the current profile.
   if (profile.identityRevision !== currentRevision) {
     await profileSnap.ref.set({ identityRevision: currentRevision }, { merge: true });
   }
@@ -297,11 +294,6 @@ exports.scrubMatchesOnFaceProfileChange = onDocumentWritten("users/{userId}/face
   const beforeRevision = profileRevision(before);
   const afterRevision = profileRevision(after);
 
-  // `saveMyFaceProfile` replaces the document, so identityRevision disappears
-  // immediately during a Face Setup change. Storage/Firestore rules therefore
-  // fail closed until this trigger writes the new revision. The second trigger
-  // invocation caused by this merge sees the same computed revision and is a
-  // no-op for scrubbing.
   if (afterExists && afterRevision && after.identityRevision !== afterRevision) {
     await event.data.after.ref.set({ identityRevision: afterRevision }, { merge: true });
   }
