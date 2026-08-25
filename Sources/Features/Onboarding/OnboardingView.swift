@@ -3,31 +3,40 @@ import SwiftUI
 struct OnboardingView: View {
     @Binding var isCompleted: Bool
     @State private var page = 0
-    @State private var motion = false
 
     private let pages = OnboardingPage.all
 
     var body: some View {
         ZStack {
-            BrandScreenBackground()
+            onboardingBackground
 
             VStack(spacing: 0) {
                 topBar
 
-                TabView(selection: $page) {
-                    ForEach(Array(pages.enumerated()), id: \.offset) { index, item in
-                        onboardingPage(item, index: index)
-                            .tag(index)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .animation(.easeInOut(duration: 0.28), value: page)
+                // Keep only the visible page mounted. The previous paged TabView
+                // built five nested ScrollViews and asked UIKit + SwiftUI to
+                // animate the same selection, which made simple CTA taps feel
+                // delayed on a physical device.
+                onboardingPage(pages[page], index: page)
+                    .id(page)
 
                 footer
             }
         }
-        .onAppear { motion = true }
         .accessibilityElement(children: .contain)
+    }
+
+    private var onboardingBackground: some View {
+        LinearGradient(
+            colors: [
+                Theme.coralSoft.opacity(0.30),
+                Theme.canvas,
+                Theme.lilacSoft.opacity(0.28),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .ignoresSafeArea()
     }
 
     private var topBar: some View {
@@ -49,6 +58,7 @@ struct OnboardingView: View {
                 illustration(for: item, index: index)
                     .frame(height: 205)
                     .accessibilityHidden(true)
+
                 VStack(spacing: 10) {
                     if index == 0 {
                         HStack(spacing: 7) {
@@ -60,13 +70,14 @@ struct OnboardingView: View {
                         .foregroundStyle(Theme.brandGradient)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 8)
-                        .background(.white.opacity(0.72), in: Capsule())
-                        .shadow(color: Theme.hotPink.opacity(0.12), radius: 10, y: 4)
+                        .background(.white.opacity(0.78), in: Capsule())
                     }
+
                     Text(item.title)
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
+
                     Text(item.body)
                         .font(.body)
                         .foregroundStyle(.secondary)
@@ -74,6 +85,7 @@ struct OnboardingView: View {
                         .lineSpacing(2)
                 }
                 .padding(.horizontal, 28)
+
                 if let note = item.note {
                     Label(note.text, systemImage: note.icon)
                         .font(.footnote.weight(.medium))
@@ -82,9 +94,10 @@ struct OnboardingView: View {
                         .padding(.horizontal, 18)
                         .padding(.vertical, 10)
                         .frame(maxWidth: 340)
-                        .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .padding(.horizontal, 24)
                 }
+
                 Spacer(minLength: 4)
             }
             .frame(maxWidth: .infinity)
@@ -102,15 +115,17 @@ struct OnboardingView: View {
                         .frame(width: index == page ? 24 : 8, height: 8)
                 }
             }
-            Button { advance() } label: {
+
+            Button(action: advance) {
                 HStack(spacing: 8) {
                     Text(pages[page].primaryCTA)
                     Image(systemName: page == pages.count - 1 ? "checkmark.circle.fill" : "arrow.right")
                 }
             }
             .buttonStyle(MyPicsTubePrimaryButtonStyle())
+
             if page > 0 {
-                Button("Back") { withAnimation { page -= 1 } }
+                Button("Back", action: goBack)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(minHeight: 32)
@@ -121,12 +136,24 @@ struct OnboardingView: View {
         .padding(.horizontal, 22)
         .padding(.top, 8)
         .padding(.bottom, 8)
-        .background(.ultraThinMaterial.opacity(0.72))
+        .background(Theme.surface.opacity(0.98))
+        .overlay(alignment: .top) { Divider().opacity(0.45) }
     }
 
     private func advance() {
-        if page == pages.count - 1 { isCompleted = true; return }
-        withAnimation(.easeInOut(duration: 0.28)) { page += 1 }
+        if page == pages.count - 1 {
+            isCompleted = true
+        } else {
+            // Intentionally immediate. This is a short onboarding deck, not a
+            // photo carousel; responsiveness is more important than a decorative
+            // page animation that can delay the first-run experience.
+            page += 1
+        }
+    }
+
+    private func goBack() {
+        guard page > 0 else { return }
+        page -= 1
     }
 
     @ViewBuilder
@@ -153,16 +180,26 @@ struct OnboardingView: View {
 
     private var faceSetup: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 30).stroke(Theme.violet.opacity(0.35), lineWidth: 3).frame(width: 140, height: 170)
-            Image(systemName: "faceid").font(.system(size: 84, weight: .light)).foregroundStyle(Theme.violet)
-            Image(systemName: "iphone.gen3.circle.fill").font(.system(size: 36)).foregroundStyle(Theme.aqua).background(Circle().fill(.white)).offset(x: 65, y: 70)
+            RoundedRectangle(cornerRadius: 30)
+                .stroke(Theme.violet.opacity(0.35), lineWidth: 3)
+                .frame(width: 140, height: 170)
+            Image(systemName: "faceid")
+                .font(.system(size: 84, weight: .light))
+                .foregroundStyle(Theme.violet)
+            Image(systemName: "iphone.gen3.circle.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(Theme.aqua)
+                .background(Circle().fill(.white))
+                .offset(x: 65, y: 70)
         }
     }
 
     private var tripFlow: some View {
         HStack(spacing: 11) {
             featureBubble(icon: "plus.circle.fill", label: "Create")
-            Image(systemName: "arrow.left.and.right").font(.title2.bold()).foregroundStyle(Theme.sunset)
+            Image(systemName: "arrow.left.and.right")
+                .font(.title2.bold())
+                .foregroundStyle(Theme.sunset)
             featureBubble(icon: "person.2.badge.plus", label: "Join")
         }
     }
@@ -175,7 +212,9 @@ struct OnboardingView: View {
                     .foregroundStyle(Theme.violet)
                 Text("Event phones").font(.caption.bold())
             }
-            Image(systemName: "arrow.right").font(.title.bold()).foregroundStyle(Theme.sunset)
+            Image(systemName: "arrow.right")
+                .font(.title.bold())
+                .foregroundStyle(Theme.sunset)
             VStack {
                 Image(systemName: "person.crop.square.fill")
                     .font(.system(size: 54))
@@ -187,7 +226,9 @@ struct OnboardingView: View {
 
     private var privacySummary: some View {
         VStack(spacing: 9) {
-            Image(systemName: "lock.shield.fill").font(.system(size: 58)).foregroundStyle(Theme.sky)
+            Image(systemName: "lock.shield.fill")
+                .font(.system(size: 58))
+                .foregroundStyle(Theme.sky)
             HStack {
                 permissionChip(icon: "calendar", text: "Event dates only")
                 permissionChip(icon: "iphone", text: "On-device match")
@@ -202,7 +243,9 @@ struct OnboardingView: View {
     private func symbolCard(_ icon: String, tint: Color, rotation: Double, x: CGFloat, y: CGFloat) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 22).fill(.white)
-            Image(systemName: icon).font(.system(size: 37)).foregroundStyle(tint)
+            Image(systemName: icon)
+                .font(.system(size: 37))
+                .foregroundStyle(tint)
         }
         .frame(width: 86, height: 98)
         .rotationEffect(.degrees(rotation))
@@ -211,7 +254,9 @@ struct OnboardingView: View {
 
     private func featureBubble(icon: String, label: String) -> some View {
         VStack(spacing: 9) {
-            Image(systemName: icon).font(.system(size: 42)).foregroundStyle(Theme.sunset)
+            Image(systemName: icon)
+                .font(.system(size: 42))
+                .foregroundStyle(Theme.sunset)
             Text(label).font(.caption.bold())
         }
         .frame(width: 98, height: 104)
