@@ -12,7 +12,7 @@ const FIFTEEN_DAY_CLEANUP_AFTER_MS = (14 * DAY_MS) + (23 * 60 * 60 * 1000);
 const BIOMETRIC_INACTIVITY_MS = 365 * DAY_MS;
 const CONSENT_POLICY_VERSION = 4;
 const CONSENT_DISCLOSURE_ID = "biometric-consent-v4";
-const CONSENT_DISCLOSURE_SHA256 = "3d64afbedd5cd859e1594d77c5d928eda779a6067a48c1cff3d8d401b276fd90";
+const CONSENT_DISCLOSURE_SHA256 = "23259c73e44fdb2f335a01a53cd6800947d204a5495731580b8c010917b4eab6";
 const CONSENT_METHOD = "explicit-button";
 const FACE_PROFILE_VERSION = 5;
 const FACE_EMBEDDING_DIMENSION = 512;
@@ -21,11 +21,16 @@ const MIN_FACE_TEMPLATES = 3;
 const BIOMETRIC_POLICY_PATH = "systemConfig/biometricFaceMatch";
 const VALID_POSES = new Set(["center", "sideA", "sideB", "tilted", "alternate", "imported"]);
 const CANADIAN_SUBDIVISIONS = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]);
+const BLOCKED_CANADIAN_SUBDIVISIONS = new Set(["QC"]);
 const US_SUBDIVISIONS = new Set([
   "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA",
   "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM",
   "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA",
   "WV", "WI", "WY", "AS", "GU", "MP", "PR", "VI"
+]);
+const BLOCKED_US_SUBDIVISIONS = new Set([
+  "AL", "CA", "CO", "CT", "DE", "FL", "IA", "IL", "IN", "KY", "LA", "MD", "MN", "MT", "NE", "NH",
+  "NJ", "NY", "OK", "OR", "RI", "TN", "TX", "UT", "VA", "VT", "WA"
 ]);
 
 function requireAuth(request) {
@@ -44,25 +49,38 @@ function boundedString(value, name, maxLength) {
 function normalizeCode(value, name) {
   return boundedString(value, name, 8).toUpperCase();
 }
+function normalizeSubdivision(country, value) {
+  if (country === "IN") return "";
+  return normalizeCode(value, "jurisdictionSubdivision");
+}
 function jurisdictionKey(country, subdivision) {
-  return `${country}-${subdivision}`;
+  return subdivision ? `${country}-${subdivision}` : country;
 }
 function jurisdictionIsStaticallySupported(country, subdivision) {
-  if (country === "CA") return CANADIAN_SUBDIVISIONS.has(subdivision) && subdivision !== "QC";
-  if (country === "US") return US_SUBDIVISIONS.has(subdivision) && subdivision !== "IL";
+  if (country === "IN") return subdivision === "";
+  if (country === "CA") {
+    return CANADIAN_SUBDIVISIONS.has(subdivision) && !BLOCKED_CANADIAN_SUBDIVISIONS.has(subdivision);
+  }
+  if (country === "US") {
+    return US_SUBDIVISIONS.has(subdivision) && !BLOCKED_US_SUBDIVISIONS.has(subdivision);
+  }
   return false;
 }
 function jurisdictionUnavailableMessage(country, subdivision) {
-  if (country === "CA" && subdivision === "QC") return "Face Match is not currently available to users who ordinarily reside in Quebec.";
-  if (country === "US" && subdivision === "IL") return "Face Match is not currently available to users who ordinarily reside in Illinois.";
+  if (country === "CA" && subdivision === "QC") {
+    return "Face Match is not currently available to users who ordinarily reside in Quebec.";
+  }
+  if (country === "US" && BLOCKED_US_SUBDIVISIONS.has(subdivision)) {
+    return "Face Match is not currently available in your declared U.S. state or territory under SnapLoop's launch privacy policy.";
+  }
   return "Face Match is not currently available in the selected jurisdiction.";
 }
 async function loadBiometricFeaturePolicy() {
   // This private Admin-SDK-only document is an emergency compliance control.
   // Missing document means normal launch policy. If it exists, an operator can
-  // disable all biometric processing immediately or add jurisdiction codes such
-  // as "US-TX" without waiting for an App Store release. Client Firestore rules
-  // do not grant access to this path.
+  // disable all biometric processing immediately or block a whole country such
+  // as "IN" or a subdivision such as "US-TX" without an App Store release.
+  // Client Firestore rules do not grant access to this path.
   const snap = await db.doc(BIOMETRIC_POLICY_PATH).get();
   if (!snap.exists) return { enabled: true, blockedJurisdictions: new Set() };
   const data = snap.data() || {};
@@ -70,7 +88,7 @@ async function loadBiometricFeaturePolicy() {
     ? data.blockedJurisdictions
         .filter((value) => typeof value === "string")
         .map((value) => value.trim().toUpperCase())
-        .filter((value) => /^[A-Z]{2,3}-[A-Z]{2,3}$/.test(value))
+        .filter((value) => /^[A-Z]{2,3}(?:-[A-Z]{2,3})?$/.test(value))
     : [];
   return {
     enabled: data.enabled !== false,
@@ -80,6 +98,7 @@ async function loadBiometricFeaturePolicy() {
 function policyAllowsJurisdiction(policy, country, subdivision) {
   return policy.enabled
     && jurisdictionIsStaticallySupported(country, subdivision)
+    && !policy.blockedJurisdictions.has(country)
     && !policy.blockedJurisdictions.has(jurisdictionKey(country, subdivision));
 }
 function policyUnavailableMessage(policy, country, subdivision) {
@@ -256,7 +275,7 @@ exports.acceptBiometricConsent = onCall(async (request) => {
   }
 
   const country = normalizeCode(data.jurisdictionCountry, "jurisdictionCountry");
-  const subdivision = normalizeCode(data.jurisdictionSubdivision, "jurisdictionSubdivision");
+  const subdivision = normalizeSubdivision(country, data.jurisdictionSubdivision);
   const policy = await loadBiometricFeaturePolicy();
   if (!policyAllowsJurisdiction(policy, country, subdivision)) {
     throw new HttpsError("failed-precondition", policyUnavailableMessage(policy, country, subdivision));
