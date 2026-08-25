@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 private enum CachedGalleryMatches {
     private static func prefix(userId: String) -> String { "snaploop.gallery.cache.\(userId)" }
@@ -19,9 +20,6 @@ private enum CachedGalleryMatches {
         UserDefaults.standard.set(data, forKey: key(userId: userId, faceRevision: faceRevision))
     }
 
-    /// Face-derived Gallery metadata must never cross a Face Setup identity
-    /// boundary. Remove legacy/user-only caches and every prior Face Setup
-    /// revision as soon as the current account/profile is configured.
     static func purgeOtherRevisions(userId: String, keeping faceRevision: String?) {
         let base = prefix(userId: userId)
         let keep = faceRevision.flatMap { $0.isEmpty ? nil : key(userId: userId, faceRevision: $0) }
@@ -130,8 +128,6 @@ final class AllMyPhotosModel: ObservableObject {
         }
 
         guard generation == reloadGeneration else { return }
-        // If Face Setup changed while network work was in flight, discard this
-        // entire response rather than caching results under the new identity.
         guard session?.faceProfile?.faceProfileRevision == faceRevision else {
             photos = []
             isLoading = false
@@ -179,6 +175,12 @@ struct AllMyPhotosView: View {
     @StateObject private var model = AllMyPhotosModel()
     @State private var filter: PhotoFilter = .all
     @State private var columnCount = 3
+    @State private var isSelecting = false
+    @State private var selectedIDs: Set<String> = []
+    @State private var bulkBusy = false
+    @State private var bulkMessage: String?
+    @State private var bulkShareImages: [UIImage] = []
+    @State private var showBulkShare = false
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: columnCount >= 6 ? 4 : 8, alignment: .top), count: columnCount)
@@ -189,6 +191,14 @@ struct AllMyPhotosView: View {
         case .all: return model.photos
         case .favorites: return model.photos.filter { model.favoriteIds.contains($0.id) }
         }
+    }
+
+    private var selectedMatches: [PhotoMatch] {
+        filtered.filter { selectedIDs.contains($0.id) }
+    }
+
+    private var allSelectedAreFavorites: Bool {
+        !selectedMatches.isEmpty && selectedMatches.allSatisfy { model.isFavorite($0) }
     }
 
     var body: some View {
@@ -212,23 +222,36 @@ struct AllMyPhotosView: View {
                             }
                         }
                         Spacer()
-                        Menu {
-                            ForEach([2, 3, 4, 6], id: \.self) { count in
-                                Button {
-                                    withAnimation(.snappy) { columnCount = count }
-                                } label: {
-                                    Label("\(count) per row", systemImage: count == columnCount ? "checkmark" : "square.grid.3x3")
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "square.grid.2x2.fill")
+
+                        if isSelecting {
+                            Text("\(selectedIDs.count) selected")
+                                .font(.caption.bold())
+                                .foregroundStyle(.secondary)
+                            Button("Cancel") { endSelection() }
                                 .font(.subheadline.bold())
-                                .padding(11)
-                                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.divider)
+                        } else {
+                            Button("Select") { beginSelection() }
+                                .font(.subheadline.bold())
+                                .disabled(filtered.isEmpty)
+
+                            Menu {
+                                ForEach([2, 3, 4, 6], id: \.self) { count in
+                                    Button {
+                                        withAnimation(.snappy) { columnCount = count }
+                                    } label: {
+                                        Label("\(count) per row", systemImage: count == columnCount ? "checkmark" : "square.grid.3x3")
+                                    }
                                 }
-                                .foregroundStyle(Theme.lilac)
+                            } label: {
+                                Image(systemName: "square.grid.2x2.fill")
+                                    .font(.subheadline.bold())
+                                    .padding(11)
+                                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.divider)
+                                    }
+                                    .foregroundStyle(Theme.lilac)
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -268,19 +291,35 @@ struct AllMyPhotosView: View {
                     } else {
                         LazyVGrid(columns: columns, spacing: columnCount >= 6 ? 4 : 8) {
                             ForEach(filtered) { match in
-                                NavigationLink {
-                                    PhotoDetailView(
-                                        matches: filtered,
-                                        initialMatchID: match.id,
-                                        ownerLabel: { model.ownerLabel(for: $0) },
-                                        isFavorite: { model.isFavorite($0) },
-                                        onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
-                                        onNotMe: { item in Task { await model.markNotMe(item) } }
-                                    )
-                                } label: {
-                                    PhotoCard(match: match, ownerLabel: model.ownerLabel(for: match), isFavorite: model.isFavorite(match), compact: columnCount >= 6)
+                                if isSelecting {
+                                    Button {
+                                        toggleSelection(match.id)
+                                    } label: {
+                                        PhotoCard(
+                                            match: match,
+                                            ownerLabel: model.ownerLabel(for: match),
+                                            isFavorite: model.isFavorite(match),
+                                            compact: columnCount >= 6,
+                                            selectionMode: true,
+                                            isSelected: selectedIDs.contains(match.id)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    NavigationLink {
+                                        PhotoDetailView(
+                                            matches: filtered,
+                                            initialMatchID: match.id,
+                                            ownerLabel: { model.ownerLabel(for: $0) },
+                                            isFavorite: { model.isFavorite($0) },
+                                            onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
+                                            onNotMe: { item in Task { await model.markNotMe(item) } }
+                                        )
+                                    } label: {
+                                        PhotoCard(match: match, ownerLabel: model.ownerLabel(for: match), isFavorite: model.isFavorite(match), compact: columnCount >= 6)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                         .padding(.horizontal, columnCount >= 6 ? 8 : 16)
@@ -291,10 +330,87 @@ struct AllMyPhotosView: View {
         }
         .navigationTitle("Gallery")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isSelecting {
+                PhotoSelectionToolbar(
+                    selectedCount: selectedIDs.count,
+                    allFavorites: allSelectedAreFavorites,
+                    busy: bulkBusy,
+                    message: bulkMessage,
+                    onSave: { Task { await saveSelected() } },
+                    onShare: { Task { await shareSelected() } },
+                    onFavorite: { favoriteSelected() }
+                )
+            }
+        }
+        .sheet(isPresented: $showBulkShare) {
+            ActivityView(items: bulkShareImages.map { $0 as Any })
+        }
         .onAppear {
             model.configure(env: env, session: session)
             Task { await model.reload() }
         }
         .refreshable { await model.reload() }
+        .onChange(of: filter) { _, _ in selectedIDs.removeAll(); bulkMessage = nil }
+        .onChange(of: model.photos.map(\.id)) { _, ids in selectedIDs.formIntersection(Set(ids)) }
+    }
+
+    private func beginSelection() {
+        isSelecting = true
+        selectedIDs.removeAll()
+        bulkMessage = nil
+    }
+
+    private func endSelection() {
+        isSelecting = false
+        selectedIDs.removeAll()
+        bulkMessage = nil
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedIDs.contains(id) { selectedIDs.remove(id) }
+        else { selectedIDs.insert(id) }
+        bulkMessage = nil
+    }
+
+    private func favoriteSelected() {
+        guard !selectedMatches.isEmpty else { return }
+        let nextValue = !allSelectedAreFavorites
+        for match in selectedMatches { model.setFavorite(nextValue, match: match) }
+        bulkMessage = nextValue ? "Added to Favorites." : "Removed from Favorites."
+        if filter == .favorites && !nextValue { selectedIDs.removeAll() }
+    }
+
+    @MainActor
+    private func saveSelected() async {
+        guard !selectedMatches.isEmpty else { return }
+        bulkBusy = true
+        bulkMessage = nil
+        defer { bulkBusy = false }
+        do {
+            let images = await PhotoBulkActions.loadImages(for: selectedMatches)
+            guard !images.isEmpty else { throw AppError.originalUnavailable }
+            try await PhotoBulkActions.saveToPhotoLibrary(images)
+            bulkMessage = images.count == 1 ? "Saved 1 photo." : "Saved \(images.count) photos."
+        } catch AppError.photoLibraryAccessDenied {
+            bulkMessage = "Allow SnapLoop to add photos in iPhone Settings."
+        } catch {
+            bulkMessage = "Some photos couldn't be saved."
+        }
+    }
+
+    @MainActor
+    private func shareSelected() async {
+        guard !selectedMatches.isEmpty else { return }
+        bulkBusy = true
+        bulkMessage = nil
+        let images = await PhotoBulkActions.loadImages(for: selectedMatches)
+        bulkBusy = false
+        guard !images.isEmpty else {
+            bulkMessage = "Selected photos couldn't be prepared."
+            return
+        }
+        bulkShareImages = images
+        showBulkShare = true
     }
 }
