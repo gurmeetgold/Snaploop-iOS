@@ -49,9 +49,10 @@ async function scrubUserFromEventPhotos(eventId, uid) {
 }
 
 // Deleting Face Setup is the explicit identity boundary. It removes the active
-// biometric identity, scrubs its face-derived photo associations, and
-// deactivates the current consent authorization. A future Face Setup therefore
-// requires fresh consent and receives a new server-issued faceIdentityId.
+// biometric identity, scrubs its face-derived photo associations, turns off the
+// user's own-match preference in every Event, and deactivates current consent.
+// A future Face Setup therefore requires fresh consent and receives a new
+// server-issued faceIdentityId.
 exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
   const uid = requireAuth(request);
   if (typeof (request.data || {}).userId === "string" && request.data.userId !== uid) {
@@ -62,14 +63,21 @@ exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
   const eventRefs = await userRef.collection("eventRefs").get();
   let scrubbedPhotos = 0;
   let rosterEntriesRemoved = 0;
+  let ownMatchPreferencesDisabled = 0;
 
   for (const eventRef of eventRefs.docs) {
     const eventId = eventRef.id;
     const participantRef = db.doc(`events/${eventId}/participants/${uid}`);
-    const participant = await participantRef.get();
+    const memberRef = db.doc(`events/${eventId}/members/${uid}`);
+    const [participant, member] = await Promise.all([participantRef.get(), memberRef.get()]);
+
     if (participant.exists) {
       await participantRef.delete();
       rosterEntriesRemoved += 1;
+    }
+    if (member.exists) {
+      await memberRef.update({ includeOwnMatches: false, ownMatchesUpdatedAt: Timestamp.now() });
+      ownMatchPreferencesDisabled += 1;
     }
     scrubbedPhotos += await scrubUserFromEventPhotos(eventId, uid);
   }
@@ -89,5 +97,6 @@ exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
     consentDeactivated: true,
     scrubbedPhotos,
     rosterEntriesRemoved,
+    ownMatchPreferencesDisabled,
   };
 });
