@@ -13,6 +13,7 @@ final class JoinEventModel: ObservableObject {
 
     @Published var phase: Phase = .loading
     @Published var participantCount = 0
+    @Published var inviterLabel: String?
     @Published var isJoining = false
     @Published var isDeclining = false
     @Published var actionError: String?
@@ -29,6 +30,7 @@ final class JoinEventModel: ObservableObject {
         guard let env, let session else { return }
         phase = .loading
         actionError = nil
+        inviterLabel = nil
         do {
             let event: Event
             switch route {
@@ -50,6 +52,11 @@ final class JoinEventModel: ObservableObject {
 
             if let roster = try? await env.events.members(eventId: event.id) {
                 participantCount = roster.count
+                if let organizer = roster.first(where: { $0.userId == event.creatorUserId }),
+                   let name = organizer.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !name.isEmpty {
+                    inviterLabel = name
+                }
                 if let userId = session.user?.id,
                    roster.contains(where: { $0.userId == userId }) {
                     phase = .joined(event)
@@ -203,9 +210,11 @@ struct JoinEventView: View {
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
-                    Text(event.category.displayName)
-                        .font(.caption.bold())
-                        .foregroundStyle(Theme.sunset)
+                    if let inviter = model.inviterLabel {
+                        Label("Invited by \(inviter)", systemImage: "person.crop.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.violet)
+                    }
                 }
 
                 PremiumCard {
@@ -213,6 +222,11 @@ struct JoinEventView: View {
                         Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.ink)
+
+                        Text("Only photos taken during these Event dates are scanned.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
 
                         if model.participantCount > 0 {
                             Label("\(model.participantCount) members", systemImage: "person.2.fill")
@@ -232,9 +246,9 @@ struct JoinEventView: View {
                     .frame(maxWidth: .infinity)
                 }
 
-                Text("Join to automatically receive photos you're matched in from participating members.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                Text("Join to automatically receive photos you’re matched in from the phones of participating members.")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.ink.opacity(0.82))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 8)
 
@@ -258,7 +272,7 @@ struct JoinEventView: View {
                         HStack {
                             if model.isJoining { ProgressView().tint(.white) }
                             else { Image(systemName: "checkmark.circle.fill") }
-                            Text("Join Event")
+                            Text(model.isJoining ? "Joining…" : "Join Event")
                         }
                         .contentShape(Rectangle())
                     }
@@ -275,9 +289,14 @@ struct JoinEventView: View {
                 }
 
                 if isPhoneInvitation {
-                    Button("Decline", role: .destructive) {
+                    Button(role: .destructive) {
                         guard !model.isJoining, !model.isDeclining else { return }
                         Task { await model.decline(event: event) }
+                    } label: {
+                        HStack(spacing: 7) {
+                            if model.isDeclining { ProgressView() }
+                            Text(model.isDeclining ? "Declining…" : "Decline")
+                        }
                     }
                     .font(.subheadline.weight(.semibold))
                     .disabled(model.isJoining || model.isDeclining)
