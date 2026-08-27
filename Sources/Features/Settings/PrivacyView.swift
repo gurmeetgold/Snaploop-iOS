@@ -65,7 +65,9 @@ final class PrivacyModel: ObservableObject {
 
     func deleteAccount() async {
         guard let env, let userId = session?.user?.id else { return }
-        busy = true; defer { busy = false }
+        busy = true
+        message = "Deleting account and account data…"
+        defer { busy = false }
 
         do {
             try await env.makeErasureService().deleteAccount(userId: userId)
@@ -111,15 +113,20 @@ struct PrivacyView: View {
                     deleteAccountCard
                     if let message = model.message {
                         PremiumCard {
-                            Label(message, systemImage: "info.circle.fill")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                if model.busy { ProgressView().tint(Theme.violet) }
+                                else { Image(systemName: "info.circle.fill") }
+                                Text(message)
+                            }
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal)
                     }
                 }
                 .padding(.vertical, 16)
             }
+            .scrollDisabled(model.busy)
         }
         .navigationTitle("Privacy")
         .navigationBarTitleDisplayMode(.inline)
@@ -160,7 +167,10 @@ struct PrivacyView: View {
 
     private var faceConsentCard: some View {
         PremiumCard {
-            Button { showConsent = true } label: {
+            Button {
+                guard !model.busy else { return }
+                showConsent = true
+            } label: {
                 HStack(spacing: 12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -185,6 +195,7 @@ struct PrivacyView: View {
                 }
             }
             .buttonStyle(.plain)
+            .disabled(model.busy)
         }
         .padding(.horizontal)
     }
@@ -255,8 +266,15 @@ struct PrivacyView: View {
                 Text("Deletes your account, face data, Event memberships, and photo previews sourced from this account.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                Button(role: .destructive) { confirmAccount = true } label: {
-                    Label("Delete SnapLoop Account", systemImage: "trash.fill")
+                Button(role: .destructive) {
+                    guard !model.busy else { return }
+                    confirmAccount = true
+                } label: {
+                    HStack(spacing: 8) {
+                        if model.busy { ProgressView().tint(.red) }
+                        else { Image(systemName: "trash.fill") }
+                        Text(model.busy ? "Deleting Account…" : "Delete SnapLoop Account")
+                    }
                 }
                 .disabled(model.busy)
             }
