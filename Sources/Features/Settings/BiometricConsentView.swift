@@ -7,6 +7,7 @@ struct BiometricConsentView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var isSaving = false
+    @State private var isWithdrawing = false
     @State private var errorMessage: String?
     @State private var confirmWithdrawal = false
     @State private var selectedCountry = "IN"
@@ -61,6 +62,7 @@ struct BiometricConsentView: View {
             }
             .navigationTitle("Privacy")
             .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(isSaving)
             .confirmationDialog(
                 "Withdraw Face Match Consent?",
                 isPresented: $confirmWithdrawal,
@@ -143,9 +145,17 @@ struct BiometricConsentView: View {
                 Button(role: .destructive) {
                     confirmWithdrawal = true
                 } label: {
-                    Label("Withdraw Consent", systemImage: "hand.raised.slash.fill")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, minHeight: 48)
+                    HStack(spacing: 9) {
+                        if isWithdrawing {
+                            ProgressView().tint(.red)
+                            Text("Withdrawing…")
+                        } else {
+                            Image(systemName: "hand.raised.slash.fill")
+                            Text("Withdraw Consent")
+                        }
+                    }
+                    .font(.headline)
+                    .frame(maxWidth: .infinity, minHeight: 48)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.red)
@@ -155,14 +165,19 @@ struct BiometricConsentView: View {
                 Button("Done") { dismiss() }
                     .frame(maxWidth: .infinity, minHeight: 40)
                     .foregroundStyle(.secondary)
+                    .disabled(isSaving)
             } else {
                 Button {
                     Task { await accept() }
                 } label: {
-                    HStack {
-                        if isSaving { ProgressView().tint(.white) }
-                        else { Image(systemName: "checkmark.shield.fill") }
-                        Text("I Agree & Continue")
+                    HStack(spacing: 9) {
+                        if isSaving {
+                            ProgressView().tint(.white)
+                            Text("Saving…")
+                        } else {
+                            Image(systemName: "checkmark.shield.fill")
+                            Text("I Agree & Continue")
+                        }
                     }
                 }
                 .buttonStyle(MyPicsTubePrimaryButtonStyle())
@@ -172,6 +187,7 @@ struct BiometricConsentView: View {
                 Button("Not Now", role: .cancel) { dismiss() }
                     .frame(maxWidth: .infinity, minHeight: 38)
                     .foregroundStyle(.secondary)
+                    .disabled(isSaving)
             }
         }
     }
@@ -262,6 +278,7 @@ struct BiometricConsentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isSaving)
         .accessibilityValue(checked ? "Selected" : "Not selected")
     }
 
@@ -286,6 +303,7 @@ struct BiometricConsentView: View {
     @MainActor
     private func accept() async {
         guard canAccept else { return }
+        isWithdrawing = false
         isSaving = true
         errorMessage = nil
         let saved = await onAccept(selectedJurisdiction)
@@ -299,10 +317,13 @@ struct BiometricConsentView: View {
 
     @MainActor
     private func withdraw() async {
+        guard !isSaving else { return }
+        isWithdrawing = true
         isSaving = true
         errorMessage = nil
         let withdrawn = await onWithdraw()
         isSaving = false
+        isWithdrawing = false
         if withdrawn {
             dismiss()
         } else {
