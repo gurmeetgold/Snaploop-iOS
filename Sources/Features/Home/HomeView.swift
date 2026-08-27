@@ -63,6 +63,7 @@ struct HomeView: View {
     @StateObject private var model = HomeModel()
     @State private var showCreate = false
     @State private var showJoin = false
+    @State private var showAllUpdates = false
     @State private var joinRoute: DeepLinkRoute?
 
     private var visibleEvents: [Event] { model.events.filter { $0.status != .deletedByOrganizer } }
@@ -77,13 +78,7 @@ struct HomeView: View {
                         greeting
                         createJoinRow
                         if !model.notifications.isEmpty {
-                            sectionHeader("Updates")
-                            VStack(spacing: 10) {
-                                ForEach(Array(model.notifications.prefix(3))) { notification in
-                                    eventNotificationCard(notification)
-                                }
-                            }
-                            .padding(.horizontal)
+                            updatesSection
                         }
                     }
                     sectionHeader(showsGreeting ? "Your Events" : "All Events")
@@ -139,6 +134,29 @@ struct HomeView: View {
                 joinRoute = route
             }
         }
+        .sheet(isPresented: $showAllUpdates) {
+            NavigationStack {
+                ZStack {
+                    BrandScreenBackground()
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(model.notifications) { notification in
+                                eventNotificationCard(notification)
+                            }
+                        }
+                        .padding(16)
+                    }
+                }
+                .navigationTitle("Updates")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showAllUpdates = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
         .sheet(item: $joinRoute) { route in
             NavigationStack {
                 JoinEventView(route: route) { event in
@@ -146,6 +164,40 @@ struct HomeView: View {
                     session.activeEvent = event
                     Task { await model.reload() }
                 }
+            }
+        }
+    }
+
+    private var updatesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Updates")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(Theme.ink)
+                Spacer()
+                if model.notifications.count > 1 {
+                    Button {
+                        showAllUpdates = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text("View all")
+                            Text("\(model.notifications.count)")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(Theme.violet.opacity(0.12), in: Capsule())
+                        }
+                        .font(.subheadline.bold())
+                        .foregroundStyle(Theme.violet)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal)
+
+            if let latest = model.notifications.first {
+                eventNotificationCard(latest)
+                    .padding(.horizontal)
             }
         }
     }
@@ -160,13 +212,17 @@ struct HomeView: View {
                 .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(notification.title).font(.subheadline.bold()).foregroundStyle(Theme.ink)
-                    Text(notification.body).font(.caption).foregroundStyle(.secondary)
+                    Text(notification.body)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
                 }
                 Spacer()
                 Button { Task { await model.dismissNotification(notification) } } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss update")
             }
         }
     }
