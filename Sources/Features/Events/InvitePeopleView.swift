@@ -28,14 +28,19 @@ struct ContactPhonePicker: UIViewControllerRepresentable {
 struct MessageInviteComposer: UIViewControllerRepresentable {
     let recipients: [String]
     let body: String
+    let onResult: (MessageComposeResult) -> Void
 
     final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
+        let parent: MessageInviteComposer
+        init(parent: MessageInviteComposer) { self.parent = parent }
+
         func messageComposeViewController(_ controller: MFMessageComposeViewController, didFinishWith result: MessageComposeResult) {
             controller.dismiss(animated: true)
+            parent.onResult(result)
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     func makeUIViewController(context: Context) -> MFMessageComposeViewController {
         let controller = MFMessageComposeViewController()
         controller.messageComposeDelegate = context.coordinator
@@ -122,7 +127,7 @@ struct InvitePeopleView: View {
                         HStack {
                             if isSending { ProgressView().tint(.white) }
                             else { Image(systemName: "paperplane.fill") }
-                            Text("Send Invite")
+                            Text(isSending ? "Sending…" : "Send Invite")
                         }
                         .contentShape(Rectangle())
                     }
@@ -157,7 +162,21 @@ struct InvitePeopleView: View {
             }
         }
         .sheet(isPresented: $showMessage) {
-            MessageInviteComposer(recipients: [smsRecipient], body: messageBody)
+            MessageInviteComposer(recipients: [smsRecipient], body: messageBody) { result in
+                switch result {
+                case .sent:
+                    message = "SMS invitation sent."
+                    errorMessage = nil
+                case .failed:
+                    message = nil
+                    errorMessage = "The SMS invitation could not be sent."
+                case .cancelled:
+                    message = "SMS invitation was not sent."
+                @unknown default:
+                    message = nil
+                }
+                Task { await refreshStatuses() }
+            }
         }
     }
 
@@ -225,7 +244,7 @@ struct InvitePeopleView: View {
             phone = normalized
             switch delivery.kind {
             case .inApp:
-                message = "Invitation delivered in SnapLoop. No SMS was sent."
+                message = "Invitation delivered in SnapLoop."
             case .sms:
                 smsRecipient = normalized
                 guard MFMessageComposeViewController.canSendText() else {
@@ -233,7 +252,7 @@ struct InvitePeopleView: View {
                     await refreshStatuses()
                     return
                 }
-                message = "This person is not on SnapLoop yet. Send the prepared SMS invitation."
+                message = "SMS invitation ready to send."
                 showMessage = true
             }
             await refreshStatuses()
