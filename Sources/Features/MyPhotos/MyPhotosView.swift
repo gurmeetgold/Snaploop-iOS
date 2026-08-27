@@ -506,10 +506,6 @@ final class StorageThumbnailLoader: ObservableObject {
             return
         }
 
-        // Full-screen pages can immediately reuse the grid's already-decoded
-        // 640px image while their sharper 2048px representation is prepared.
-        // That keeps an adjacent page visually populated during a fast swipe
-        // instead of replacing it with a spinner for a frame.
         if maxPixelSize > 640,
            let preview = Self.cachedImage(path: path, maxPixelSize: 640) {
             image = preview
@@ -579,10 +575,6 @@ final class StorageThumbnailLoader: ObservableObject {
                 }
             }
         } catch {
-            // A matched-photo row has already passed the backend's membership
-            // and stable-identity authorization. If the second, client-side
-            // Storage read fails, repeat those checks server-side and return
-            // only this optimized preview instead of showing a broken tile.
             return try await authorizedFallbackData(for: path)
         }
     }
@@ -809,7 +801,7 @@ struct PhotoDetailView: View {
                             match: matches[index],
                             onTap: {
                                 guard !isSettlingPage else { return }
-                                withAnimation(.easeInOut(duration: 0.16)) { chromeVisible.toggle() }
+                                withAnimation(.easeInOut(duration: 0.18)) { chromeVisible.toggle() }
                             },
                             onZoomChanged: { zoomed in
                                 if index == selectedIndex { currentPageZoomed = zoomed }
@@ -862,7 +854,11 @@ struct PhotoDetailView: View {
                             }
                             .disabled(actionBusy)
 
-                            if let statusMessage {
+                            if actionBusy {
+                                ProgressView()
+                                    .tint(.white)
+                                    .scaleEffect(0.8)
+                            } else if let statusMessage {
                                 Text(statusMessage)
                                     .font(.caption2)
                                     .foregroundStyle(.white.opacity(0.82))
@@ -965,7 +961,7 @@ struct PhotoDetailView: View {
     }
 
     private func settleBackToCenter() {
-        withAnimation(.easeOut(duration: 0.18)) {
+        withAnimation(.easeOut(duration: 0.24)) {
             pagerDrag = .zero
         }
     }
@@ -977,18 +973,13 @@ struct PhotoDetailView: View {
         }
 
         isSettlingPage = true
+        let settleDuration = 0.30
 
-        // First finish the physical slide while the old index remains selected.
-        // The incoming page is already mounted, loaded and travelling with the
-        // finger, so there is no view replacement during this animation.
-        withAnimation(.easeOut(duration: 0.20)) {
+        withAnimation(.easeOut(duration: settleDuration)) {
             pagerDrag = CGSize(width: terminalOffset, height: 0)
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-            // At this point the incoming page is exactly centered. Switch the
-            // bookkeeping index and reset the offset in one non-animated
-            // transaction; its visual position therefore does not move at all.
+        DispatchQueue.main.asyncAfter(deadline: .now() + settleDuration) {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
@@ -1088,8 +1079,6 @@ private struct HorizontalPhotoPage: View {
         .background(Color.black)
         .contentShape(Rectangle())
         .transaction { transaction in
-            // Image-quality upgrades (640px preview -> 2048px viewer image)
-            // should sharpen in place, never cross-fade during a page gesture.
             transaction.animation = nil
         }
         .task(id: match.thumbnailPath) { await loader.load(path: match.thumbnailPath) }
