@@ -84,7 +84,7 @@ final class FaceSetupModel: ObservableObject {
         isBusy = true
         didSave = false
         differentIdentityDetected = false
-        message = "Building your multi-angle face profile…"
+        message = "Building Face Setup…"
 
         do {
             var newGuidedTemplates: [FaceTemplate] = []
@@ -130,7 +130,6 @@ final class FaceSetupModel: ObservableObject {
 
             hasChanges = true
             message = "Saving Face Setup…"
-            isBusy = false
             await saveFaceSetup(automatic: true)
         } catch let error as AppError {
             isBusy = false
@@ -141,9 +140,6 @@ final class FaceSetupModel: ObservableObject {
         }
     }
 
-    /// Retained as an internal migration/recovery utility. The public Face Setup
-    /// screen no longer exposes a separate "Restore Face Photo" action; users
-    /// simply run Selfie Scan if they ever need to refresh the display photo.
     func restoreLocalPreview(from imageData: Data) async {
         guard let env, let session, let userId = session.user?.id,
               let profile = session.faceProfile,
@@ -155,7 +151,7 @@ final class FaceSetupModel: ObservableObject {
 
         isBusy = true
         didSave = false
-        message = "Checking the photo against your Face Setup…"
+        message = "Checking Face Setup…"
         defer { isBusy = false }
 
         do {
@@ -196,9 +192,13 @@ final class FaceSetupModel: ObservableObject {
 
     func saveFaceSetup(automatic: Bool = false) async {
         guard let env, let session, var user = session.user,
-              consentActive, hasUsableEnrollment else { return }
+              consentActive, hasUsableEnrollment else {
+            isBusy = false
+            return
+        }
 
         if session.hasFaceProfile && !hasChanges {
+            isBusy = false
             didSave = false
             message = "Face Setup is already up to date."
             return
@@ -206,7 +206,7 @@ final class FaceSetupModel: ObservableObject {
 
         let wasUpdate = session.hasFaceProfile
         isBusy = true
-        message = automatic ? "Saving Face Setup…" : nil
+        message = "Saving Face Setup…"
         didSave = false
         defer { isBusy = false }
 
@@ -261,7 +261,8 @@ final class FaceSetupModel: ObservableObject {
     func deleteFaceSetup() async -> Bool {
         guard let env, let session, let userId = session.user?.id else { return false }
         isBusy = true
-        message = nil
+        didSave = false
+        message = "Deleting Face Setup…"
         defer { isBusy = false }
 
         do {
@@ -275,6 +276,7 @@ final class FaceSetupModel: ObservableObject {
             consentActive = false
             differentIdentityDetected = false
             session.requireFaceSetupAfterDeletion()
+            message = "Face Setup deleted."
             return true
         } catch {
             message = (error as NSError).localizedDescription
@@ -330,6 +332,14 @@ struct FaceSetupView: View {
     @State private var showDeleteFaceSetup = false
     @State private var pendingAction: PendingAction?
 
+    private var deletingFaceSetup: Bool {
+        model.isBusy && model.message == "Deleting Face Setup…"
+    }
+
+    private var processingFaceSetup: Bool {
+        model.isBusy && !deletingFaceSetup
+    }
+
     var body: some View {
         ZStack {
             BrandScreenBackground()
@@ -352,7 +362,7 @@ struct FaceSetupView: View {
                         startSelfieFlow()
                     }
                     .disabled(model.isBusy)
-                    .opacity(model.isBusy ? 0.62 : 1)
+                    .opacity(deletingFaceSetup ? 0.55 : 1)
 
                     if session.hasFaceProfile {
                         NavigationLink { FaceMatchingTestView() } label: {
@@ -364,12 +374,24 @@ struct FaceSetupView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(Theme.magenta)
                         .background(Theme.magenta.opacity(0.09), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .disabled(model.isBusy)
+                        .opacity(model.isBusy ? 0.55 : 1)
 
-                        Button(role: .destructive) { showDeleteFaceSetup = true } label: {
-                            Label("Delete Face Setup", systemImage: "trash.fill")
-                                .font(.subheadline.bold())
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 48)
+                        Button(role: .destructive) {
+                            guard !model.isBusy else { return }
+                            showDeleteFaceSetup = true
+                        } label: {
+                            HStack(spacing: 9) {
+                                if deletingFaceSetup {
+                                    ProgressView().tint(.red)
+                                } else {
+                                    Image(systemName: "trash.fill")
+                                }
+                                Text(deletingFaceSetup ? "Deleting Face Setup…" : "Delete Face Setup")
+                            }
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.red)
@@ -378,11 +400,19 @@ struct FaceSetupView: View {
                     }
 
                     if let message = model.message {
-                        Label(message, systemImage: model.didSave ? "checkmark.circle.fill" : "info.circle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(model.didSave ? .green : .secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
+                        HStack(spacing: 8) {
+                            if model.isBusy {
+                                ProgressView()
+                                    .tint(Theme.violet)
+                            } else {
+                                Image(systemName: model.didSave ? "checkmark.circle.fill" : "info.circle.fill")
+                            }
+                            Text(message)
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(model.didSave ? .green : .secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
                     }
 
                     if allowsDeferral && !session.hasFaceProfile {
@@ -405,9 +435,11 @@ struct FaceSetupView: View {
                 }
                 .padding(20)
             }
+            .scrollDisabled(model.isBusy)
         }
         .navigationTitle("Face Setup")
         .navigationBarTitleDisplayMode(.inline)
+        .interactiveDismissDisabled(model.isBusy)
         .task { await model.configure(env: env, session: session) }
         .fullScreenCover(isPresented: $showSelfieEnrollment) {
             GuidedFaceEnrollmentView { frames in
@@ -464,6 +496,7 @@ struct FaceSetupView: View {
 
     @MainActor
     private func startSelfieFlow() {
+        guard !model.isBusy else { return }
         if model.consentActive {
             showSelfieEnrollment = true
         } else {
@@ -546,10 +579,18 @@ struct FaceSetupView: View {
 
     private func actionButton(_ title: String, icon: String, gradient: LinearGradient, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
+            HStack(spacing: 9) {
+                if processingFaceSetup {
+                    ProgressView().tint(.white)
+                    Text(model.message ?? "Processing Face Setup…")
+                } else {
+                    Image(systemName: icon)
+                    Text(title)
+                }
+            }
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white)
