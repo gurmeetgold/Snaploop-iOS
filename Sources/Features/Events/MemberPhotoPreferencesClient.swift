@@ -32,6 +32,11 @@ enum MemberPhotoPreferencesClient {
         ])
     }
 
+    @MainActor
+    static func disableOwnMatchesEverywhere() async throws {
+        _ = try await call("disableOwnMatchesEverywhere", data: [:])
+    }
+
     private static func millisString(_ value: Any?) -> String {
         if let n = value as? NSNumber { return String(n.int64Value) }
         if let d = value as? Double { return String(Int64(d)) }
