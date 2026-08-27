@@ -62,9 +62,10 @@ public final class FirebaseRemoteConfigProvider: ConfigProviding, @unchecked Sen
     }
 
     private static func read(from remote: RemoteConfig) -> RemoteConfigValues {
-        // Until original-quality transfer ships, keep a hard floor for the
-        // downloadable matched image so an older Remote Config value cannot
-        // silently downgrade the MVP back to low-resolution previews.
+        // Until original-quality transfer ships, keep hard floors for the
+        // matched-photo preview and normal scan batch. Device safety still
+        // lowers the effective scan batch in low-power or elevated-thermal states.
+        let requestedBatch = remote.configValue(forKey: RemoteConfigValues.Key.maxAssetsPerSyncBatch.rawValue).numberValue.intValue
         let requestedPixels = remote.configValue(forKey: RemoteConfigValues.Key.thumbnailMaxPixelSize.rawValue).numberValue.intValue
         let requestedQuality = remote.configValue(forKey: RemoteConfigValues.Key.thumbnailJPEGQuality.rawValue).numberValue.doubleValue
 
@@ -72,7 +73,7 @@ public final class FirebaseRemoteConfigProvider: ConfigProviding, @unchecked Sen
             matchConfidenceThreshold: remote.configValue(forKey: RemoteConfigValues.Key.matchConfidenceThreshold.rawValue).numberValue.doubleValue,
             matchAmbiguityMargin: remote.configValue(forKey: RemoteConfigValues.Key.matchAmbiguityMargin.rawValue).numberValue.doubleValue,
             minFaceSizeFraction: remote.configValue(forKey: RemoteConfigValues.Key.minFaceSizeFraction.rawValue).numberValue.doubleValue,
-            maxAssetsPerSyncBatch: remote.configValue(forKey: RemoteConfigValues.Key.maxAssetsPerSyncBatch.rawValue).numberValue.intValue,
+            maxAssetsPerSyncBatch: max(50, requestedBatch),
             thumbnailMaxPixelSize: max(2560, requestedPixels),
             thumbnailJPEGQuality: min(1.0, max(0.92, requestedQuality)),
             signedURLTTLHours: remote.configValue(forKey: RemoteConfigValues.Key.signedURLTTLHours.rawValue).numberValue.intValue,
