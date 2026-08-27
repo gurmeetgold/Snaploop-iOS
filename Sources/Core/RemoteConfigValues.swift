@@ -54,7 +54,7 @@ public struct RemoteConfigValues: Equatable, Sendable {
         matchConfidenceThreshold: FaceModelPolicy.evaluationMatchThreshold,
         matchAmbiguityMargin: FaceModelPolicy.evaluationAmbiguityMargin,
         minFaceSizeFraction: 0.045,
-        maxAssetsPerSyncBatch: 25,
+        maxAssetsPerSyncBatch: 50,
         thumbnailMaxPixelSize: 2560,
         thumbnailJPEGQuality: 0.92,
         signedURLTTLHours: 48,
