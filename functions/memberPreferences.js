@@ -24,6 +24,26 @@ async function requireMembership(eventId, uid) {
   return { ref, data: snap.data() || {} };
 }
 
+async function hasActiveFaceSetup(uid) {
+  const snap = await db.doc(`users/${uid}/faceProfile/current`).get();
+  if (!snap.exists) return false;
+  const data = snap.data() || {};
+  return typeof data.faceIdentityId === "string" && data.faceIdentityId.trim().length > 0;
+}
+
+async function disableOwnMatchesEverywhereFor(uid) {
+  const eventRefs = await db.collection(`users/${uid}/eventRefs`).get();
+  let changed = 0;
+  for (const eventRef of eventRefs.docs) {
+    const memberRef = db.doc(`events/${eventRef.id}/members/${uid}`);
+    const member = await memberRef.get();
+    if (!member.exists || member.data()?.includeOwnMatches !== true) continue;
+    await memberRef.update({ includeOwnMatches: false, ownMatchesUpdatedAt: Timestamp.now() });
+    changed += 1;
+  }
+  return changed;
+}
+
 exports.getMemberPhotoPreferences = onCall(async (request) => {
   const uid = requireAuth(request);
   const eventId = requireEventId(request);
@@ -52,6 +72,12 @@ exports.setOwnPhotoVisibility = onCall(async (request) => {
     throw new HttpsError(
       "failed-precondition",
       "Turn on photo sharing for this Event before showing your own matched photos."
+    );
+  }
+  if (enabled && !(await hasActiveFaceSetup(uid))) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Set up your face to see your own photo matches."
     );
   }
 
@@ -84,4 +110,10 @@ exports.setOwnPhotoVisibility = onCall(async (request) => {
   }
 
   return { eventId, includeOwnMatches: enabled };
+});
+
+exports.disableOwnMatchesEverywhere = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const changed = await disableOwnMatchesEverywhereFor(uid);
+  return { changed };
 });
