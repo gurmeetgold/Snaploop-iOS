@@ -58,6 +58,7 @@ exports.listEventFaceProfiles = stableFaceIdentity.listEventFaceProfiles;
 exports.listEventMembers = memberDirectory.listEventMembers;
 exports.getMemberPhotoPreferences = memberPreferences.getMemberPhotoPreferences;
 exports.setOwnPhotoVisibility = memberPreferences.setOwnPhotoVisibility;
+exports.disableOwnMatchesEverywhere = memberPreferences.disableOwnMatchesEverywhere;
 exports.listMyMatchedPhotos = identityBoundMatches.listMyMatchedPhotosIdentityBound;
 exports.getMatchedThumbnail = identityBoundMatches.getMatchedThumbnailIdentityBound;
 exports.scrubParticipantBiometrics = privacy.scrubParticipantBiometrics;
