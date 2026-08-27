@@ -5,6 +5,7 @@ final class ParticipantsModel: ObservableObject {
     @Published var members: [EventMember] = []
     @Published var sharingEnabled = true
     @Published var includeOwnMatches = false
+    @Published var hasFaceSetup = false
     @Published var errorMessage: String?
 
     private var env: AppEnvironment?
@@ -16,6 +17,7 @@ final class ParticipantsModel: ObservableObject {
     func configure(env: AppEnvironment, session: AppSession) {
         self.env = env
         self.session = session
+        hasFaceSetup = session.hasFaceProfile
     }
 
     private var service: EventMembershipService? {
@@ -25,6 +27,7 @@ final class ParticipantsModel: ObservableObject {
 
     func reload() async {
         guard let env else { return }
+        hasFaceSetup = session?.hasFaceProfile == true
         do {
             members = try await env.events.members(eventId: event.id)
             if let me = members.first(where: { $0.userId == session?.user?.id }) {
@@ -34,7 +37,11 @@ final class ParticipantsModel: ObservableObject {
                 let preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
                 sharingEnabled = preferences.sharingEnabled
                 includeOwnMatches = preferences.sharingEnabled && preferences.includeOwnMatches
-            } else if !sharingEnabled {
+                if includeOwnMatches && !hasFaceSetup {
+                    try? await MemberPhotoPreferencesClient.setIncludeOwnMatches(eventId: event.id, enabled: false)
+                    includeOwnMatches = false
+                }
+            } else if !sharingEnabled || !hasFaceSetup {
                 includeOwnMatches = false
             }
             errorMessage = nil
@@ -100,6 +107,13 @@ final class ParticipantsModel: ObservableObject {
             includeOwnMatches = false
             return
         }
+        hasFaceSetup = session?.hasFaceProfile == true
+        if enabled && !hasFaceSetup {
+            includeOwnMatches = false
+            errorMessage = "Set up your face to see your own photo matches."
+            return
+        }
+
         errorMessage = nil
         do {
             if AppEnvironment.useLiveServices {
@@ -108,6 +122,7 @@ final class ParticipantsModel: ObservableObject {
             includeOwnMatches = enabled
             await reload()
         } catch {
+            includeOwnMatches = false
             errorMessage = EventManagementClient.userMessage(for: error)
         }
     }
@@ -196,6 +211,12 @@ struct ParticipantsView: View {
                             .tint(Theme.violet)
                             .disabled(!model.sharingEnabled)
                             .opacity(model.sharingEnabled ? 1 : 0.45)
+
+                            if model.sharingEnabled && !model.hasFaceSetup {
+                                Label("Set up your face to see your own photo matches.", systemImage: "faceid")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.violet)
+                            }
 
                             if model.currentUserCanInvite {
                                 NavigationLink { ShareEventView(event: model.event) } label: {
