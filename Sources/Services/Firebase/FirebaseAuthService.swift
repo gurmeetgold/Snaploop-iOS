@@ -21,6 +21,29 @@ private final class AuthStateListenerBox: @unchecked Sendable {
     }
 }
 
+/// Coordinates Firebase phone auth with APNs registration. Firebase prefers a
+/// silent APNs challenge on a real iPhone and falls back to browser reCAPTCHA
+/// when that challenge is unavailable. Waiting briefly for the device token
+/// avoids racing phone verification against app launch/APNs registration.
+actor FirebasePhoneAuthAPNsState {
+    static let shared = FirebasePhoneAuthAPNsState()
+    private var tokenReady = false
+
+    func markTokenReady() {
+        tokenReady = true
+    }
+
+    func waitUntilReady(maxWait: Duration = .seconds(3)) async -> Bool {
+        if tokenReady { return true }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: maxWait)
+        while !tokenReady && clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return tokenReady
+    }
+}
+
 /// Live `AuthService` backed by Firebase Auth's phone/OTP flow.
 public final class FirebaseAuthService: AuthService, @unchecked Sendable {
 
@@ -58,6 +81,18 @@ public final class FirebaseAuthService: AuthService, @unchecked Sendable {
         #if DEBUG && targetEnvironment(simulator)
         Auth.auth().settings?.isAppVerificationDisabledForTesting = true
         #endif
+
+        #if targetEnvironment(simulator)
+        let apnsReady = true
+        #else
+        let apnsReady = await FirebasePhoneAuthAPNsState.shared.waitUntilReady()
+        #endif
+
+        if apnsReady {
+            Log.auth.info("Firebase phone verification starting with APNs token ready")
+        } else {
+            Log.auth.error("Firebase phone verification starting before APNs token became available; reCAPTCHA fallback may appear")
+        }
 
         return try await withCheckedThrowingContinuation { continuation in
             PhoneAuthProvider.provider().verifyPhoneNumber(phoneNumber, uiDelegate: nil) { verificationId, error in
