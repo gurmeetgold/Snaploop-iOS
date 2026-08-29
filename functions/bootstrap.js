@@ -40,6 +40,7 @@ exports.markInviteJoined = notifications.markInviteJoined;
 exports.hydrateDeferredInvites = notifications.hydrateDeferredInvites;
 exports.expirePendingInvites = notifications.expirePendingInvites;
 exports.invitePreview = invitePreview.invitePreview;
+exports.resolveInvitePreview = invitePreview.resolveInvitePreview;
 
 exports.registerPushToken = notifications.registerPushToken;
 exports.unregisterPushToken = notifications.unregisterPushToken;
