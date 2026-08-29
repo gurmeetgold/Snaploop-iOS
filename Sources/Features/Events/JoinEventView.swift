@@ -40,6 +40,14 @@ final class JoinEventModel: ObservableObject {
                 event = try await env.events.fetchEvent(joinCode: code)
             }
 
+            // This server-curated preview can identify the actual Admin who sent
+            // a direct phone/in-app invite. For a generic shared link it safely
+            // falls back to the Event organizer.
+            if AppEnvironment.useLiveServices,
+               let preview = try? await EventInviteClient.preview(route: route) {
+                inviterLabel = preview.inviterName
+            }
+
             switch event.status {
             case .active: break
             case .endedByOrganizer:
@@ -52,7 +60,8 @@ final class JoinEventModel: ObservableObject {
 
             if let roster = try? await env.events.members(eventId: event.id) {
                 participantCount = roster.count
-                if let organizer = roster.first(where: { $0.userId == event.creatorUserId }),
+                if inviterLabel == nil,
+                   let organizer = roster.first(where: { $0.userId == event.creatorUserId }),
                    let name = organizer.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !name.isEmpty {
                     inviterLabel = name
