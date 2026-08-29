@@ -13,12 +13,23 @@ bash "$ROOT/scripts/configure_personal_team.sh" "$TEAM_ID"
 echo "[2/4] Verify Face Engine model"
 bash "$ROOT/scripts/verify_face_model_v5.sh"
 
-echo "[3/4] Check new backend fallback"
+echo "[3/4] Check backend JavaScript"
 node --check functions/bootstrap.js
+node --check functions/eventManagement.js
+node --check functions/tripManager.js
+node --check functions/invitePreview.js
+node --check functions/inviteExpiry.js
 node --check functions/identityBoundMatches.js
 
-echo "[4/4] Deploy only the new matched-photo fallback"
-firebase deploy --project getsnaploop --only functions:getMatchedThumbnail
+echo "[4/4] Deploy release-test backend changes to getsnaploop"
+firebase deploy --project getsnaploop --only \
+  functions:getMatchedThumbnail,\
+functions:joinEvent,\
+functions:updateEventManaged,\
+functions:manageEventMember,\
+functions:inviteByPhone,\
+functions:resolveInvitePreview,\
+functions:expirePendingInvites
 
-echo "Opening Xcode. SnapLoop Run is configured as Release. Select your iPhone and press Run."
+echo "Opening Xcode. SnapLoop Run is configured as Release. Select your physical iPhone and press Run."
 open SnapLoop.xcodeproj
