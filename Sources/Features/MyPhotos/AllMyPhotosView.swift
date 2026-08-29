@@ -322,7 +322,7 @@ struct AllMyPhotosView: View {
                                 message: model.errorMessage == nil
                                     ? (filter == .favorites
                                         ? "Open a photo and tap Favorite to keep it here."
-                                        : "SnapLoop automatically checks eligible live Events for new matched photos. You can also use Sync Camera from an Event at any time.")
+                                        : "SnapLoop automatically checks eligible Events for new matched photos. You can also use Scan Event Photos from an Event at any time.")
                                     : "Pull to refresh and try again.",
                                 systemImage: model.errorMessage == nil
                                     ? (filter == .favorites ? "heart" : "person.crop.square")
@@ -372,6 +372,23 @@ struct AllMyPhotosView: View {
         }
         .navigationTitle("Gallery")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !isSelecting {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await model.reload(force: true) }
+                    } label: {
+                        if model.isLoading {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(model.isLoading)
+                    .accessibilityLabel("Refresh My Photos")
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if isSelecting {
                 PhotoSelectionToolbar(
