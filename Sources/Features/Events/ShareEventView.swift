@@ -39,6 +39,10 @@ struct ShareEventView: View {
 
     private var token: InviteToken { InviteToken(event.inviteToken) ?? InviteToken(unchecked: event.inviteToken) }
     private var url: URL { InviteLink.url(forToken: token) }
+    private var inviterName: String? {
+        let value = session.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
 
     var body: some View {
         ZStack {
@@ -51,9 +55,15 @@ struct ShareEventView: View {
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.center)
 
-                    Text("Anyone with the invite can open the Event, sign in, and choose whether to join.")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center).padding(.horizontal, 12)
+                    if let inviterName {
+                        Text("Your invite will show that it was sent by \(inviterName). Anyone with the invite can open the Event, sign in, and choose whether to join.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center).padding(.horizontal, 12)
+                    } else {
+                        Text("Anyone with the invite can open the Event, sign in, and choose whether to join.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center).padding(.horizontal, 12)
+                    }
 
                     Button { showShareSheet = true } label: {
                         Label("Share Invite", systemImage: "square.and.arrow.up.fill")
@@ -143,9 +153,13 @@ struct ShareEventView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadInvitePermission() }
         .sheet(isPresented: $showShareSheet) {
-            // The share text already contains the canonical URL. Passing the URL
-            // as a second activity item made apps such as WhatsApp render it twice.
-            ActivityView(items: [InviteLink.shareText(eventName: event.name, token: token)])
+            // Keep the canonical URL in one activity item so messaging apps do
+            // not render the same invitation link twice.
+            ActivityView(items: [InviteLink.shareText(
+                eventName: event.name,
+                inviterName: inviterName,
+                token: token
+            )])
         }
     }
 
