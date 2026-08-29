@@ -1,16 +1,18 @@
 import BackgroundTasks
 import Foundation
 
-/// Resource-conscious, best-effort automatic photo discovery for live Events.
+/// Resource-conscious, best-effort automatic photo discovery for Events whose
+/// photo window is still open.
 ///
 /// Automatic work is intentionally conservative:
-/// - no live Event -> no photo scan and no background task is kept scheduled
+/// - no eligible Event -> no photo scan and no background task is kept scheduled
 /// - sharing off -> that Event is skipped
-/// - each Event has a persistent one-hour automatic-sync cooldown
+/// - unchanged Events have a persistent one-hour automatic-scan cooldown
+/// - roster/date changes bypass that cooldown on the next foreground opportunity
 /// - only one bounded coordinator batch is processed per automatic pass
 /// - Low Power Mode skips automatic scanning entirely
 ///
-/// Manual "Sync My Camera" is separate and is never blocked by this cooldown.
+/// Manual "Scan Event Photos" is separate and is never blocked by this cooldown.
 @MainActor
 final class AutomaticEventSync {
     static let shared = AutomaticEventSync()
@@ -24,6 +26,7 @@ final class AutomaticEventSync {
     private let backgroundEarliestDelay: TimeInterval = 60 * 60
     private let defaults = UserDefaults.standard
     private let lastRunKeyPrefix = "snaploop.autoSync.lastAttempt."
+    private let lastFingerprintKeyPrefix = "snaploop.autoSync.fingerprint."
 
     private init() {}
 
@@ -31,7 +34,7 @@ final class AutomaticEventSync {
         self.environment = environment
         self.session = session
         // Do not schedule background work blindly. The first foreground eligibility
-        // check decides whether there is a live, sharing-enabled Event worth scanning.
+        // check decides whether there is an Event worth scanning.
     }
 
     func runWhenAppBecomesActive() {
@@ -91,7 +94,7 @@ final class AutomaticEventSync {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            Log.scanner.error("Could not schedule automatic Event sync: \(String(describing: error), privacy: .public)")
+            Log.scanner.error("Could not schedule automatic Event scan: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -99,8 +102,9 @@ final class AutomaticEventSync {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundTaskIdentifier)
     }
 
-    /// Returns true only when at least one currently-live Event has sharing enabled.
-    /// That result controls whether another background task should be scheduled.
+    /// Returns true only when at least one Event is still inside its photo
+    /// recovery window and has sharing enabled. That result controls whether
+    /// another background task should be scheduled.
     private func runIncrementalPasses() async -> Bool {
         guard
             AppEnvironment.useLiveServices,
@@ -113,32 +117,36 @@ final class AutomaticEventSync {
 
         do {
             let now = Date()
-            let liveEvents = try await environment.events.events(forUserId: userId)
+            let eligibleEvents = try await environment.events.events(forUserId: userId)
                 .filter { event in
-                    event.status == .active && event.startsAt <= now && event.endsAt >= now
+                    EventLifecycle.canSync(event, clock: environment.clock, config: environment.config.current)
                 }
 
-            guard !liveEvents.isEmpty else { return false }
+            guard !eligibleEvents.isEmpty else { return false }
 
             var hasEligibleSharingEvent = false
 
-            for event in liveEvents {
+            for event in eligibleEvents {
                 try Task.checkCancellation()
                 do {
                     let preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
                     guard preferences.sharingEnabled else { continue }
                     hasEligibleSharingEvent = true
 
-                    // Persist the cooldown so relaunching the app does not repeatedly
-                    // trigger PhotoKit enumeration / face matching for the same Event.
-                    guard automaticCooldownElapsed(for: event.id, now: now) else { continue }
-                    markAutomaticAttempt(for: event.id, at: now)
-
+                    // Load the roster before applying the cooldown. A new/rejoined
+                    // member changes the fingerprint and should trigger a fresh
+                    // matching pass the next time this iPhone is active, rather
+                    // than waiting up to an hour.
                     let participants = try await EventFaceProfileClient.list(eventId: event.id)
                     try Task.checkCancellation()
+                    let fingerprint = scanTriggerFingerprint(event: event, participants: participants)
+                    let triggerChanged = storedFingerprint(for: event.id) != fingerprint
 
-                    // Exactly one coordinator batch per automatic pass. The coordinator
-                    // itself caps work to 25 assets normally / 10 in Low Power Mode.
+                    guard triggerChanged || automaticCooldownElapsed(for: event.id, now: now) else { continue }
+                    markAutomaticAttempt(for: event.id, at: now)
+
+                    // Exactly one coordinator batch per automatic pass. The
+                    // coordinator itself applies the device-safety batch cap.
                     _ = try await environment.makeSyncCoordinator().sync(
                         event: event,
                         participants: participants,
@@ -146,20 +154,42 @@ final class AutomaticEventSync {
                         includeOwnMatches: preferences.includeOwnMatches,
                         preferenceRevision: preferences.revisionToken
                     )
+                    saveFingerprint(fingerprint, for: event.id)
                 } catch is CancellationError {
                     return hasEligibleSharingEvent
                 } catch {
                     // Automatic discovery must never block the app. Manual
-                    // "Sync My Camera" remains available for visible recovery.
-                    Log.scanner.error("Automatic sync skipped Event \(event.id, privacy: .public): \(String(describing: error), privacy: .public)")
+                    // "Scan Event Photos" remains available for visible recovery.
+                    Log.scanner.error("Automatic scan skipped Event \(event.id, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
 
             return hasEligibleSharingEvent
         } catch {
-            Log.scanner.error("Automatic Event sync could not load Events: \(String(describing: error), privacy: .public)")
+            Log.scanner.error("Automatic Event scan could not load Events: \(String(describing: error), privacy: .public)")
             return false
         }
+    }
+
+    private func scanTriggerFingerprint(event: Event, participants: [EventParticipant]) -> String {
+        let roster = participants
+            .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
+            .sorted()
+            .joined(separator: ";")
+        return [
+            String(event.updatedAt.timeIntervalSince1970),
+            String(event.startsAt.timeIntervalSince1970),
+            String(event.endsAt.timeIntervalSince1970),
+            roster,
+        ].joined(separator: "::")
+    }
+
+    private func storedFingerprint(for eventId: String) -> String? {
+        defaults.string(forKey: lastFingerprintKeyPrefix + eventId)
+    }
+
+    private func saveFingerprint(_ fingerprint: String, for eventId: String) {
+        defaults.set(fingerprint, forKey: lastFingerprintKeyPrefix + eventId)
     }
 
     private func automaticCooldownElapsed(for eventId: String, now: Date) -> Bool {
