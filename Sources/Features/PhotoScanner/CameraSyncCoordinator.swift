@@ -1,6 +1,6 @@
 import Foundation
 
-/// Orchestrates one "Sync My Camera" pass, on demand, for a single event.
+/// Orchestrates one "Scan Event Photos" pass, on demand, for a single Event.
 public struct CameraSyncCoordinator {
     private let config: ConfigProviding
     private let clock: Clock
@@ -64,13 +64,15 @@ public struct CameraSyncCoordinator {
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
 
-        // Local scan state follows the stable biometric identities in the Event,
-        // not the exact template revisions. A verified same-person Face Setup
-        // refresh therefore keeps prior positive matches and does not trigger a
-        // wasteful full rescan. Deleting Face Setup and enrolling a new identity
-        // changes the stable ID and creates a fresh scan namespace.
+        // Local scan state follows stable biometric identities and membership
+        // sessions in the Event, not exact template revisions. A verified
+        // same-person Face Setup refresh therefore keeps prior positive matches.
+        // A new member or a leave/rejoin creates a new namespace, which forces
+        // existing Event photos to be reconsidered for that membership session.
         let rosterIdentityRevision = participants
-            .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
+            .map {
+                "\($0.userId)=\($0.stableFaceIdentityId)@\($0.joinedAt.timeIntervalSince1970)"
+            }
             .sorted()
             .joined(separator: ";")
 
@@ -132,7 +134,7 @@ public struct CameraSyncCoordinator {
                 throw error
             } catch {
                 failedCount += 1
-                Log.scanner.error("Skipping asset during sync: \(String(describing: error), privacy: .public)")
+                Log.scanner.error("Skipping asset during scan: \(String(describing: error), privacy: .public)")
             }
 
             let completedThisPass = processedIds.count + failedCount
