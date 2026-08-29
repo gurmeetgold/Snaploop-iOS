@@ -68,6 +68,7 @@ public final class FirebaseRemoteConfigProvider: ConfigProviding, @unchecked Sen
         let requestedBatch = remote.configValue(forKey: RemoteConfigValues.Key.maxAssetsPerSyncBatch.rawValue).numberValue.intValue
         let requestedPixels = remote.configValue(forKey: RemoteConfigValues.Key.thumbnailMaxPixelSize.rawValue).numberValue.intValue
         let requestedQuality = remote.configValue(forKey: RemoteConfigValues.Key.thumbnailJPEGQuality.rawValue).numberValue.doubleValue
+        let requestedGraceDays = remote.configValue(forKey: RemoteConfigValues.Key.eventGracePeriodDays.rawValue).numberValue.intValue
 
         return RemoteConfigValues(
             matchConfidenceThreshold: remote.configValue(forKey: RemoteConfigValues.Key.matchConfidenceThreshold.rawValue).numberValue.doubleValue,
@@ -79,7 +80,10 @@ public final class FirebaseRemoteConfigProvider: ConfigProviding, @unchecked Sen
             signedURLTTLHours: remote.configValue(forKey: RemoteConfigValues.Key.signedURLTTLHours.rawValue).numberValue.intValue,
             defaultEventDurationDays: remote.configValue(forKey: RemoteConfigValues.Key.defaultEventDurationDays.rawValue).numberValue.intValue,
             maxEventDurationDays: remote.configValue(forKey: RemoteConfigValues.Key.maxEventDurationDays.rawValue).numberValue.intValue,
-            eventGracePeriodDays: remote.configValue(forKey: RemoteConfigValues.Key.eventGracePeriodDays.rawValue).numberValue.intValue,
+            // Launch policy: users may join/rejoin and recover photos for 15 days
+            // after an Event ends. Keep this floor even if an older production
+            // Remote Config value is still set to the previous 3-day window.
+            eventGracePeriodDays: max(15, requestedGraceDays),
             maxParticipantsPerEvent: remote.configValue(forKey: RemoteConfigValues.Key.maxParticipantsPerEvent.rawValue).numberValue.intValue,
             aiBestShotEnabled: remote.configValue(forKey: RemoteConfigValues.Key.aiBestShotEnabled.rawValue).boolValue,
             aiBlurFilterEnabled: remote.configValue(forKey: RemoteConfigValues.Key.aiBlurFilterEnabled.rawValue).boolValue,
