@@ -18,6 +18,7 @@ private enum CachedEventList {
 @MainActor
 final class HomeModel: ObservableObject {
     @Published var events: [Event] = []
+    @Published var rolesByEventId: [String: EventMember.Role] = [:]
     @Published var notifications: [EventNotification] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
@@ -29,6 +30,9 @@ final class HomeModel: ObservableObject {
         self.session = session
         if let userId = session.user?.id, events.isEmpty {
             events = CachedEventList.load(userId: userId)
+            for event in events where event.creatorUserId == userId {
+                rolesByEventId[event.id] = .organizer
+            }
         }
     }
 
@@ -41,6 +45,19 @@ final class HomeModel: ObservableObject {
             let refreshed = try await env.events.events(forUserId: userId)
             events = refreshed
             CachedEventList.save(refreshed, userId: userId)
+
+            var resolvedRoles: [String: EventMember.Role] = [:]
+            for event in refreshed {
+                if event.creatorUserId == userId {
+                    resolvedRoles[event.id] = .organizer
+                    continue
+                }
+                if let roster = try? await env.events.members(eventId: event.id),
+                   let role = roster.first(where: { $0.userId == userId })?.role {
+                    resolvedRoles[event.id] = role
+                }
+            }
+            rolesByEventId = resolvedRoles
         } catch {
             errorMessage = (error as NSError).localizedDescription
         }
@@ -106,7 +123,7 @@ struct HomeView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button { showCreate = true } label: { Label("Create Event", systemImage: "plus") }
-                        Button { showJoin = true } label: { Label("Join with Code", systemImage: "qrcode.viewfinder") }
+                        Button { showJoin = true } label: { Label("Join Event", systemImage: "qrcode.viewfinder") }
                     } label: {
                         Image(systemName: "plus")
                             .font(.headline)
@@ -239,7 +256,11 @@ struct HomeView: View {
         VStack(spacing: 12) {
             ForEach(events) { event in
                 NavigationLink { EventDashboardView(event: event) } label: {
-                    EventCard(event: event, currentUserId: session.user?.id)
+                    EventCard(
+                        event: event,
+                        currentUserId: session.user?.id,
+                        role: model.rolesByEventId[event.id]
+                    )
                 }
                 .buttonStyle(.plain)
                 .simultaneousGesture(TapGesture().onEnded { session.activeEvent = event })
@@ -319,15 +340,19 @@ struct HomeView: View {
 private struct EventCard: View {
     let event: Event
     let currentUserId: String?
+    let role: EventMember.Role?
     @EnvironmentObject private var env: AppEnvironment
 
     private var lifecycle: EventLifecycle.Status {
         EventLifecycle.status(for: event, clock: env.clock, config: env.config.current)
     }
 
-    private var roleLabel: String {
-        event.creatorUserId == currentUserId ? "ORGANIZER" : "MEMBER"
+    private var effectiveRole: EventMember.Role {
+        if event.creatorUserId == currentUserId { return .organizer }
+        return role ?? .participant
     }
+
+    private var roleLabel: String { effectiveRole.displayName.uppercased() }
 
     private var statusLabel: String {
         switch event.status {
@@ -338,7 +363,7 @@ private struct EventCard: View {
             switch lifecycle {
             case .upcoming: return "UPCOMING"
             case .active: return "LIVE"
-            case .grace: return "WRAPPING UP"
+            case .grace: return "PHOTO WINDOW"
             case .expired: return "COMPLETED"
             }
         }
@@ -368,7 +393,10 @@ private struct EventCard: View {
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
 
-                Label(roleLabel, systemImage: event.creatorUserId == currentUserId ? "crown.fill" : "person.fill")
+                Label(
+                    roleLabel,
+                    systemImage: effectiveRole == .organizer ? "crown.fill" : effectiveRole == .admin ? "shield.fill" : "person.fill"
+                )
                     .font(.caption2.bold())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -414,27 +442,31 @@ struct EnterCodeView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var error: String?
+    @State private var showQRScanner = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 BrandScreenBackground()
-                VStack(spacing: 20) {
-                    Spacer().frame(height: 90)
+                VStack(spacing: 18) {
+                    Spacer().frame(height: 70)
                     BrandMark(size: 62)
                     Text("Join an Event").font(.title2.bold()).foregroundStyle(Theme.ink)
+                    Text("Enter an Event code or invite link, or scan the Event QR code.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
                     TextField("Event code or invite link", text: $text)
                         .textInputAutocapitalization(.characters)
                         .autocorrectionDisabled()
                         .padding()
                         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16))
+
                     if let error { Text(error).foregroundStyle(.red).font(.footnote) }
+
                     Button {
-                        if let route = DeepLinkRouter.route(forManualEntry: text) {
-                            onResolved(route)
-                        } else {
-                            error = AppError.invalidJoinCode.userMessage
-                        }
+                        resolve(text)
                     } label: {
                         Label("Continue", systemImage: "arrow.right.circle.fill")
                             .font(.headline)
@@ -445,6 +477,23 @@ struct EnterCodeView: View {
                     .foregroundStyle(.white)
                     .background(Theme.socialGradient, in: RoundedRectangle(cornerRadius: 18))
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    HStack {
+                        Rectangle().fill(Theme.divider).frame(height: 1)
+                        Text("or").font(.caption).foregroundStyle(.secondary)
+                        Rectangle().fill(Theme.divider).frame(height: 1)
+                    }
+
+                    Button { showQRScanner = true } label: {
+                        Label("Scan QR Code", systemImage: "qrcode.viewfinder")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.violet)
+                    .background(Theme.violet.opacity(0.10), in: RoundedRectangle(cornerRadius: 18))
+
                     Spacer()
                 }
                 .padding(24)
@@ -455,6 +504,20 @@ struct EnterCodeView: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .sheet(isPresented: $showQRScanner) {
+                QRCodeScannerSheet { value in
+                    resolve(value)
+                }
+            }
+        }
+    }
+
+    private func resolve(_ value: String) {
+        if let route = DeepLinkRouter.route(forManualEntry: value) {
+            error = nil
+            onResolved(route)
+        } else {
+            error = "That QR code, Event code, or invite link isn't valid."
         }
     }
 }
