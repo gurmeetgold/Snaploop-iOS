@@ -15,22 +15,22 @@ final class ExpiryAndRetryTests: XCTestCase {
 
     func testMessagingTransitionsThroughLifecycle() {
         let e = event()
-        let config = RemoteConfigValues.default  // grace 3 days
+        let config = RemoteConfigValues.default  // 15-day post-Event photo window
 
         let active = ExpiryMessaging.message(for: e, clock: FixedClock(e.startsAt + day), config: config)
         XCTAssertEqual(active.headline, "Happening now")
 
-        let grace = ExpiryMessaging.message(for: e, clock: FixedClock(e.endsAt + day), config: config)
-        XCTAssertTrue(grace.detail.contains("until"))
-        XCTAssertTrue(grace.detail.lowercased().contains("thumbnail"))
+        let photoWindow = ExpiryMessaging.message(for: e, clock: FixedClock(e.endsAt + 10 * day), config: config)
+        XCTAssertTrue(photoWindow.detail.contains("until"))
+        XCTAssertTrue(photoWindow.detail.lowercased().contains("thumbnail"))
 
-        let expired = ExpiryMessaging.message(for: e, clock: FixedClock(e.endsAt + 10 * day), config: config)
+        let expired = ExpiryMessaging.message(for: e, clock: FixedClock(e.endsAt + 16 * day), config: config)
         XCTAssertEqual(expired.headline, "This event has ended")
     }
 
     func testMessagingNeverUsesAnxietyLanguage() {
         let e = event()
-        for offset in [1.0, 6.0, 10.0] {
+        for offset in [1.0, 10.0, 16.0] {
             let msg = ExpiryMessaging.message(for: e, clock: FixedClock(e.endsAt + offset * day),
                                               config: .default)
             XCTAssertFalse(msg.detail.lowercased().contains("vanish"))
