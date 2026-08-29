@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 import UIKit
 
@@ -48,7 +49,7 @@ final class SyncModel: ObservableObject {
             }
 
             guard preferences.sharingEnabled else {
-                state = .failed("You have turned off photo sharing for this Event. Turn on ‘Share matched pictures from my phone in this Event’ in Event Members before syncing.")
+                state = .failed("You have turned off photo sharing for this Event. Turn on ‘Share matched pictures from my phone in this Event’ in Event Members before scanning.")
                 return
             }
 
@@ -75,7 +76,7 @@ final class SyncModel: ObservableObject {
             if case .failed = state { return }
             let description = (error as NSError).localizedDescription
             if description.localizedCaseInsensitiveContains("not found") {
-                state = .failed("Sync service is not deployed yet. Update Firebase Functions and try again.")
+                state = .failed("Scan service is not deployed yet. Update Firebase Functions and try again.")
             } else {
                 state = .failed(description)
             }
@@ -90,6 +91,8 @@ struct SyncView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = SyncModel()
+    @State private var showLimitedAccessOptions = false
+    @State private var showPhotoAccessDenied = false
 
     var body: some View {
         ZStack {
@@ -104,17 +107,35 @@ struct SyncView: View {
             }
             .padding(22)
         }
-        .navigationTitle("Sync My Camera")
+        .navigationTitle("Scan Event Photos")
         .navigationBarTitleDisplayMode(.inline)
         .task { model.configure(env: env, session: session) }
         .onDisappear { model.cancel() }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
-                model.cancelForSafety(message: "Camera sync stopped because SnapLoop moved to the background. Return to SnapLoop and try again.")
+                model.cancelForSafety(message: "Photo scan stopped because SnapLoop moved to the background. Return to SnapLoop and try again.")
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-            model.cancelForSafety(message: "Camera sync stopped to reduce memory pressure on your iPhone. You can continue later.")
+            model.cancelForSafety(message: "Photo scan stopped to reduce memory pressure on your iPhone. You can continue later.")
+        }
+        .confirmationDialog(
+            "Selected Photos Access",
+            isPresented: $showLimitedAccessOptions,
+            titleVisibility: .visible
+        ) {
+            Button("Select More Event Photos") { presentLimitedPhotoPicker() }
+            Button("Allow Full Photo Access") { openAppSettings() }
+            Button("Continue With Selected Photos") { model.start(event: event) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("SnapLoop can currently see only the photos you selected. To avoid missing matches, select all photos from this Event’s dates or allow Full Photo Access. SnapLoop scans only photos taken during this Event’s date range.")
+        }
+        .alert("Photos Access Needed", isPresented: $showPhotoAccessDenied) {
+            Button("Open Settings") { openAppSettings() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Allow SnapLoop to access photos so it can check this Event’s date range for matches. SnapLoop does not scan photos outside the Event dates.")
         }
     }
 
@@ -123,21 +144,23 @@ struct SyncView: View {
             VStack(spacing: 18) {
                 ZStack {
                     Circle().fill(Theme.brandGradient)
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Image(systemName: "photo.stack.fill")
                         .font(.system(size: 38, weight: .semibold))
                         .foregroundStyle(.white)
                 }
                 .frame(width: 92, height: 92)
                 .shadow(color: Theme.hotPink.opacity(0.22), radius: 14, y: 6)
 
-                Text("Find photos from this Event")
+                Text("Scan this iPhone for Event photos")
                     .font(.title3.bold()).foregroundStyle(Theme.ink)
-                Text("SnapLoop checks this Event's selected date window on your iPhone and matches Event members on-device.")
+                Text("SnapLoop checks only photos taken during this Event’s date range and matches Event members on-device.")
                     .font(.subheadline).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Button { model.start(event: event) } label: {
-                    Label("Start Sync", systemImage: "sparkles")
+                Button {
+                    Task { await beginScanWithPhotoAccessCheck() }
+                } label: {
+                    Label("Start Scan", systemImage: "sparkles")
                 }
                 .buttonStyle(MyPicsTubePrimaryButtonStyle())
             }
@@ -160,12 +183,12 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Keep SnapLoop open to scan for latest photos of the Event.")
+                Text("Keep SnapLoop open while it checks this iPhone for Event photos.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
                 Button(role: .cancel) { model.cancel() } label: {
-                    Label("Stop Sync", systemImage: "stop.circle")
+                    Label("Stop Scan", systemImage: "stop.circle")
                         .font(.headline)
                         .padding(.horizontal, 22)
                         .frame(height: 46)
@@ -182,10 +205,12 @@ struct SyncView: View {
             VStack(spacing: 16) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 42)).foregroundStyle(Theme.hotPink)
-                Text("Sync stopped").font(.title3.bold())
+                Text("Scan stopped").font(.title3.bold())
                 Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
 
-                Button { model.start(event: event) } label: {
+                Button {
+                    Task { await beginScanWithPhotoAccessCheck() }
+                } label: {
                     Label("Try Again", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(MyPicsTubePrimaryButtonStyle())
@@ -207,13 +232,13 @@ struct SyncView: View {
                 .frame(width: 94, height: 94)
                 .shadow(color: Theme.hotPink.opacity(0.20), radius: 14, y: 6)
 
-                Text("Scan complete")
+                Text(summary.alreadyCaughtUp ? "You're up to date" : "Scan complete")
                     .font(.title3.bold())
                     .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
                 Text(summary.alreadyCaughtUp
-                     ? "You're up to date for this Event."
+                     ? "No new photos need scanning for this Event."
                      : "Matched photos are now available to the Event members found in them.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -233,5 +258,52 @@ struct SyncView: View {
                 }
             }
         }
+    }
+
+    @MainActor
+    private func beginScanWithPhotoAccessCheck() async {
+        var status = env.photoLibrary.authorizationStatus()
+        if status == .notDetermined {
+            status = await env.photoLibrary.requestAuthorization()
+        }
+
+        switch status {
+        case .authorized:
+            model.start(event: event)
+        case .limited:
+            showLimitedAccessOptions = true
+        case .denied, .notDetermined:
+            showPhotoAccessDenied = true
+        }
+    }
+
+    @MainActor
+    private func presentLimitedPhotoPicker() {
+        guard let controller = Self.topViewController() else {
+            openAppSettings()
+            return
+        }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
+    }
+
+    @MainActor
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    @MainActor
+    private static func topViewController() -> UIViewController? {
+        let root = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: { $0.isKeyWindow })?
+            .rootViewController
+
+        var current = root
+        while let presented = current?.presentedViewController { current = presented }
+        if let navigation = current as? UINavigationController { return navigation.visibleViewController ?? navigation }
+        if let tab = current as? UITabBarController { return tab.selectedViewController ?? tab }
+        return current
     }
 }
