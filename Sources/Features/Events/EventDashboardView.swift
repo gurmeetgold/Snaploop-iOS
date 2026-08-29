@@ -34,11 +34,11 @@ struct EventDashboardView: View {
 
         var detail: String {
             switch self {
-            case .checking: return "Checking this Event's sync status"
+            case .checking: return "Checking this Event's photo status"
             case .automatic: return "SnapLoop automatically checks this Event for new photos"
             case .sharingOff: return "Photo sharing is turned off for this Event"
             case .needsPhotoAccess: return "Allow Photos access to check this Event"
-            case .paused: return "Automatic sync is paused for this Event"
+            case .paused: return "Photo scanning is paused for this Event"
             }
         }
 
@@ -112,7 +112,7 @@ struct EventDashboardView: View {
                 Task { await changeStatus { try await env.events.endEvent(id: currentEvent.id) } }
             }
             Button("Cancel", role: .cancel) {}
-        } message: { Text("New joins and camera syncs will stop.") }
+        } message: { Text("New joins and photo scans will stop.") }
         .confirmationDialog("Move this Event to Deleted?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Move to Deleted", role: .destructive) {
                 Task { await changeStatus { try await env.events.moveEventToDeleted(id: currentEvent.id) } }
@@ -220,7 +220,7 @@ struct EventDashboardView: View {
             switch lifecycle {
             case .upcoming: return "UPCOMING"
             case .active: return "LIVE"
-            case .grace: return "WRAPPING UP"
+            case .grace: return "PHOTO WINDOW"
             case .expired: return "COMPLETED"
             }
         }
@@ -244,7 +244,7 @@ struct EventDashboardView: View {
                 }
                 .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Event Sync").font(.headline).foregroundStyle(Theme.ink)
+                    Text("Photo Scan").font(.headline).foregroundStyle(Theme.ink)
                     Text(syncDisplayState.detail).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -268,9 +268,9 @@ struct EventDashboardView: View {
             }
             NavigationLink { SyncView(event: currentEvent) } label: {
                 GradientTile(
-                    title: "Sync Camera",
-                    subtitle: "Scan for new photos",
-                    systemImage: "arrow.triangle.2.circlepath",
+                    title: "Scan Event Photos",
+                    subtitle: "Check this iPhone for matches",
+                    systemImage: "photo.stack.fill",
                     gradient: Theme.socialGradient
                 )
             }
