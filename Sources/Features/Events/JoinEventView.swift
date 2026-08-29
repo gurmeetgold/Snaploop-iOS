@@ -223,7 +223,7 @@ struct JoinEventView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.ink)
 
-                        Text("Only photos taken during these Event dates are scanned.")
+                        Text("SnapLoop scans only photos taken during these Event dates.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -236,17 +236,14 @@ struct JoinEventView: View {
 
                         Divider()
 
-                        HStack(spacing: 10) {
-                            Label("Event dates only", systemImage: "calendar.badge.checkmark")
-                            Label("On-device matching", systemImage: "iphone")
-                        }
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        Label("Face matching happens on participating iPhones", systemImage: "iphone")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                 }
 
-                Text("Join to automatically receive photos you’re matched in from the phones of participating members.")
+                Text("Join this Event to get photos of you found on participating members’ phones.")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.ink.opacity(0.82))
                     .multilineTextAlignment(.center)
