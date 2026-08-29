@@ -49,7 +49,9 @@ public struct RemoteConfigValues: Equatable, Sendable {
     }
 
     /// MVP previews are intentionally high quality because they are also the
-    /// downloadable image until original-photo transfer ships.
+    /// downloadable image until original-photo transfer ships. Events keep a
+    /// 15-day post-event photo window so late members can still join and collect
+    /// matched photos after the gathering has finished.
     public static let `default` = RemoteConfigValues(
         matchConfidenceThreshold: FaceModelPolicy.evaluationMatchThreshold,
         matchAmbiguityMargin: FaceModelPolicy.evaluationAmbiguityMargin,
@@ -60,7 +62,7 @@ public struct RemoteConfigValues: Equatable, Sendable {
         signedURLTTLHours: 48,
         defaultEventDurationDays: 15,
         maxEventDurationDays: 15,
-        eventGracePeriodDays: 3,
+        eventGracePeriodDays: 15,
         maxParticipantsPerEvent: 250,
         aiBestShotEnabled: true,
         aiBlurFilterEnabled: true,
