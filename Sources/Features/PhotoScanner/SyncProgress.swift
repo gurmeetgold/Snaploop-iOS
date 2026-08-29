@@ -1,6 +1,6 @@
 import Foundation
 
-/// Staged progress for a sync pass, so the UI shows real status without
+/// Staged progress for a photo scan pass, so the UI shows real status without
 /// exposing match-count internals that can be confused with the user's own
 /// Gallery count.
 public struct SyncProgress: Equatable, Sendable {
@@ -25,7 +25,7 @@ public struct SyncProgress: Equatable, Sendable {
     public var statusText: String {
         switch phase {
         case .preparing:
-            return "Finding new photos…"
+            return "Checking for new Event photos…"
         case .scanning:
             return "\(checked) photos checked · \(remaining) remaining"
         case .finishing:
