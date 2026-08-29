@@ -35,18 +35,45 @@ function managerRole(snap) {
   return role === "organizer" || role === "admin";
 }
 
+async function notifyOtherMembers(eventId, actorUid, title, body, type) {
+  const members = await db.collection(`events/${eventId}/members`).get();
+  const batch = db.batch();
+  const createdAt = Timestamp.now();
+  let count = 0;
+
+  for (const member of members.docs) {
+    if (member.id === actorUid) continue;
+    const ref = db.collection(`users/${member.id}/notifications`).doc();
+    batch.set(ref, {
+      type,
+      eventId,
+      eventName: title,
+      title,
+      body,
+      createdAt,
+      read: false,
+    });
+    count += 1;
+  }
+
+  if (count > 0) await batch.commit();
+}
+
 exports.updateTripManaged = onCall(async (request) => {
   const uid = requireAuth(request);
   const data = request.data || {};
   const eventId = cleanString(data.eventId, "Event", 200);
   const eventRef = db.doc(`events/${eventId}`);
   const memberRef = db.doc(`events/${eventId}/members/${uid}`);
+  let datesChanged = false;
+  let eventName = "SnapLoop Event";
 
   await db.runTransaction(async (tx) => {
     const [eventSnap, memberSnap] = await Promise.all([tx.get(eventRef), tx.get(memberRef)]);
     if (!eventSnap.exists) throw new HttpsError("not-found", "This Event does not exist.");
     if (!managerRole(memberSnap)) throw new HttpsError("permission-denied", "Only the organizer or an Admin can edit this Event.");
     const current = eventSnap.data() || {};
+    eventName = typeof current.name === "string" && current.name.trim() ? current.name.trim() : eventName;
     if (current.status !== "active") throw new HttpsError("failed-precondition", "Only an active Event can be edited.");
 
     const expected = data.expectedUpdatedAtMillis == null ? null : millis(data.expectedUpdatedAtMillis, "expectedUpdatedAt");
@@ -55,7 +82,10 @@ exports.updateTripManaged = onCall(async (request) => {
     }
 
     const update = { updatedAt: Timestamp.now() };
-    if (data.name !== undefined) update.name = cleanString(data.name, "Event name", 80);
+    if (data.name !== undefined) {
+      update.name = cleanString(data.name, "Event name", 80);
+      eventName = update.name;
+    }
     if (data.category !== undefined) {
       if (!ALLOWED_CATEGORIES.has(data.category)) throw new HttpsError("invalid-argument", "Event category is invalid.");
       update.category = data.category;
@@ -67,11 +97,23 @@ exports.updateTripManaged = onCall(async (request) => {
       const start = data.startsAtMillis !== undefined ? millis(data.startsAtMillis, "start") : current.startsAt.toMillis();
       const end = data.endsAtMillis !== undefined ? millis(data.endsAtMillis, "end") : current.endsAt.toMillis();
       validateDates(start, end);
+      datesChanged = start !== current.startsAt.toMillis() || end !== current.endsAt.toMillis();
       update.startsAt = Timestamp.fromMillis(start);
       update.endsAt = Timestamp.fromMillis(end);
     }
     tx.update(eventRef, update);
   });
+
+  if (datesChanged) {
+    await notifyOtherMembers(
+      eventId,
+      uid,
+      eventName,
+      "Event dates were updated. SnapLoop will use the new dates the next time you scan Event photos.",
+      "event_dates_updated"
+    );
+  }
+
   return { eventId, changed: true };
 });
 
