@@ -173,7 +173,9 @@ final class AutomaticEventSync {
 
     private func scanTriggerFingerprint(event: Event, participants: [EventParticipant]) -> String {
         let roster = participants
-            .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
+            .map {
+                "\($0.userId)=\($0.stableFaceIdentityId)@\($0.joinedAt.timeIntervalSince1970)"
+            }
             .sorted()
             .joined(separator: ";")
         return [
