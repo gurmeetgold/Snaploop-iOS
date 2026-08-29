@@ -12,6 +12,7 @@ const leave = require("./leaveManaged");
 const security = require("./security");
 const memberCleanup = require("./memberCleanup");
 const notifications = require("./notifications");
+const inviteExpiry = require("./inviteExpiry");
 const privacy = require("./privacyHardening");
 const consentV5 = require("./biometricConsentV5");
 const stableFaceIdentity = require("./stableFaceIdentity");
@@ -38,7 +39,7 @@ exports.revokeEventInvite = notifications.revokeEventInvite;
 exports.notifyPendingInvite = notifications.notifyPendingInvite;
 exports.markInviteJoined = notifications.markInviteJoined;
 exports.hydrateDeferredInvites = notifications.hydrateDeferredInvites;
-exports.expirePendingInvites = notifications.expirePendingInvites;
+exports.expirePendingInvites = inviteExpiry.expirePendingInvites;
 exports.invitePreview = invitePreview.invitePreview;
 exports.resolveInvitePreview = invitePreview.resolveInvitePreview;
 
