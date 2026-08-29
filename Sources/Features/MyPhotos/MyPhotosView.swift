@@ -281,7 +281,7 @@ struct MyPhotosView: View {
                             message: model.errorMessage == nil
                                 ? (filter == .favorites
                                     ? "Open a photo and tap Favorite to keep it here."
-                                    : "SnapLoop automatically checks eligible live Events for new matched photos. You can also use Sync Camera from an Event at any time.")
+                                    : "SnapLoop automatically checks eligible Events for new matched photos. You can also use Scan Event Photos from an Event at any time.")
                                 : "Pull to refresh and try again.",
                             systemImage: model.errorMessage == nil
                                 ? (filter == .favorites ? "heart" : "person.crop.square")
@@ -335,6 +335,23 @@ struct MyPhotosView: View {
         }
         .navigationTitle("My Photos")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !isSelecting {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        Task { await model.reload(force: true) }
+                    } label: {
+                        if model.isLoading {
+                            ProgressView()
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(model.isLoading)
+                    .accessibilityLabel("Refresh My Photos")
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if isSelecting {
                 PhotoSelectionToolbar(
@@ -922,7 +939,7 @@ struct PhotoDetailView: View {
     }
 
     private func pagerGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 8)
+        DragGesture(minimumDistance: 6)
             .onChanged { value in
                 guard !currentPageZoomed, !isSettlingPage else { return }
                 pagerDrag = value.translation
@@ -943,8 +960,11 @@ struct PhotoDetailView: View {
                     return
                 }
 
-                let shouldPage = abs(x) > min(72, width * 0.17)
-                    || abs(predictedX) > min(165, width * 0.36)
+                // Require a deliberate swipe rather than flipping almost as soon
+                // as the finger moves. The page still tracks the finger 1:1, then
+                // settles with a longer Photos-like animation.
+                let shouldPage = abs(x) > width * 0.24
+                    || (abs(x) > width * 0.08 && abs(predictedX) > width * 0.52)
                 guard shouldPage else {
                     settleBackToCenter()
                     return
@@ -961,7 +981,7 @@ struct PhotoDetailView: View {
     }
 
     private func settleBackToCenter() {
-        withAnimation(.easeOut(duration: 0.24)) {
+        withAnimation(.interactiveSpring(response: 0.38, dampingFraction: 0.88)) {
             pagerDrag = .zero
         }
     }
@@ -973,9 +993,9 @@ struct PhotoDetailView: View {
         }
 
         isSettlingPage = true
-        let settleDuration = 0.30
+        let settleDuration = 0.40
 
-        withAnimation(.easeOut(duration: settleDuration)) {
+        withAnimation(.easeInOut(duration: settleDuration)) {
             pagerDrag = CGSize(width: terminalOffset, height: 0)
         }
 
