@@ -189,7 +189,7 @@ struct EditEventView: View {
                     PremiumCard {
                         VStack(alignment: .leading, spacing: 14) {
                             Label("Event dates", systemImage: "calendar").font(.subheadline.bold())
-                            Text("Only the organizer can change dates.")
+                            Text("Organizer and Admins can change dates. Other members are notified; they do not need to approve the change.")
                                 .font(.caption).foregroundStyle(.secondary)
                             DatePicker("Starts", selection: $model.startsAt, in: allowedDates, displayedComponents: [.date])
                                 .onChange(of: model.startsAt) { _, newStart in
