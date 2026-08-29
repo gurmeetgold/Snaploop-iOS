@@ -59,7 +59,11 @@ public enum InviteLink {
         return comps.url!
     }
 
-    public static func shareText(eventName: String, token: InviteToken) -> String {
-        "Join \"\(eventName)\" in SnapLoop:\n\(url(forToken: token).absoluteString)"
+    public static func shareText(eventName: String, inviterName: String?, token: InviteToken) -> String {
+        let cleanedName = inviterName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let intro = cleanedName.isEmpty
+            ? "You're invited to join \"\(eventName)\" on SnapLoop:"
+            : "\(cleanedName) invited you to join \"\(eventName)\" on SnapLoop:"
+        return "\(intro)\n\(url(forToken: token).absoluteString)"
     }
 }
