@@ -14,6 +14,10 @@ struct EventInviteStatusRow: Identifiable, Sendable {
     let delivery: String
 }
 
+struct EventInvitePreview: Sendable {
+    let inviterName: String?
+}
+
 enum EventInviteClient {
     @MainActor
     static func invite(eventId: String, phoneNumber: String) async throws -> EventInviteDelivery {
@@ -27,6 +31,27 @@ enum EventInviteClient {
             throw AppError.backend(code: "invalid_response", message: "Invite service returned an invalid response.")
         }
         return EventInviteDelivery(kind: kind, phoneNumber: (dict["phoneNumber"] as? String) ?? phoneNumber)
+    }
+
+    @MainActor
+    static func preview(route: DeepLinkRoute) async throws -> EventInvitePreview {
+        let kind: String
+        let value: String
+        switch route {
+        case .joinEventByToken(let token):
+            kind = "e"
+            value = token.value
+        case .joinEventByCode(let code):
+            kind = "c"
+            value = code.value
+        }
+
+        let data = try await call("resolveInvitePreview", data: ["kind": kind, "value": value])
+        guard let dict = data as? [String: Any] else {
+            throw AppError.backend(code: "invalid_response", message: "Invite preview returned an invalid response.")
+        }
+        let raw = (dict["inviterName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return EventInvitePreview(inviterName: raw?.isEmpty == false ? raw : nil)
     }
 
     @MainActor
