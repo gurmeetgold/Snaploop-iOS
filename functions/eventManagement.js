@@ -7,7 +7,9 @@ const MAX_PARTICIPANTS = 250;
 const MAX_EVENT_DAYS = 15;
 const DATE_WINDOW_DAYS = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const GRACE_PERIOD_DAYS = 3;
+// Keep the Event open for late joins and photo recovery after it ends. This is
+// deliberately the same 15-day product window used by the launch MVP.
+const GRACE_PERIOD_DAYS = 15;
 const MAX_EVENT_NAME_LENGTH = 80;
 const MAX_LOCATION_LENGTH = 120;
 const EVENT_CATEGORIES = new Set([
@@ -148,7 +150,7 @@ function validateJoinable(event) {
   if (event.status !== "active") throw new HttpsError("failed-precondition", "This event has ended.");
   if (!(event.endsAt instanceof Timestamp)) throw new HttpsError("failed-precondition", "This event has invalid dates.");
   if (Date.now() > event.endsAt.toMillis() + GRACE_PERIOD_DAYS * DAY_MS) {
-    throw new HttpsError("failed-precondition", "This event has expired.");
+    throw new HttpsError("failed-precondition", "This event's photo window has expired.");
   }
 }
 
@@ -159,7 +161,7 @@ async function memberRole(eventId, uid) {
 
 async function eventName(eventId) {
   const snap = await db.doc(`events/${eventId}`).get();
-  return snap.exists ? (snap.data().name || "MyPicsRoom event") : "MyPicsRoom event";
+  return snap.exists ? (snap.data().name || "SnapLoop Event") : "SnapLoop Event";
 }
 
 async function notifyCurrentMembers(eventId, actorUid, body, type) {
@@ -183,6 +185,20 @@ async function notifyCurrentMembers(eventId, actorUid, body, type) {
     count += 1;
   }
   if (count > 0) await batch.commit();
+}
+
+async function notifyMember(eventId, userId, title, body, type) {
+  const name = await eventName(eventId);
+  const ref = db.collection(`users/${userId}/notifications`).doc();
+  await ref.set({
+    type,
+    eventId,
+    eventName: name,
+    title,
+    body,
+    createdAt: Timestamp.now(),
+    read: false,
+  });
 }
 
 exports.createEventMVP = onCall(async (request) => {
@@ -266,7 +282,7 @@ exports.joinEventManaged = onCall(async (request) => {
     joinedName = user.displayName || "A member";
   });
 
-  if (joined) await notifyCurrentMembers(eventId, uid, `${joinedName} joined the event.`, "member_joined");
+  if (joined) await notifyCurrentMembers(eventId, uid, `${joinedName} joined the Event.`, "member_joined");
   return { eventId, joined };
 });
 
@@ -286,8 +302,9 @@ exports.updateEventManaged = onCall(async (request) => {
   await db.runTransaction(async (tx) => {
     const [eventSnap, actorSnap] = await Promise.all([tx.get(eventRef), tx.get(actorRef)]);
     if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
-    if (!actorSnap.exists || actorSnap.data().role !== "organizer") {
-      throw new HttpsError("permission-denied", "Only the organizer can edit this event.");
+    const actorRole = actorSnap.exists ? actorSnap.data().role : null;
+    if (actorRole !== "organizer" && actorRole !== "admin") {
+      throw new HttpsError("permission-denied", "Only the organizer or an Admin can edit this Event.");
     }
 
     const current = eventSnap.data();
@@ -342,10 +359,10 @@ exports.updateEventManaged = onCall(async (request) => {
   if (!changed) return { eventId, changed: false };
   const unique = [...new Set(changes)];
   const body = unique.includes("dates")
-    ? "The organizer updated the event dates."
+    ? "Event dates were updated. SnapLoop will use the new dates the next time you scan Event photos."
     : unique.includes("name")
-      ? "The organizer updated the event name."
-      : "The organizer updated the event details.";
+      ? "The Event name was updated."
+      : "The Event details were updated.";
   await notifyCurrentMembers(eventId, uid, body, "event_updated");
   return { eventId, changed: true };
 });
@@ -362,8 +379,9 @@ exports.manageEventMember = onCall(async (request) => {
   const participantRef = db.doc(`events/${eventId}/participants/${targetUid}`);
   const userEventRef = db.doc(`users/${targetUid}/eventRefs/${eventId}`);
 
-  let notificationBody = null;
-  let notificationType = null;
+  let broadcastBody = null;
+  let broadcastType = null;
+  let roleNotification = null;
   await db.runTransaction(async (tx) => {
     const [eventSnap, actorSnap, targetSnap] = await Promise.all([tx.get(eventRef), tx.get(actorRef), tx.get(targetRef)]);
     if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
@@ -379,8 +397,7 @@ exports.manageEventMember = onCall(async (request) => {
       if (newRole === targetRole) return;
       tx.update(targetRef, { role: newRole });
       tx.set(userEventRef, { role: newRole }, { merge: true });
-      notificationBody = newRole === "admin" ? "A member was promoted to Admin." : "An Admin was changed to Member.";
-      notificationType = "member_role_changed";
+      roleNotification = newRole;
       return;
     }
 
@@ -397,15 +414,36 @@ exports.manageEventMember = onCall(async (request) => {
       tx.delete(participantRef);
       tx.delete(userEventRef);
       tx.update(eventRef, { memberCount: count });
-      notificationBody = "A member was removed from the event.";
-      notificationType = "member_removed";
+      broadcastBody = "A member was removed from the Event.";
+      broadcastType = "member_removed";
       return;
     }
 
     throw new HttpsError("invalid-argument", "Unknown member action.");
   });
 
-  if (notificationBody) await notifyCurrentMembers(eventId, actorUid, notificationBody, notificationType);
+  if (roleNotification) {
+    const name = await eventName(eventId);
+    if (roleNotification === "admin") {
+      await notifyMember(
+        eventId,
+        targetUid,
+        "You're now an Admin",
+        `You're now an Admin of ${name}.`,
+        "member_role_changed"
+      );
+    } else {
+      await notifyMember(
+        eventId,
+        targetUid,
+        "Your Event role changed",
+        `Your role in ${name} is now Member.`,
+        "member_role_changed"
+      );
+    }
+  } else if (broadcastBody) {
+    await notifyCurrentMembers(eventId, actorUid, broadcastBody, broadcastType);
+  }
   return { eventId, userId: targetUid };
 });
 
@@ -421,7 +459,7 @@ exports.inviteByPhoneManaged = onCall(async (request) => {
   const eventSnap = await db.doc(`events/${eventId}`).get();
   if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
   const event = eventSnap.data();
-  if (event.status !== "active") throw new HttpsError("failed-precondition", "This event has ended.");
+  validateJoinable(event);
 
   const users = await db.collection("users").where("phoneNumber", "==", rawPhone).limit(1).get();
   const existing = users.empty ? null : users.docs[0];
@@ -430,7 +468,7 @@ exports.inviteByPhoneManaged = onCall(async (request) => {
   const now = Timestamp.now();
   const invite = {
     eventId,
-    eventName: event.name || "MyPicsRoom event",
+    eventName: event.name || "SnapLoop Event",
     inviteToken: event.inviteToken,
     phoneNumber: rawPhone,
     targetUserId,
