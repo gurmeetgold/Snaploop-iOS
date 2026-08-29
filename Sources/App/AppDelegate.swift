@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // App Store builds use production APNs. Firebase can reliably detect
         // the actual token environment from the embedded provisioning profile.
         Auth.auth().setAPNSToken(deviceToken, type: .unknown)
+        Task { await FirebasePhoneAuthAPNsState.shared.markTokenReady() }
         print("✅ Firebase Auth APNs token registered (\(deviceToken.count) bytes)")
     }
 
