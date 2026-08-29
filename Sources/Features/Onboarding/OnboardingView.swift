@@ -3,6 +3,8 @@ import SwiftUI
 struct OnboardingView: View {
     @Binding var isCompleted: Bool
     @State private var page = 0
+    @State private var pageDrag: CGFloat = 0
+    @State private var isSettlingPage = false
 
     private let pages = OnboardingPage.all
 
@@ -12,14 +14,7 @@ struct OnboardingView: View {
 
             VStack(spacing: 0) {
                 topBar
-
-                // Keep only the visible page mounted. The previous paged TabView
-                // built five nested ScrollViews and asked UIKit + SwiftUI to
-                // animate the same selection, which made simple CTA taps feel
-                // delayed on a physical device.
-                onboardingPage(pages[page], index: page)
-                    .id(page)
-
+                onboardingPager
                 footer
             }
         }
@@ -49,6 +44,93 @@ struct OnboardingView: View {
         }
         .padding(.horizontal, 22)
         .padding(.top, 6)
+    }
+
+    private var visiblePageIndices: [Int] {
+        [page - 1, page, page + 1].filter { pages.indices.contains($0) }
+    }
+
+    private var onboardingPager: some View {
+        GeometryReader { proxy in
+            let width = max(1, proxy.size.width)
+            ZStack {
+                ForEach(visiblePageIndices, id: \.self) { index in
+                    onboardingPage(pages[index], index: index)
+                        .frame(width: width, height: proxy.size.height)
+                        .offset(x: CGFloat(index - page) * width + pageDrag)
+                }
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(pageSwipeGesture(width: width))
+        }
+    }
+
+    private func pageSwipeGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard !isSettlingPage else { return }
+                let x = value.translation.width
+                let y = value.translation.height
+                guard abs(x) > abs(y) * 0.9 else { return }
+
+                let atFirst = page == 0 && x > 0
+                let atLast = page == pages.count - 1 && x < 0
+                pageDrag = (atFirst || atLast) ? x * 0.22 : x
+            }
+            .onEnded { value in
+                guard !isSettlingPage else { return }
+                let x = value.translation.width
+                let y = value.translation.height
+                let predictedX = value.predictedEndTranslation.width
+
+                guard abs(x) > abs(y) * 0.82 else {
+                    settlePageBack()
+                    return
+                }
+
+                let shouldMove = abs(x) > width * 0.20 || abs(predictedX) > width * 0.42
+                guard shouldMove else {
+                    settlePageBack()
+                    return
+                }
+
+                if x < 0, page < pages.count - 1 {
+                    settlePage(to: page + 1, terminalOffset: -width)
+                } else if x > 0, page > 0 {
+                    settlePage(to: page - 1, terminalOffset: width)
+                } else {
+                    settlePageBack()
+                }
+            }
+    }
+
+    private func settlePageBack() {
+        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.88)) {
+            pageDrag = 0
+        }
+    }
+
+    private func settlePage(to newPage: Int, terminalOffset: CGFloat) {
+        guard pages.indices.contains(newPage) else {
+            settlePageBack()
+            return
+        }
+
+        isSettlingPage = true
+        let duration = 0.32
+        withAnimation(.easeInOut(duration: duration)) {
+            pageDrag = terminalOffset
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                page = newPage
+                pageDrag = 0
+            }
+            isSettlingPage = false
+        }
     }
 
     private func onboardingPage(_ item: OnboardingPage, index: Int) -> some View {
@@ -113,6 +195,7 @@ struct OnboardingView: View {
                     Capsule()
                         .fill(index == page ? Theme.sunset : Theme.separator.opacity(0.32))
                         .frame(width: index == page ? 24 : 8, height: 8)
+                        .animation(.easeInOut(duration: 0.18), value: page)
                 }
             }
 
@@ -123,12 +206,14 @@ struct OnboardingView: View {
                 }
             }
             .buttonStyle(MyPicsTubePrimaryButtonStyle())
+            .disabled(isSettlingPage)
 
             if page > 0 {
                 Button("Back", action: goBack)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(minHeight: 32)
+                    .disabled(isSettlingPage)
             } else {
                 Color.clear.frame(height: 32)
             }
@@ -141,19 +226,17 @@ struct OnboardingView: View {
     }
 
     private func advance() {
+        guard !isSettlingPage else { return }
         if page == pages.count - 1 {
             isCompleted = true
         } else {
-            // Intentionally immediate. This is a short onboarding deck, not a
-            // photo carousel; responsiveness is more important than a decorative
-            // page animation that can delay the first-run experience.
-            page += 1
+            withAnimation(.easeInOut(duration: 0.20)) { page += 1 }
         }
     }
 
     private func goBack() {
-        guard page > 0 else { return }
-        page -= 1
+        guard page > 0, !isSettlingPage else { return }
+        withAnimation(.easeInOut(duration: 0.20)) { page -= 1 }
     }
 
     @ViewBuilder
