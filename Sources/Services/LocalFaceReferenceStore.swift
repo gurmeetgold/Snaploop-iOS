@@ -77,12 +77,21 @@ public enum LocalFaceReferenceStore {
             return data
         }
 
-        // A full-resolution local reference is intentionally not placed in the
-        // Keychain. Only the small guided display thumbnail is available as a
-        // reinstall fallback.
+        // Older Face Setup builds could leave the display reference under the
+        // gallery/legacy slot while the cloud numerical profile remained active.
+        // When a guided preview is requested, recover those device-local images
+        // before falling back to the Keychain thumbnail. Nothing is uploaded.
         if kind == .guided {
+            if let gallery = load(userId: userId, kind: .gallery) {
+                try? savePersistentDisplayThumbnail(from: gallery, userId: userId)
+                return gallery
+            }
+            if let legacy = loadLegacy(userId: userId) {
+                return legacy
+            }
             return loadPersistentDisplayThumbnail(userId: userId)
         }
+
         return nil
     }
 
