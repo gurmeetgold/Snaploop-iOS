@@ -37,13 +37,15 @@ enum EventInviteClient {
     static func preview(route: DeepLinkRoute) async throws -> EventInvitePreview {
         let kind: String
         let value: String
-        switch route {
+        switch route.reviewRoute {
         case .joinEventByToken(let token):
             kind = "e"
             value = token.value
         case .joinEventByCode(let code):
             kind = "c"
             value = code.value
+        default:
+            throw AppError.backend(code: "invalid_route", message: "Invitation route is invalid.")
         }
 
         let data = try await call("resolveInvitePreview", data: ["kind": kind, "value": value])
