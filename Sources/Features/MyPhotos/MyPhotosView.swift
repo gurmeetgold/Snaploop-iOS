@@ -144,7 +144,12 @@ final class MyPhotosModel: ObservableObject {
     }
 
     func ownerLabel(for userId: String) -> String {
-        if userId == session?.user?.id { return "You" }
+        if userId == session?.user?.id {
+            if let name = session?.user?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                return name
+            }
+            return "You"
+        }
         if let member = members.first(where: { $0.userId == userId }),
            let name = member.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !name.isEmpty {
@@ -315,8 +320,7 @@ struct MyPhotosView: View {
                                             ownerLabel: { model.ownerLabel(for: $0.ownerUserId) },
                                             eventLabel: { _ in model.event.name },
                                             isFavorite: { model.isFavorite($0) },
-                                            onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
-                                            onNotMe: { item in Task { await model.markNotMe(item) } }
+                                            onFavoriteChanged: { item, value in model.setFavorite(value, match: item) }
                                         )
                                     } label: {
                                         PhotoCard(
@@ -760,7 +764,6 @@ struct PhotoDetailView: View {
     let eventLabel: (PhotoMatch) -> String
     let isFavorite: (PhotoMatch) -> Bool
     let onFavoriteChanged: (PhotoMatch, Bool) -> Void
-    let onNotMe: (PhotoMatch) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedIndex: Int
@@ -770,7 +773,6 @@ struct PhotoDetailView: View {
     @State private var statusMessage: String?
     @State private var shareImage: UIImage?
     @State private var showShareSheet = false
-    @State private var confirmNotMe = false
     @State private var actionBusy = false
     @State private var pagerDrag: CGSize = .zero
     @State private var isSettlingPage = false
@@ -781,15 +783,13 @@ struct PhotoDetailView: View {
         ownerLabel: @escaping (PhotoMatch) -> String,
         eventLabel: @escaping (PhotoMatch) -> String,
         isFavorite: @escaping (PhotoMatch) -> Bool,
-        onFavoriteChanged: @escaping (PhotoMatch, Bool) -> Void,
-        onNotMe: @escaping (PhotoMatch) -> Void
+        onFavoriteChanged: @escaping (PhotoMatch, Bool) -> Void
     ) {
         self.matches = matches
         self.ownerLabel = ownerLabel
         self.eventLabel = eventLabel
         self.isFavorite = isFavorite
         self.onFavoriteChanged = onFavoriteChanged
-        self.onNotMe = onNotMe
         let initialIndex = matches.firstIndex(where: { $0.id == initialMatchID }) ?? 0
         _selectedIndex = State(initialValue: initialIndex)
     }
@@ -869,11 +869,10 @@ struct PhotoDetailView: View {
                                 .foregroundStyle(.white.opacity(0.88))
                                 .lineLimit(1)
 
-                            HStack(spacing: 30) {
+                            HStack(spacing: 36) {
                                 detailAction("square.and.arrow.down", accessibility: "Save photo") { Task { await saveCurrent() } }
                                 detailAction("square.and.arrow.up", accessibility: "Share photo") { Task { await shareCurrent() } }
                                 detailAction(currentFavorite ? "heart.fill" : "heart", accessibility: currentFavorite ? "Remove from Favorites" : "Favorite photo") { toggleFavorite() }
-                                detailAction("person.crop.circle.badge.xmark", accessibility: "Not Me", destructive: true) { confirmNotMe = true }
                             }
                             .disabled(actionBusy)
 
@@ -906,17 +905,6 @@ struct PhotoDetailView: View {
         .sheet(isPresented: $showShareSheet) {
             if let shareImage { ActivityView(items: [shareImage]) }
         }
-        .confirmationDialog("This isn't you?", isPresented: $confirmNotMe, titleVisibility: .visible) {
-            Button("Not Me", role: .destructive) {
-                if let currentMatch {
-                    onNotMe(currentMatch)
-                    dismiss()
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("SnapLoop will hide this photo and record the false match so matching can improve.")
-        }
         .task { await prefetchAdjacent(to: selectedIndex) }
         .onChange(of: selectedIndex) { _, newValue in
             currentPageZoomed = false
@@ -925,8 +913,16 @@ struct PhotoDetailView: View {
         }
     }
 
+    private static let metadataDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "dd/MMM/yy"
+        return formatter
+    }()
+
     private func compactMetadata(for match: PhotoMatch) -> String {
-        "\(prefix3(ownerLabel(match))) · \(prefix3(eventLabel(match))) · \(DateFormatting.compactNumeric(match.capturedAt))"
+        "\(prefix3(ownerLabel(match))) · \(prefix3(eventLabel(match))) · \(Self.metadataDateFormatter.string(from: match.capturedAt))"
     }
 
     private func prefix3(_ value: String) -> String {
