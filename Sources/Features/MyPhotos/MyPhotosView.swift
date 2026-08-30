@@ -42,7 +42,7 @@ private enum CachedEventGallery {
     }
 
     static func purgeOtherIdentities(userId: String, eventId: String, keeping faceIdentityId: String?) {
-        let base = prefix(userId: userId, eventId: eventId)
+        let base = prefix(userId: userId, eventId: event.id)
         let keep = faceIdentityId.flatMap {
             $0.isEmpty ? nil : key(userId: userId, eventId: eventId, faceIdentityId: $0)
         }
@@ -922,12 +922,12 @@ struct PhotoDetailView: View {
     }()
 
     private func compactMetadata(for match: PhotoMatch) -> String {
-        "\(prefix3(ownerLabel(match))) · \(prefix3(eventLabel(match))) · \(Self.metadataDateFormatter.string(from: match.capturedAt))"
+        "\(prefix6(ownerLabel(match))) · \(prefix6(eventLabel(match))) · \(Self.metadataDateFormatter.string(from: match.capturedAt))"
     }
 
-    private func prefix3(_ value: String) -> String {
+    private func prefix6(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return String(trimmed.prefix(3))
+        return String(trimmed.prefix(6))
     }
 
     private var verticalDismissOffset: CGFloat {
