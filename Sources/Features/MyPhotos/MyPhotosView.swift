@@ -260,9 +260,11 @@ struct MyPhotosView: View {
                                 Label("\(columnCount)", systemImage: "square.grid.3x3.fill")
                                     .font(.subheadline.bold())
                                     .padding(.horizontal, 12)
-                                    .padding(.vertical, 9)
-                                    .background(.white.opacity(0.9), in: Capsule())
-                                    .foregroundStyle(Theme.sunset)
+                                    .frame(minHeight: 44)
+                                    .background(Theme.surface, in: Capsule())
+                                    .overlay { Capsule().strokeBorder(Theme.divider) }
+                                    .foregroundStyle(Theme.violet)
+                                    .contentShape(Capsule())
                             }
                         }
                     }
@@ -281,7 +283,7 @@ struct MyPhotosView: View {
                             message: model.errorMessage == nil
                                 ? (filter == .favorites
                                     ? "Open a photo and tap Favorite to keep it here."
-                                    : "SnapLoop automatically checks eligible Events for new matched photos. You can also use Scan Event Photos from an Event at any time.")
+                                    : "SnapLoop automatically checks eligible Events for new matched photos. You can also use Scan Photos from an Event at any time.")
                                 : "Pull to refresh and try again.",
                             systemImage: model.errorMessage == nil
                                 ? (filter == .favorites ? "heart" : "person.crop.square")
@@ -311,6 +313,7 @@ struct MyPhotosView: View {
                                             matches: filtered,
                                             initialMatchID: match.id,
                                             ownerLabel: { model.ownerLabel(for: $0.ownerUserId) },
+                                            eventLabel: { _ in model.event.name },
                                             isFavorite: { model.isFavorite($0) },
                                             onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
                                             onNotMe: { item in Task { await model.markNotMe(item) } }
@@ -724,7 +727,7 @@ struct PhotoSelectionToolbar: View {
             HStack(spacing: 36) {
                 selectionAction("square.and.arrow.down", accessibility: "Save selected photos", action: onSave)
                 selectionAction("square.and.arrow.up", accessibility: "Share selected photos", action: onShare)
-                selectionAction(allFavorites ? "heart.slash.fill" : "heart.fill", accessibility: allFavorites ? "Remove selected photos from Favorites" : "Favorite selected photos", action: onFavorite)
+                selectionAction(allFavorites ? "heart.fill" : "heart", accessibility: allFavorites ? "Remove selected photos from Favorites" : "Favorite selected photos", action: onFavorite)
             }
             .frame(maxWidth: .infinity)
         }
@@ -754,6 +757,7 @@ struct PhotoSelectionToolbar: View {
 struct PhotoDetailView: View {
     let matches: [PhotoMatch]
     let ownerLabel: (PhotoMatch) -> String
+    let eventLabel: (PhotoMatch) -> String
     let isFavorite: (PhotoMatch) -> Bool
     let onFavoriteChanged: (PhotoMatch, Bool) -> Void
     let onNotMe: (PhotoMatch) -> Void
@@ -775,12 +779,14 @@ struct PhotoDetailView: View {
         matches: [PhotoMatch],
         initialMatchID: String,
         ownerLabel: @escaping (PhotoMatch) -> String,
+        eventLabel: @escaping (PhotoMatch) -> String,
         isFavorite: @escaping (PhotoMatch) -> Bool,
         onFavoriteChanged: @escaping (PhotoMatch, Bool) -> Void,
         onNotMe: @escaping (PhotoMatch) -> Void
     ) {
         self.matches = matches
         self.ownerLabel = ownerLabel
+        self.eventLabel = eventLabel
         self.isFavorite = isFavorite
         self.onFavoriteChanged = onFavoriteChanged
         self.onNotMe = onNotMe
@@ -858,7 +864,7 @@ struct PhotoDetailView: View {
                         Spacer()
 
                         VStack(spacing: 10) {
-                            Text("\(ownerLabel(currentMatch)) · \(DateFormatting.longDate(currentMatch.capturedAt))")
+                            Text(compactMetadata(for: currentMatch))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.white.opacity(0.88))
                                 .lineLimit(1)
@@ -919,6 +925,15 @@ struct PhotoDetailView: View {
         }
     }
 
+    private func compactMetadata(for match: PhotoMatch) -> String {
+        "\(prefix3(ownerLabel(match))) · \(prefix3(eventLabel(match))) · \(DateFormatting.compactNumeric(match.capturedAt))"
+    }
+
+    private func prefix3(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmed.prefix(3))
+    }
+
     private var verticalDismissOffset: CGFloat {
         guard !currentPageZoomed else { return 0 }
         let y = pagerDrag.height
@@ -960,9 +975,6 @@ struct PhotoDetailView: View {
                     return
                 }
 
-                // Require a deliberate swipe rather than flipping almost as soon
-                // as the finger moves. The page still tracks the finger 1:1, then
-                // settles with a longer Photos-like animation.
                 let shouldPage = abs(x) > width * 0.24
                     || (abs(x) > width * 0.08 && abs(predictedX) > width * 0.52)
                 guard shouldPage else {
@@ -981,7 +993,7 @@ struct PhotoDetailView: View {
     }
 
     private func settleBackToCenter() {
-        withAnimation(.interactiveSpring(response: 0.38, dampingFraction: 0.88)) {
+        withAnimation(.interactiveSpring(response: 0.46, dampingFraction: 0.90)) {
             pagerDrag = .zero
         }
     }
@@ -993,7 +1005,7 @@ struct PhotoDetailView: View {
         }
 
         isSettlingPage = true
-        let settleDuration = 0.40
+        let settleDuration = 0.52
 
         withAnimation(.easeInOut(duration: settleDuration)) {
             pagerDrag = CGSize(width: terminalOffset, height: 0)
