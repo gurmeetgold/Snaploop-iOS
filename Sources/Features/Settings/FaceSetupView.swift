@@ -182,6 +182,7 @@ final class FaceSetupModel: ObservableObject {
 
             try LocalFaceReferenceStore.save(candidate.jpegData, userId: userId, kind: .guided)
             previewData = candidate.jpegData
+            didSave = true
             message = "Face photo refreshed."
         } catch let error as AppError {
             message = error.userMessage
@@ -331,6 +332,7 @@ struct FaceSetupView: View {
     @State private var showConsent = false
     @State private var showDeleteFaceSetup = false
     @State private var pendingAction: PendingAction?
+    @State private var restorePhotoItem: PhotosPickerItem?
 
     private var deletingFaceSetup: Bool {
         model.isBusy && model.message == "Deleting Face Setup…"
@@ -441,6 +443,10 @@ struct FaceSetupView: View {
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(model.isBusy)
         .task { await model.configure(env: env, session: session) }
+        .onChange(of: restorePhotoItem) { _, item in
+            guard let item else { return }
+            Task { await restoreSelectedPhoto(item) }
+        }
         .fullScreenCover(isPresented: $showSelfieEnrollment) {
             GuidedFaceEnrollmentView { frames in
                 Task {
@@ -506,6 +512,21 @@ struct FaceSetupView: View {
     }
 
     @MainActor
+    private func restoreSelectedPhoto(_ item: PhotosPickerItem) async {
+        defer { restorePhotoItem = nil }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self), !data.isEmpty else {
+                model.message = "That photo could not be loaded. Choose another photo."
+                return
+            }
+            await model.restoreLocalPreview(from: data)
+            if model.previewData != nil { onSaved?() }
+        } catch {
+            model.message = "That photo could not be loaded. Choose another photo."
+        }
+    }
+
+    @MainActor
     private func resumePendingActionAfterConsent() {
         guard model.consentActive else {
             pendingAction = nil
@@ -529,7 +550,7 @@ struct FaceSetupView: View {
                     .shadow(color: Theme.hotPink.opacity(0.18), radius: 14, y: 7)
                 Label("Face Setup Active", systemImage: "checkmark.circle.fill")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(Theme.ink)
+                    .foregroundStyle(.green)
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: 28, style: .continuous).fill(Theme.softWash)
@@ -542,10 +563,22 @@ struct FaceSetupView: View {
                 if session.hasFaceProfile {
                     Label("Face Setup Active", systemImage: "checkmark.circle.fill")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(Theme.ink)
-                    Text("Run Selfie Scan to refresh your photo.")
+                        .foregroundStyle(.green)
+                    Text("Your Face Setup is active, but this iPhone does not have the local thumbnail yet.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    PhotosPicker(selection: $restorePhotoItem, matching: .images) {
+                        Label("Restore Face Photo", systemImage: "photo.badge.plus")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.violet)
+                    .background(Theme.violet.opacity(0.09), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .disabled(model.isBusy)
                 } else {
                     Text("Your photo will appear here after Face Setup.")
                         .font(.caption)
