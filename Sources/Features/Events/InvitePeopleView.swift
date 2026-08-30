@@ -270,7 +270,7 @@ struct InvitePeopleView: View {
                 message = "SMS invitation ready to send."
                 showMessage = true
             }
-            phone = localDisplayNumber(phone, for: country)
+            phone = localDisplayNumber(normalized, for: country)
             await refreshStatuses()
         } catch {
             errorMessage = EventInviteClient.userMessage(for: error)
