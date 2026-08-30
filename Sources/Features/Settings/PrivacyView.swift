@@ -74,7 +74,7 @@ final class PrivacyModel: ObservableObject {
             finishLocalAccountDeletion(env: env, userId: userId)
         } catch {
             Log.auth.error("Account deletion callable returned an error: \(String(describing: error), privacy: .public)")
-            finishLocalAccountDeletion(env: env, userId: userId)
+            message = "We couldn't delete your account. Your account and data have not been deleted. Please try again."
         }
     }
 

@@ -10,16 +10,39 @@ struct BiometricConsentView: View {
     @State private var isWithdrawing = false
     @State private var errorMessage: String?
     @State private var confirmWithdrawal = false
+    @State private var selectedCountry = "IN"
+    @State private var selectedSubdivision = ""
     @State private var ageConfirmed = false
     @State private var noticeConfirmed = false
 
-    private let launchJurisdiction = BiometricJurisdiction(countryCode: "IN")
+    private var subdivisions: [BiometricJurisdictionOption] {
+        BiometricJurisdictionCatalog.subdivisions(for: selectedCountry)
+    }
+
+    private var selectedJurisdiction: BiometricJurisdiction {
+        BiometricJurisdiction(
+            countryCode: selectedCountry,
+            subdivisionCode: selectedSubdivision
+        )
+    }
 
     private var canAccept: Bool {
-        launchJurisdiction.isFaceMatchAvailable
+        selectedJurisdiction.isFaceMatchAvailable
             && ageConfirmed
             && noticeConfirmed
             && !isSaving
+    }
+
+    private var requiresSubdivision: Bool {
+        selectedCountry == "CA"
+    }
+
+    private var jurisdictionAvailabilityMessage: String? {
+        guard !selectedJurisdiction.isFaceMatchAvailable else { return nil }
+        if selectedCountry == "CA" && selectedSubdivision == "QC" {
+            return "Face Match is not currently available in Quebec. You can use SnapLoop without Face Match."
+        }
+        return "Face Match is not currently available in the selected jurisdiction."
     }
 
     var body: some View {
@@ -107,7 +130,7 @@ struct BiometricConsentView: View {
             }
 
             if !consentActive {
-                launchResidenceCard
+                compactJurisdictionCard
                 compactAttestationCard
             }
 
@@ -169,7 +192,7 @@ struct BiometricConsentView: View {
         }
     }
 
-    private var launchResidenceCard: some View {
+    private var compactJurisdictionCard: some View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
@@ -177,16 +200,44 @@ struct BiometricConsentView: View {
                         .font(.subheadline.bold())
                         .foregroundStyle(Theme.ink)
                     Spacer()
-                    Label("India", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Theme.violet)
+                    Picker("Country", selection: $selectedCountry) {
+                        ForEach(BiometricJurisdictionCatalog.countries) { option in
+                            Text(option.name).tag(option.code)
+                        }
+                    }
+                    .pickerStyle(.menu)
                 }
 
-                Text("SnapLoop's first public release supports Face Match for residents of India only. No GPS or precise address is required.")
+                if requiresSubdivision {
+                    HStack {
+                        Text("Province / territory")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("Region", selection: $selectedSubdivision) {
+                            ForEach(subdivisions) { option in
+                                Text(option.name).tag(option.code)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+
+                Text("Used only for Face Match availability; no GPS or precise address is required.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+
+                if let jurisdictionAvailabilityMessage {
+                    Label(jurisdictionAvailabilityMessage, systemImage: "info.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+        }
+        .onChange(of: selectedCountry) { _, newCountry in
+            selectedSubdivision = BiometricJurisdictionCatalog.firstAvailableSubdivision(for: newCountry)
+            errorMessage = nil
         }
     }
 
@@ -199,7 +250,7 @@ struct BiometricConsentView: View {
 
                 checkboxRow(
                     checked: ageConfirmed,
-                    text: "I confirm I am at least 18 years old and ordinarily reside in India."
+                    text: "I confirm I am at least 18 years old."
                 ) { ageConfirmed.toggle() }
 
                 Divider()
@@ -255,7 +306,7 @@ struct BiometricConsentView: View {
         isWithdrawing = false
         isSaving = true
         errorMessage = nil
-        let saved = await onAccept(launchJurisdiction)
+        let saved = await onAccept(selectedJurisdiction)
         isSaving = false
         if saved {
             dismiss()
