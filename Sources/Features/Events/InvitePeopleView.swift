@@ -241,7 +241,6 @@ struct InvitePeopleView: View {
 
         do {
             let delivery = try await EventInviteClient.invite(eventId: event.id, phoneNumber: normalized)
-            phone = normalized
             switch delivery.kind {
             case .inApp:
                 message = "Invitation delivered in SnapLoop."
