@@ -58,7 +58,6 @@ struct EventDashboardView: View {
             case .automatic: return Theme.aqua
             case .sharingOff: return .orange
             case .needsPhotoAccess: return .red
-            case .paused: return .secondary
             }
         }
     }
