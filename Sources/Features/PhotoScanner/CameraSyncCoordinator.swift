@@ -1,6 +1,6 @@
 import Foundation
 
-/// Orchestrates one "Scan Event Photos" pass, on demand, for a single Event.
+/// Orchestrates one "Scan Photos" pass, on demand, for a single event.
 public struct CameraSyncCoordinator {
     private let config: ConfigProviding
     private let clock: Clock
@@ -10,9 +10,9 @@ public struct CameraSyncCoordinator {
     private let matches: MatchRepository
     private let scanStateStore: ScanStateStore
 
-    private static let normalSafetyBatchCap = 50
-    private static let lowPowerSafetyBatchCap = 15
-    private static let elevatedThermalBatchCap = 10
+    private static let normalSafetyBatchCap = 100
+    private static let lowPowerSafetyBatchCap = 100
+    private static let elevatedThermalBatchCap = 100
 
     public init(
         config: ConfigProviding,
@@ -64,15 +64,13 @@ public struct CameraSyncCoordinator {
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
 
-        // Local scan state follows stable biometric identities and membership
-        // sessions in the Event, not exact template revisions. A verified
-        // same-person Face Setup refresh therefore keeps prior positive matches.
-        // A new member or a leave/rejoin creates a new namespace, which forces
-        // existing Event photos to be reconsidered for that membership session.
+        // Local scan state follows the stable biometric identities in the Event,
+        // not the exact template revisions. A verified same-person Face Setup
+        // refresh therefore keeps prior positive matches and does not trigger a
+        // wasteful full rescan. Deleting Face Setup and enrolling a new identity
+        // changes the stable ID and creates a fresh scan namespace.
         let rosterIdentityRevision = participants
-            .map {
-                "\($0.userId)=\($0.stableFaceIdentityId)@\($0.joinedAt.timeIntervalSince1970)"
-            }
+            .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
             .sorted()
             .joined(separator: ";")
 
