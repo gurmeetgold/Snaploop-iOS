@@ -71,9 +71,14 @@ struct RootView: View {
                 if session.user != nil && session.hasFaceProfile { configureAutomaticSyncAndRun() }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { notification in
             guard hasCompletedOnboarding else { return }
-            Task { await loadPendingInviteIfNeeded() }
+            if let route = notification.object as? DeepLinkRoute, session.user != nil {
+                PendingInviteStore.save(route)
+                session.pendingRoute = route
+            } else {
+                Task { await loadPendingInviteIfNeeded() }
+            }
         }
         .onOpenURL { url in handleIncomingURL(url) }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
