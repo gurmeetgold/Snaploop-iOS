@@ -20,6 +20,21 @@ final class ScanPlannerTests: XCTestCase {
         PhotoAsset(id: id, creationDate: date)
     }
 
+    func testDefaultBatchScansOneHundredAssetsBeforeRequestingNextBatch() {
+        let start = Date(timeIntervalSince1970: 900_000)
+        let event = makeEvent(start: start, end: start.addingTimeInterval(10 * day))
+        let assets = (0..<101).map { asset("a\($0)", start.addingTimeInterval(Double($0) * 60)) }
+
+        XCTAssertEqual(RemoteConfigValues.default.maxAssetsPerSyncBatch, 100)
+
+        let plan = ScanPlanner(config: .default)
+            .plan(assets: assets, event: event, state: ScanState(eventId: "e1"))
+
+        XCTAssertEqual(plan.toScan.count, 100)
+        XCTAssertEqual(plan.remaining, 1)
+        XCTAssertTrue(plan.hasMore)
+    }
+
     func testFiltersToEventDateRange() {
         let start = Date(timeIntervalSince1970: 1_000_000)
         let end = start.addingTimeInterval(2 * day)
