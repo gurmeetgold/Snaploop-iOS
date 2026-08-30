@@ -51,22 +51,23 @@ async function tokenDocsForUser(userId) {
   return snap.docs.filter((doc) => typeof doc.data().token === "string");
 }
 
-async function sendPushToUser(userId, { title, body, data = {} }) {
+async function sendPushToUser(userId, { title, body, data = {}, category = null }) {
   const tokenDocs = await tokenDocsForUser(userId);
   if (tokenDocs.length === 0) return { sent: 0 };
 
   const tokens = tokenDocs.map((doc) => doc.data().token);
+  const aps = {
+    sound: "default",
+    "content-available": 1,
+  };
+  if (category) aps.category = category;
+
   const response = await messaging.sendEachForMulticast({
     tokens,
     notification: { title, body },
     data: normalizedData(data),
     apns: {
-      payload: {
-        aps: {
-          sound: "default",
-          "content-available": 1,
-        },
-      },
+      payload: { aps },
     },
   });
 
@@ -163,6 +164,7 @@ exports.deliverNotificationRecord = onDocumentCreated(
         eventId: data.eventId || "",
         inviteToken: data.inviteToken || "",
       },
+      category: data.type === "event_invite" ? "SNAPLOOP_EVENT_INVITE" : null,
     });
   }
 );
