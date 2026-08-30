@@ -11,7 +11,6 @@ const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
 const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";
 const CONSENT_METHOD = "explicit-button";
 const BIOMETRIC_POLICY_PATH = "systemConfig/biometricFaceMatch";
-const CANADIAN_SUBDIVISIONS = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]);
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -35,9 +34,7 @@ function normalizeSubdivision(country, value) {
 }
 
 function staticJurisdictionAllowed(country, subdivision) {
-  if (country === "IN") return subdivision === "";
-  if (country === "CA") return CANADIAN_SUBDIVISIONS.has(subdivision) && subdivision !== "QC";
-  return false;
+  return country === "IN" && subdivision === "";
 }
 
 function jurisdictionKey(country, subdivision) {
@@ -75,10 +72,7 @@ exports.acceptBiometricConsent = onCall(async (request) => {
   const country = normalizeCountry(data.jurisdictionCountry);
   const subdivision = normalizeSubdivision(country, data.jurisdictionSubdivision);
   if (!(await policyAllows(country, subdivision))) {
-    const message = country === "CA" && subdivision === "QC"
-      ? "Face Match is not currently available to users who ordinarily reside in Quebec."
-      : "Face Match is not currently available in the selected jurisdiction.";
-    throw new HttpsError("failed-precondition", message);
+    throw new HttpsError("failed-precondition", "Face Match is not currently available in the selected jurisdiction.");
   }
 
   const acceptedVia = boundedString(data.acceptedVia, "acceptedVia", 64);
