@@ -283,7 +283,7 @@ struct AllMyPhotosView: View {
                                 .disabled(filtered.isEmpty)
 
                             Menu {
-                                ForEach([2, 4, 6, 8], id: \.self) { count in
+                                ForEach([2, 3, 4, 6], id: \.self) { count in
                                     Button {
                                         withAnimation(.snappy) { columnCount = count }
                                     } label: {
