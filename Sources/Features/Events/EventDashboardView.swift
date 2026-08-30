@@ -269,7 +269,7 @@ struct EventDashboardView: View {
             NavigationLink { SyncView(event: currentEvent) } label: {
                 GradientTile(
                     title: "Scan Photos",
-                    subtitle: "Check Event Photos",
+                    subtitle: "Check New Event Photos",
                     systemImage: "photo.stack.fill",
                     gradient: Theme.socialGradient
                 )
@@ -364,7 +364,7 @@ struct EventDashboardView: View {
                     } label: { Label("Edit Event", systemImage: "pencil.circle.fill") }
 
                     Button(role: .destructive) { confirmEnd = true } label: {
-                        Label("End Event", systemImage: "stop.circle.fill")
+                        Label("End Event", systemImage: "stop.circle.fill") }
                     }
                     .disabled(isChangingStatus)
                 }
