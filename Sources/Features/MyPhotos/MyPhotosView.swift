@@ -42,7 +42,7 @@ private enum CachedEventGallery {
     }
 
     static func purgeOtherIdentities(userId: String, eventId: String, keeping faceIdentityId: String?) {
-        let base = prefix(userId: userId, eventId: event.id)
+        let base = prefix(userId: userId, eventId: eventId)
         let keep = faceIdentityId.flatMap {
             $0.isEmpty ? nil : key(userId: userId, eventId: eventId, faceIdentityId: $0)
         }
