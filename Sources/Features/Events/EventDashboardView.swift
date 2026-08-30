@@ -58,6 +58,7 @@ struct EventDashboardView: View {
             case .automatic: return Theme.aqua
             case .sharingOff: return .orange
             case .needsPhotoAccess: return .red
+            case .paused: return .secondary
             }
         }
     }
@@ -268,8 +269,8 @@ struct EventDashboardView: View {
             }
             NavigationLink { SyncView(event: currentEvent) } label: {
                 GradientTile(
-                    title: "Scan Event Photos",
-                    subtitle: "Check this iPhone for matches",
+                    title: "Scan Photos",
+                    subtitle: "Check Event Photos",
                     systemImage: "photo.stack.fill",
                     gradient: Theme.socialGradient
                 )
