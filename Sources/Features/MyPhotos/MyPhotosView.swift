@@ -42,7 +42,7 @@ private enum CachedEventGallery {
     }
 
     static func purgeOtherIdentities(userId: String, eventId: String, keeping faceIdentityId: String?) {
-        let base = prefix(userId: userId, eventId: eventId)
+        let base = prefix(userId: userId, eventId: event.id)
         let keep = faceIdentityId.flatMap {
             $0.isEmpty ? nil : key(userId: userId, eventId: eventId, faceIdentityId: $0)
         }
@@ -249,7 +249,7 @@ struct MyPhotosView: View {
                                 .disabled(filtered.isEmpty)
 
                             Menu {
-                                ForEach([2, 4, 6, 8], id: \.self) { count in
+                                ForEach([2, 3, 4, 6], id: \.self) { count in
                                     Button {
                                         withAnimation(.snappy) { columnCount = count }
                                     } label: {
