@@ -137,7 +137,7 @@ struct SyncView: View {
                 .frame(width: 92, height: 92)
                 .shadow(color: Theme.hotPink.opacity(0.22), radius: 14, y: 6)
 
-                Text("Event photos only")
+                Text("Scan Event Photos")
                     .font(.title3.bold())
                     .foregroundStyle(Theme.ink)
 
@@ -159,11 +159,20 @@ struct SyncView: View {
         switch photoAccessStatus {
         case .limited:
             VStack(spacing: 8) {
-                Text("Limited access — only selected photos can be scanned.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                Button("Photo Access") { openAppSettings() }
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                    Text("Limited Access — Only selected photos can be scanned. Select all event photos from your iPhone or")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Button("allow Full Photos Access") { openAppSettings() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.violet)
+
+                Button("Select More Photos") { presentLimitedLibraryPicker() }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.violet)
             }
@@ -293,6 +302,23 @@ struct SyncView: View {
     @MainActor
     private func refreshPhotoAccessStatus() {
         photoAccessStatus = env.photoLibrary.authorizationStatus()
+    }
+
+    @MainActor
+    private func presentLimitedLibraryPicker() {
+        guard photoAccessStatus == .limited,
+              let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+              let rootViewController = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
+            return
+        }
+
+        var presenter = rootViewController
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: presenter)
     }
 
     @MainActor
