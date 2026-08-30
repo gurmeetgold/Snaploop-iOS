@@ -86,7 +86,10 @@ struct InvitePeopleView: View {
                             HStack(spacing: 10) {
                                 Menu {
                                     ForEach(PhoneCountry.supported) { value in
-                                        Button("\(value.name)  \(value.callingCode)") { country = value }
+                                        Button("\(value.name)  \(value.callingCode)") {
+                                            country = value
+                                            phone = localDisplayNumber(phone, for: value)
+                                        }
                                     }
                                 } label: {
                                     HStack(spacing: 4) {
@@ -106,6 +109,10 @@ struct InvitePeopleView: View {
                                     .padding()
                                     .frame(height: 58)
                                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 15))
+                                    .onChange(of: phone) { _, newValue in
+                                        let local = localDisplayNumber(newValue, for: country)
+                                        if local != newValue { phone = local }
+                                    }
                             }
 
                             Button { showContacts = true } label: {
@@ -156,7 +163,7 @@ struct InvitePeopleView: View {
         .task { await refreshStatuses() }
         .sheet(isPresented: $showContacts) {
             ContactPhonePicker { selected in
-                phone = selected
+                phone = localDisplayNumber(selected, for: country)
                 errorMessage = nil
                 showContacts = false
             }
@@ -223,6 +230,15 @@ struct InvitePeopleView: View {
         }
     }
 
+    private func localDisplayNumber(_ raw: String, for selectedCountry: PhoneCountry) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("+") else { return raw }
+        let digits = trimmed.filter(\.isNumber)
+        let callingDigits = selectedCountry.callingCode.filter(\.isNumber)
+        guard !callingDigits.isEmpty, digits.hasPrefix(callingDigits) else { return raw }
+        return String(digits.dropFirst(callingDigits.count))
+    }
+
     @MainActor
     private func sendInvite() async {
         guard !isSending else { return }
@@ -254,6 +270,7 @@ struct InvitePeopleView: View {
                 message = "SMS invitation ready to send."
                 showMessage = true
             }
+            phone = localDisplayNumber(phone, for: country)
             await refreshStatuses()
         } catch {
             errorMessage = EventInviteClient.userMessage(for: error)
