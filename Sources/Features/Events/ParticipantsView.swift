@@ -6,6 +6,7 @@ final class ParticipantsModel: ObservableObject {
     @Published var sharingEnabled = true
     @Published var includeOwnMatches = false
     @Published var hasFaceSetup = false
+    @Published var isUpdatingIncludeOwnMatches = false
     @Published var errorMessage: String?
 
     private var env: AppEnvironment?
@@ -103,25 +104,38 @@ final class ParticipantsModel: ObservableObject {
     }
 
     func setIncludeOwnMatches(_ enabled: Bool) async {
+        guard !isUpdatingIncludeOwnMatches else { return }
         guard sharingEnabled else {
             includeOwnMatches = false
             return
         }
+
         hasFaceSetup = session?.hasFaceProfile == true
         if enabled && !hasFaceSetup {
             includeOwnMatches = false
-            errorMessage = "Set up your face to see your own photo matches."
+            errorMessage = nil
             return
         }
 
         let previous = includeOwnMatches
+        isUpdatingIncludeOwnMatches = true
         includeOwnMatches = enabled
         errorMessage = nil
+        defer { isUpdatingIncludeOwnMatches = false }
+
         do {
             if AppEnvironment.useLiveServices {
                 try await MemberPhotoPreferencesClient.setIncludeOwnMatches(eventId: event.id, enabled: enabled)
+                let preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
+                sharingEnabled = preferences.sharingEnabled
+                let confirmed = preferences.sharingEnabled && preferences.includeOwnMatches
+                guard confirmed == enabled else {
+                    includeOwnMatches = previous
+                    errorMessage = "The Gallery setting could not be confirmed. Please try again."
+                    return
+                }
+                includeOwnMatches = confirmed
             }
-            await reload()
         } catch {
             includeOwnMatches = previous
             errorMessage = EventManagementClient.userMessage(for: error)
@@ -205,18 +219,28 @@ struct ParticipantsView: View {
 
                             Divider()
 
-                            Toggle(isOn: Binding(
-                                get: { model.includeOwnMatches },
-                                set: { value in Task { await model.setIncludeOwnMatches(value) } }
-                            )) {
-                                Text("Show my own matched pictures from this phone in my Gallery")
-                                    .contentShape(Rectangle())
+                            Button {
+                                guard model.sharingEnabled, !model.isUpdatingIncludeOwnMatches else { return }
+                                Task { await model.setIncludeOwnMatches(!model.includeOwnMatches) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Text("Show my own matched pictures from this phone in my Gallery")
+                                        .multilineTextAlignment(.leading)
+                                        .foregroundStyle(Theme.ink)
+                                    Spacer(minLength: 12)
+                                    Toggle("", isOn: .constant(model.includeOwnMatches))
+                                        .labelsHidden()
+                                        .tint(Theme.violet)
+                                        .allowsHitTesting(false)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
-                            .tint(Theme.violet)
-                            .padding(.vertical, 4)
-                            .contentShape(Rectangle())
-                            .disabled(!model.sharingEnabled)
+                            .buttonStyle(.plain)
+                            .disabled(!model.sharingEnabled || model.isUpdatingIncludeOwnMatches)
                             .opacity(model.sharingEnabled ? 1 : 0.45)
+                            .accessibilityLabel("Show my own matched pictures from this phone in my Gallery")
+                            .accessibilityValue(model.includeOwnMatches ? "On" : "Off")
 
                             if model.sharingEnabled && !model.hasFaceSetup {
                                 Label("Set up your face to see your own photo matches.", systemImage: "faceid")
@@ -282,8 +306,7 @@ struct ParticipantsView: View {
                         }
                     }
 
-                    if let error = model.errorMessage,
-                       !(error == "Set up your face to see your own photo matches." && model.sharingEnabled && !model.hasFaceSetup) {
+                    if let error = model.errorMessage {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote).foregroundStyle(.red)
                     }
