@@ -11,10 +11,24 @@ extension Notification.Name {
 @MainActor
 final class PushNotificationCoordinator: NSObject, MessagingDelegate, UNUserNotificationCenterDelegate {
     static let shared = PushNotificationCoordinator()
+    static let eventInviteCategoryID = "SNAPLOOP_EVENT_INVITE"
+    static let openInviteActionID = "OPEN_INVITE"
 
     func start() {
         guard AppEnvironment.useLiveServices else { return }
         Messaging.messaging().delegate = self
+        let openInvite = UNNotificationAction(
+            identifier: Self.openInviteActionID,
+            title: "Open Invite",
+            options: [.foreground]
+        )
+        let eventInviteCategory = UNNotificationCategory(
+            identifier: Self.eventInviteCategoryID,
+            actions: [openInvite],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([eventInviteCategory])
         UNUserNotificationCenter.current().delegate = self
     }
 
@@ -76,8 +90,9 @@ enum PushNotificationClient {
         let eventId = userInfo["eventId"] as? String
 
         if let inviteToken, let token = InviteToken(inviteToken) {
-            PendingInviteStore.save(.joinEventByToken(token))
-            NotificationCenter.default.post(name: .myPicsRoomInviteReceived, object: nil)
+            let route = DeepLinkRoute.joinEventByToken(token)
+            PendingInviteStore.save(route)
+            NotificationCenter.default.post(name: .myPicsRoomInviteReceived, object: route)
             return
         }
 
