@@ -364,7 +364,7 @@ struct EventDashboardView: View {
                     } label: { Label("Edit Event", systemImage: "pencil.circle.fill") }
 
                     Button(role: .destructive) { confirmEnd = true } label: {
-                        Label("End Event", systemImage: "stop.circle.fill") }
+                        Label("End Event", systemImage: "stop.circle.fill")
                     }
                     .disabled(isChangingStatus)
                 }
