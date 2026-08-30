@@ -52,6 +52,7 @@ final class AllMyPhotosModel: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
     @Published private(set) var ownerNames: [String: String] = [:]
+    @Published private(set) var eventNames: [String: String] = [:]
 
     private var env: AppEnvironment?
     private var session: AppSession?
@@ -117,6 +118,7 @@ final class AllMyPhotosModel: ObservableObject {
         let matchRepository = env.matches
         let eventRepository = env.events
         let activeEvents = events.filter { $0.status != .deletedByOrganizer }
+        eventNames = Dictionary(uniqueKeysWithValues: activeEvents.map { ($0.id, $0.name) })
 
         let eventLoads = await withTaskGroup(of: GalleryEventLoad.self, returning: [GalleryEventLoad].self) { group in
             for event in activeEvents {
@@ -190,6 +192,10 @@ final class AllMyPhotosModel: ObservableObject {
         return ownerNames[match.ownerUserId] ?? "Event member"
     }
 
+    func eventLabel(for match: PhotoMatch) -> String {
+        eventNames[match.eventId] ?? "Event"
+    }
+
     func isFavorite(_ match: PhotoMatch) -> Bool { favoriteIds.contains(match.id) }
 
     func setFavorite(_ favorite: Bool, match: PhotoMatch) {
@@ -216,7 +222,7 @@ struct AllMyPhotosView: View {
     @EnvironmentObject private var session: AppSession
     @StateObject private var model = AllMyPhotosModel()
     @State private var filter: PhotoFilter = .all
-    @State private var columnCount = 3
+    @State private var columnCount = 2
     @State private var isSelecting = false
     @State private var selectedIDs: Set<String> = []
     @State private var bulkBusy = false
@@ -277,7 +283,7 @@ struct AllMyPhotosView: View {
                                 .disabled(filtered.isEmpty)
 
                             Menu {
-                                ForEach([2, 3, 4, 6], id: \.self) { count in
+                                ForEach([2, 4, 6, 8], id: \.self) { count in
                                     Button {
                                         withAnimation(.snappy) { columnCount = count }
                                     } label: {
@@ -285,14 +291,14 @@ struct AllMyPhotosView: View {
                                     }
                                 }
                             } label: {
-                                Image(systemName: "square.grid.2x2.fill")
+                                Label("\(columnCount)", systemImage: "square.grid.3x3.fill")
                                     .font(.subheadline.bold())
-                                    .padding(11)
-                                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                    .overlay {
-                                        RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.divider)
-                                    }
-                                    .foregroundStyle(Theme.lilac)
+                                    .padding(.horizontal, 12)
+                                    .frame(minHeight: 44)
+                                    .background(Theme.surface, in: Capsule())
+                                    .overlay { Capsule().strokeBorder(Theme.divider) }
+                                    .foregroundStyle(Theme.violet)
+                                    .contentShape(Capsule())
                             }
                         }
                     }
@@ -322,7 +328,7 @@ struct AllMyPhotosView: View {
                                 message: model.errorMessage == nil
                                     ? (filter == .favorites
                                         ? "Open a photo and tap Favorite to keep it here."
-                                        : "SnapLoop automatically checks eligible Events for new matched photos. You can also use Scan Event Photos from an Event at any time.")
+                                        : "SnapLoop automatically checks eligible Events for new matched photos. You can also use Scan Photos from an Event at any time.")
                                     : "Pull to refresh and try again.",
                                 systemImage: model.errorMessage == nil
                                     ? (filter == .favorites ? "heart" : "person.crop.square")
@@ -353,6 +359,7 @@ struct AllMyPhotosView: View {
                                             matches: filtered,
                                             initialMatchID: match.id,
                                             ownerLabel: { model.ownerLabel(for: $0) },
+                                            eventLabel: { model.eventLabel(for: $0) },
                                             isFavorite: { model.isFavorite($0) },
                                             onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
                                             onNotMe: { item in Task { await model.markNotMe(item) } }
