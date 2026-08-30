@@ -25,23 +25,22 @@ final class ErasureTests: XCTestCase {
             .deleteFaceProfile(userId: "u"),
             .deleteUserDocument(userId: "u"),
         ])
-        // Profile/user removal come after all memberships (biometric never left reachable).
         XCTAssertEqual(plan.last, .deleteUserDocument(userId: "u"))
     }
 
     // MARK: Biometric launch policy
 
-    func testFaceMatchCountryPickerExcludesUnitedStates() {
-        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["IN", "CA"])
-        XCTAssertFalse(BiometricJurisdictionCatalog.countries.contains(where: { $0.code == "US" }))
+    func testFaceMatchCountryPickerIsIndiaOnly() {
+        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["IN"])
+        XCTAssertFalse(BiometricJurisdictionCatalog.countries.contains(where: { $0.code == "CA" || $0.code == "US" }))
     }
 
-    func testFaceMatchJurisdictionAllowsSupportedCanadaAndIndia() {
-        XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
+    func testFaceMatchJurisdictionAllowsIndiaOnly() {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
     }
 
-    func testFaceMatchJurisdictionBlocksQuebecUSAndUnsupportedCountries() {
+    func testFaceMatchJurisdictionBlocksCanadaUSAndUnsupportedCountries() {
         XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
         XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "AK").isFaceMatchAvailable)
         XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "IL").isFaceMatchAvailable)
@@ -56,10 +55,9 @@ final class ErasureTests: XCTestCase {
             userId: "u",
             acceptedAt: now,
             expiresAt: now.addingTimeInterval(86_400),
-            jurisdictionCountry: "CA",
-            jurisdictionSubdivision: "ON",
+            jurisdictionCountry: "IN",
             appVersion: "1.0",
-            locale: "en_CA"
+            locale: "en_IN"
         )
         XCTAssertTrue(active.isActive)
 
@@ -67,10 +65,9 @@ final class ErasureTests: XCTestCase {
             userId: "u",
             acceptedAt: now.addingTimeInterval(-172_800),
             expiresAt: now.addingTimeInterval(-86_400),
-            jurisdictionCountry: "CA",
-            jurisdictionSubdivision: "ON",
+            jurisdictionCountry: "IN",
             appVersion: "1.0",
-            locale: "en_CA"
+            locale: "en_IN"
         )
         XCTAssertFalse(expired.isActive)
 
@@ -81,23 +78,22 @@ final class ErasureTests: XCTestCase {
             disclosureSHA256: BiometricConsentRecord.currentDisclosureSHA256,
             acceptedAt: now,
             expiresAt: now.addingTimeInterval(86_400),
+            jurisdictionCountry: "IN",
+            appVersion: "1.0",
+            locale: "en_IN"
+        )
+        XCTAssertFalse(oldDisclosure.isActive)
+
+        let blockedCanada = BiometricConsentRecord(
+            userId: "u",
+            acceptedAt: now,
+            expiresAt: now.addingTimeInterval(86_400),
             jurisdictionCountry: "CA",
             jurisdictionSubdivision: "ON",
             appVersion: "1.0",
             locale: "en_CA"
         )
-        XCTAssertFalse(oldDisclosure.isActive)
-
-        let blockedUnitedStates = BiometricConsentRecord(
-            userId: "u",
-            acceptedAt: now,
-            expiresAt: now.addingTimeInterval(86_400),
-            jurisdictionCountry: "US",
-            jurisdictionSubdivision: "AK",
-            appVersion: "1.0",
-            locale: "en_US"
-        )
-        XCTAssertFalse(blockedUnitedStates.isActive)
+        XCTAssertFalse(blockedCanada.isActive)
     }
 
     // MARK: Execution
@@ -106,7 +102,6 @@ final class ErasureTests: XCTestCase {
         let events = InMemoryEventRepository()
         let faces = InMemoryFaceProfileStore(seed: profile("u"))
         let users = InMemoryUserDirectory(seed: user("u"))
-        // membership in an event
         let event = Event(id: "e1", joinCode: "ABC234", creatorUserId: "u", name: "Trip",
                           startsAt: Date(), endsAt: Date().addingTimeInterval(86_400), createdAt: Date())
         try await events.createEvent(event)
