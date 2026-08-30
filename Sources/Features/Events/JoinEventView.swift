@@ -242,12 +242,6 @@ struct JoinEventView: View {
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
-
-                        Divider()
-
-                        Label("Face matching happens on participating iPhones", systemImage: "iphone")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
                 }
