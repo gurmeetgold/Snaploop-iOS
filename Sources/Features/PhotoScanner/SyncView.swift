@@ -161,18 +161,19 @@ struct SyncView: View {
             VStack(spacing: 8) {
                 HStack(alignment: .top, spacing: 7) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.yellow)
-                    Text("Limited Access — Only selected photos can be scanned. Select all event photos from your iPhone or")
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(Color(red: 1.0, green: 0.9, blue: 0.0))
+                    Text("Limited Access — Only selected photos can be scanned. Select all event photos from your iPhone or allow full photos access.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
                 }
 
-                Button("allow Full Photos Access") { openAppSettings() }
+                Button("Select More Photos") { presentLimitedLibraryPicker() }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.violet)
 
-                Button("Select More Photos") { presentLimitedLibraryPicker() }
+                Button("Allow Full Photos Access") { openAppSettings() }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.violet)
             }
