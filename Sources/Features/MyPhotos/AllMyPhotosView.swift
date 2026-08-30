@@ -361,8 +361,7 @@ struct AllMyPhotosView: View {
                                             ownerLabel: { model.ownerLabel(for: $0) },
                                             eventLabel: { model.eventLabel(for: $0) },
                                             isFavorite: { model.isFavorite($0) },
-                                            onFavoriteChanged: { item, value in model.setFavorite(value, match: item) },
-                                            onNotMe: { item in Task { await model.markNotMe(item) } }
+                                            onFavoriteChanged: { item, value in model.setFavorite(value, match: item) }
                                         )
                                     } label: {
                                         PhotoCard(match: match, ownerLabel: model.ownerLabel(for: match), isFavorite: model.isFavorite(match), compact: columnCount >= 6)
