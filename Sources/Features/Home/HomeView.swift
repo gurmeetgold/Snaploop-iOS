@@ -363,7 +363,7 @@ private struct EventCard: View {
             switch lifecycle {
             case .upcoming: return "UPCOMING"
             case .active: return "LIVE"
-            case .grace: return "PHOTO WINDOW"
+            case .grace: return "WRAPPING UP"
             case .expired: return "COMPLETED"
             }
         }
