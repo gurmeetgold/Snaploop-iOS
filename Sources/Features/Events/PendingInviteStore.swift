@@ -19,6 +19,15 @@ enum PendingInviteStore {
         if raw.hasPrefix("c:"), let code = JoinCode(input: value) {
             return .joinEventByCode(code)
         }
+        if raw.hasPrefix("a:"), let token = InviteToken(value) {
+            return .acceptEventByToken(token)
+        }
+        if raw.hasPrefix("b:"), let code = JoinCode(input: value) {
+            return .acceptEventByCode(code)
+        }
+        if raw.hasPrefix("d:"), let token = InviteToken(value) {
+            return .declineEventByToken(token)
+        }
         return nil
     }
 
