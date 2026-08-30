@@ -112,7 +112,6 @@ struct SyncView: View {
             model.configure(env: env, session: session)
             refreshPhotoAccessStatus()
         }
-        .onDisappear { model.cancel() }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
                 model.cancelForSafety(message: "Photo scan stopped because SnapLoop moved to the background. Return to SnapLoop and try again.")
@@ -207,7 +206,7 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Keep SnapLoop open while scanning.")
+                Text("You can move to other SnapLoop screens while scanning. Keep SnapLoop open in the foreground until the scan finishes.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
