@@ -41,7 +41,7 @@ final class InviteTokenTests: XCTestCase {
     func testShareTextContainsExactlyOneCanonicalURLAndCurrentBrand() {
         var rng = SeededGenerator(seed: 17)
         let token = InviteToken.generate(using: &rng)
-        let text = InviteLink.shareText(eventName: "Test Event", token: token)
+        let text = InviteLink.shareText(eventName: "Test Event", inviterName: nil, token: token)
         let url = InviteLink.url(forToken: token).absoluteString
 
         XCTAssertTrue(text.contains("SnapLoop"))
