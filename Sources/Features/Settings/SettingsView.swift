@@ -53,8 +53,10 @@ struct SettingsView: View {
             refreshFaceReference()
             refreshPhotoAccessStatus()
         }
+        .onAppear { refreshFaceReference() }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
+                refreshFaceReference()
                 refreshPhotoAccessStatus()
             }
         }
@@ -81,11 +83,11 @@ struct SettingsView: View {
                         Label(phone, systemImage: "iphone").font(.caption).foregroundStyle(.secondary)
                     }
                     if facePreviewData != nil {
-                        Label("Your saved face reference", systemImage: "checkmark.circle.fill")
-                            .font(.caption2.weight(.semibold)).foregroundStyle(Theme.coral)
+                        Label("Face Setup Active", systemImage: "checkmark.circle.fill")
+                            .font(.caption2.weight(.semibold)).foregroundStyle(.green)
                     } else if session.hasFaceProfile {
-                        Label("Face Setup ready", systemImage: "checkmark.circle.fill")
-                            .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        Label("Face Setup Active", systemImage: "checkmark.circle.fill")
+                            .font(.caption2.weight(.semibold)).foregroundStyle(.green)
                     }
                 }
                 Spacer(minLength: 8)
