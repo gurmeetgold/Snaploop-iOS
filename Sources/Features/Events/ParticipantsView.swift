@@ -114,15 +114,16 @@ final class ParticipantsModel: ObservableObject {
             return
         }
 
+        let previous = includeOwnMatches
+        includeOwnMatches = enabled
         errorMessage = nil
         do {
             if AppEnvironment.useLiveServices {
                 try await MemberPhotoPreferencesClient.setIncludeOwnMatches(eventId: event.id, enabled: enabled)
             }
-            includeOwnMatches = enabled
             await reload()
         } catch {
-            includeOwnMatches = false
+            includeOwnMatches = previous
             errorMessage = EventManagementClient.userMessage(for: error)
         }
     }
@@ -204,11 +205,16 @@ struct ParticipantsView: View {
 
                             Divider()
 
-                            Toggle("Show my own matched pictures from this phone in my Gallery", isOn: Binding(
+                            Toggle(isOn: Binding(
                                 get: { model.includeOwnMatches },
                                 set: { value in Task { await model.setIncludeOwnMatches(value) } }
-                            ))
+                            )) {
+                                Text("Show my own matched pictures from this phone in my Gallery")
+                                    .contentShape(Rectangle())
+                            }
                             .tint(Theme.violet)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
                             .disabled(!model.sharingEnabled)
                             .opacity(model.sharingEnabled ? 1 : 0.45)
 
@@ -276,7 +282,8 @@ struct ParticipantsView: View {
                         }
                     }
 
-                    if let error = model.errorMessage {
+                    if let error = model.errorMessage,
+                       !(error == "Set up your face to see your own photo matches." && model.sharingEnabled && !model.hasFaceSetup) {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote).foregroundStyle(.red)
                     }
