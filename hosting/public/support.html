@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#FF0070" />
+  <meta name="description" content="Official SnapLoop support page with help for Events, photo access, Face Match, account deletion, privacy, and contacting support." />
+  <link rel="canonical" href="https://getsnaploop.web.app/support.html" />
+  <title>SnapLoop Support</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif;
+      --ink:#0C0D1A;
+      --muted:#68697A;
+      --orange:#FF6E24;
+      --coral:#FF304A;
+      --pink:#FF0070;
+      --magenta:#E800B8;
+      --violet:#7D14FF;
+      --blue:#453BFF;
+      --surface:#FFFFFF;
+      --line:#EAE7EE;
+      --soft:#FAF7FC;
+      --danger:#B42318;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0;
+      min-height:100vh;
+      color:var(--ink);
+      background:
+        radial-gradient(circle at 10% 6%,rgba(255,0,112,.07),transparent 30%),
+        radial-gradient(circle at 90% 3%,rgba(125,20,255,.07),transparent 28%),
+        linear-gradient(180deg,#FFFFFF 0%,#FFF9FC 54%,#FFFFFF 100%);
+      line-height:1.55;
+    }
+    a { color:#5B37F2; }
+    a:focus-visible, summary:focus-visible { outline:3px solid rgba(91,55,242,.28); outline-offset:3px; border-radius:6px; }
+    .wrap { width:min(900px,calc(100% - 32px)); margin:0 auto; }
+    header { padding:24px 0 6px; }
+    .nav { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .identity { display:flex; align-items:center; gap:11px; text-decoration:none; color:var(--ink); }
+    .mark { width:46px; height:46px; border-radius:12px; object-fit:cover; box-shadow:0 8px 22px rgba(255,0,112,.16); }
+    .brand {
+      font-size:21px; font-weight:850;
+      background:linear-gradient(90deg,var(--coral),var(--pink),var(--violet),var(--blue));
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+    }
+    .navlinks { display:flex; gap:16px; font-size:14px; font-weight:700; }
+    .navlinks a { text-decoration:none; color:var(--muted); }
+    .hero {
+      margin:28px 0 22px;
+      padding:38px 34px;
+      border:1px solid rgba(255,0,112,.10);
+      border-radius:30px;
+      background:rgba(255,255,255,.92);
+      box-shadow:0 24px 70px rgba(64,20,95,.09);
+    }
+    .eyebrow { color:var(--pink); font-size:13px; font-weight:850; letter-spacing:.05em; text-transform:uppercase; }
+    h1 { margin:7px 0 10px; font-size:clamp(36px,7vw,56px); line-height:1.02; letter-spacing:-1.5px; }
+    .lede { margin:0; max-width:690px; font-size:18px; color:var(--muted); }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; }
+    .button {
+      display:inline-flex; align-items:center; justify-content:center;
+      min-height:48px; padding:0 18px; border-radius:15px;
+      text-decoration:none; font-weight:800;
+    }
+    .primary {
+      color:#fff;
+      background:linear-gradient(110deg,var(--orange),var(--coral),var(--pink),var(--magenta),var(--violet),var(--blue));
+      box-shadow:0 10px 24px rgba(255,0,112,.18);
+    }
+    .secondary { color:var(--violet); background:#F4EFFF; }
+    .updated { margin-top:14px; color:#8A8793; font-size:13px; }
+    .section { margin:22px 0; }
+    h2 { margin:0 0 12px; font-size:26px; letter-spacing:-.4px; }
+    h3 { margin:0 0 6px; font-size:17px; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+    .card {
+      padding:20px;
+      border-radius:20px;
+      border:1px solid var(--line);
+      background:var(--surface);
+      box-shadow:0 9px 28px rgba(30,18,45,.04);
+    }
+    .card p { margin:5px 0 0; color:var(--muted); }
+    .card ul, .card ol { margin:8px 0 0; padding-left:22px; color:var(--muted); }
+    .card li + li { margin-top:5px; }
+    .contact-card {
+      padding:24px;
+      border-radius:22px;
+      color:#fff;
+      background:linear-gradient(125deg,#FF304A,#FF0070,#7D14FF,#453BFF);
+      box-shadow:0 18px 42px rgba(101,35,180,.18);
+    }
+    .contact-card h2 { color:#fff; }
+    .contact-card p { color:rgba(255,255,255,.88); }
+    .contact-card a { color:#fff; font-weight:800; }
+    details {
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:16px;
+      padding:0 17px;
+      margin:10px 0;
+    }
+    summary { cursor:pointer; list-style:none; padding:16px 0; font-weight:800; }
+    summary::-webkit-details-marker { display:none; }
+    summary::after { content:"+"; float:right; color:var(--violet); font-size:20px; line-height:18px; }
+    details[open] summary::after { content:"−"; }
+    details .answer { padding:0 0 17px; color:var(--muted); }
+    details .answer p { margin:0 0 9px; }
+    details .answer ol, details .answer ul { margin:8px 0 0; padding-left:22px; }
+    .notice {
+      border-left:4px solid var(--violet);
+      padding:14px 16px;
+      background:#F8F5FF;
+      border-radius:4px 14px 14px 4px;
+      color:#4A4655;
+    }
+    .safety { border-left-color:var(--coral); background:#FFF5F6; }
+    footer { margin-top:36px; padding:24px 0 44px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+    footer .footlinks { display:flex; flex-wrap:wrap; gap:14px; margin-top:8px; }
+    @media (max-width:700px) {
+      .grid { grid-template-columns:1fr; }
+      .hero { padding:30px 22px; border-radius:24px; }
+      .navlinks { gap:10px; font-size:13px; }
+      .mark { width:42px; height:42px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <nav class="nav" aria-label="SnapLoop support navigation">
+      <a class="identity" href="/" aria-label="SnapLoop home">
+        <img class="mark" src="/SnapLoopBrandMark.png" alt="SnapLoop" />
+        <span class="brand">SnapLoop</span>
+      </a>
+      <div class="navlinks">
+        <a href="#help">Help</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="#contact">Contact</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <div class="eyebrow">Official Support</div>
+      <h1>How can we help?</h1>
+      <p class="lede">Get help with Events, photo access, Face Setup, Face Match, finding your photos, privacy controls, and your SnapLoop account.</p>
+      <div class="actions">
+        <a class="button primary" href="mailto:g.chhiber3@gmail.com?subject=SnapLoop%20Support">Email SnapLoop Support</a>
+        <a class="button secondary" href="/privacy.html">View Privacy Policy</a>
+      </div>
+      <div class="updated">Support information last updated August 29, 2026.</div>
+    </section>
+
+    <section class="section" aria-labelledby="quick-help">
+      <h2 id="quick-help">Quick help</h2>
+      <div class="grid">
+        <article class="card">
+          <h3>Joining an Event</h3>
+          <p>Open the invitation link or enter the Event invitation information in SnapLoop. You must be an Event member to participate in that Event.</p>
+        </article>
+        <article class="card">
+          <h3>Photo Access</h3>
+          <p>SnapLoop can work with Full Photos Access or Selected Photos access. With Selected Photos, only photos you choose are available for scanning.</p>
+        </article>
+        <article class="card">
+          <h3>Face Match</h3>
+          <p>Face Match is optional. It requires separate express consent and a Face Setup using the signed-in account holder's own face.</p>
+        </article>
+        <article class="card">
+          <h3>My Photos</h3>
+          <p>Matched photos from eligible Event-date photos appear in My Photos when the matching and sharing requirements for that Event are satisfied.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" id="help" aria-labelledby="faq-heading">
+      <h2 id="faq-heading">Frequently asked questions</h2>
+
+      <details>
+        <summary>Why can't SnapLoop see all of my Event photos?</summary>
+        <div class="answer">
+          <p>If iOS Photos access is set to Selected Photos, SnapLoop can only scan the photos you have allowed.</p>
+          <ol>
+            <li>Open SnapLoop and go to <strong>You</strong>.</li>
+            <li>Under <strong>Photo Access</strong>, choose <strong>Add More Photos</strong> if you want to add specific photos.</li>
+            <li>To change the permission to all photos, use <strong>Manage Photo Access</strong> or open the SnapLoop settings in iOS and choose Full Photos Access.</li>
+          </ol>
+          <p>Event scanning is also limited to photos eligible for the Event's selected date range.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>How do I scan for new Event photos?</summary>
+        <div class="answer">
+          <p>Open the Event and select <strong>Scan Photos</strong>, then start the scan. Keep SnapLoop open while a scan is running. If your photo permission is limited, you can select more photos or allow full access before scanning.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Why am I not seeing a photo of me?</summary>
+        <div class="answer">
+          <p>Check that you joined the correct Event, completed Face Setup if you are using Face Match, and that the photo falls within the Event's selected date range. The person whose iPhone contains the photo must also have the relevant photo available to SnapLoop and photo sharing enabled for the Event.</p>
+          <p>If the photo still does not appear, refresh My Photos or run Scan Photos again from the Event.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>What does Face Setup store?</summary>
+        <div class="answer">
+          <p>Your Face Setup selfie/reference image stays on your iPhone. With your express Face Match consent, SnapLoop stores numerical face-template information used for Event-scoped matching. Face Match is optional and is not required to use non-biometric portions of SnapLoop.</p>
+          <p>For the complete current disclosure, including retention, candidate-face processing, eligible jurisdictions, and withdrawal controls, read the <a href="/privacy.html#face-match-notice">Face Match Biometric Notice</a>.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Where is Face Match available?</summary>
+        <div class="answer">
+          <p>For the current launch, Face Match is offered in India and supported Canadian provinces and territories. It is not currently offered in Quebec or the United States. Availability may be restricted further for legal, security, or operational reasons.</p>
+          <p>App availability in an App Store region does not guarantee that Face Match is available in that region.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>How do I withdraw Face Match consent?</summary>
+        <div class="answer">
+          <p>In SnapLoop, open <strong>You → Privacy &amp; Data → Face Match Consent</strong>. You can review the current notice or withdraw active consent there. Withdrawal does not require deleting your whole SnapLoop account.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>How do I delete my SnapLoop account?</summary>
+        <div class="answer">
+          <p>SnapLoop provides account deletion inside the app:</p>
+          <ol>
+            <li>Open <strong>You</strong>.</li>
+            <li>Open <strong>Privacy &amp; Data</strong>.</li>
+            <li>Scroll to <strong>Delete Account</strong>.</li>
+            <li>Tap <strong>Delete SnapLoop Account</strong> and confirm.</li>
+          </ol>
+          <p>This permanently removes the account and initiates deletion of associated account data, including face data, Event memberships, and photo previews sourced from that account, subject to limited records that may be retained where reasonably necessary or legally required as described in the Privacy Policy.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>How long is Event data kept?</summary>
+        <div class="answer">
+          <p>Event-related cloud data, including matched photo previews, is scheduled for deletion within 15 days after an Event ends or is manually deleted. Face Match consent and account-level numerical face templates have separate retention rules described in the <a href="/privacy.html">Privacy Policy</a>.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>I changed phones or reinstalled SnapLoop. What should I check?</summary>
+        <div class="answer">
+          <p>Sign in with your SnapLoop account, review your iOS Photos permission, and confirm your current Face Setup status. The Face Setup reference image is stored locally on the iPhone, so you may need to complete Face Setup again on a new installation even when account-level settings still exist.</p>
+        </div>
+      </details>
+    </section>
+
+    <section class="section" aria-labelledby="privacy-support">
+      <h2 id="privacy-support">Privacy, safety, and content concerns</h2>
+      <div class="notice">
+        SnapLoop does not upload your entire photo library. Photo scanning is limited by iOS Photos permission and the Event's selected date range. For complete details about personal data, biometric information, sharing, retention, consent, and deletion, review the <a href="/privacy.html">SnapLoop Privacy Policy</a>.
+      </div>
+      <div class="notice safety" style="margin-top:12px;">
+        To report misuse, an unwanted or inappropriate shared photo, an account or Event safety concern, or another abuse issue, contact SnapLoop Support at <a href="mailto:g.chhiber3@gmail.com?subject=SnapLoop%20Safety%20or%20Abuse%20Report">g.chhiber3@gmail.com</a>. Include enough information for us to identify the Event or issue, but do not send passwords, one-time verification codes, or sensitive photos unless support specifically requests them.
+      </div>
+    </section>
+
+    <section class="section contact-card" id="contact" aria-labelledby="contact-heading">
+      <h2 id="contact-heading">Contact SnapLoop Support</h2>
+      <p>For technical support, account questions, privacy requests, safety reports, or problems using SnapLoop, email <a href="mailto:g.chhiber3@gmail.com?subject=SnapLoop%20Support">g.chhiber3@gmail.com</a>.</p>
+      <p>When useful, include your iPhone model, iOS version, SnapLoop app version, the screen where the problem occurred, and a short description of what you expected to happen. Do not include passwords or SMS verification codes.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <strong>SnapLoop</strong> · Support for the SnapLoop iOS app.
+      <div class="footlinks">
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/privacy.html#face-match-notice">Face Match Biometric Notice</a>
+        <a href="mailto:g.chhiber3@gmail.com?subject=SnapLoop%20Support">Contact Support</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
