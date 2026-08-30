@@ -27,4 +27,12 @@ public enum DateFormatting {
         let f = DateFormatter(); f.dateStyle = .long; f.timeStyle = .none
         return f.string(from: date)
     }
+
+    /// Fixed compact photo date, e.g. "29/08/26".
+    public static func compactNumeric(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "dd/MM/yy"
+        return f.string(from: date)
+    }
 }
