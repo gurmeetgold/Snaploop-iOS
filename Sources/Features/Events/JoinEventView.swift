@@ -33,11 +33,14 @@ final class JoinEventModel: ObservableObject {
         inviterLabel = nil
         do {
             let event: Event
-            switch route {
+            switch route.reviewRoute {
             case .joinEventByToken(let token):
                 event = try await env.events.fetchEvent(inviteToken: token)
             case .joinEventByCode(let code):
                 event = try await env.events.fetchEvent(joinCode: code)
+            default:
+                phase = .error("This invitation link is invalid.")
+                return
             }
 
             // This server-curated preview can identify the actual Admin who sent
@@ -75,7 +78,13 @@ final class JoinEventModel: ObservableObject {
                 participantCount = 0
             }
 
-            phase = session.hasFaceProfile ? .ready(event) : .needsFaceSetup(event)
+            // Declining does not require Face Setup. Accepting still uses the
+            // normal Face Setup gate before membership is created.
+            if route.action == .decline {
+                phase = .ready(event)
+            } else {
+                phase = session.hasFaceProfile ? .ready(event) : .needsFaceSetup(event)
+            }
         } catch let error as AppError {
             phase = .error(error.userMessage)
         } catch {
@@ -121,11 +130,9 @@ struct JoinEventView: View {
     @EnvironmentObject private var session: AppSession
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = JoinEventModel()
+    @State private var hasPerformedAutomaticAction = false
 
-    private var isPhoneInvitation: Bool {
-        if case .joinEventByToken = route { return true }
-        return false
-    }
+    private var isPhoneInvitation: Bool { route.isTokenInvitation }
 
     var body: some View {
         ZStack {
@@ -186,14 +193,34 @@ struct JoinEventView: View {
             model.configure(env: env, session: session)
             await model.load(route: route)
             openIfJoined()
+            performAutomaticActionIfReady()
         }
-        .onChange(of: model.phase) { _, _ in openIfJoined() }
+        .onChange(of: model.phase) { _, _ in
+            openIfJoined()
+            performAutomaticActionIfReady()
+        }
     }
 
     private func openIfJoined() {
         if case .joined(let event) = model.phase {
+            PendingInviteStore.clear()
             onJoined(event)
             dismiss()
+        }
+    }
+
+    private func performAutomaticActionIfReady() {
+        guard !hasPerformedAutomaticAction else { return }
+        guard case .ready(let event) = model.phase else { return }
+        switch route.action {
+        case .accept:
+            hasPerformedAutomaticAction = true
+            Task { await model.join(event: event) }
+        case .decline:
+            hasPerformedAutomaticAction = true
+            Task { await model.decline(event: event) }
+        case .review:
+            break
         }
     }
 
@@ -246,7 +273,7 @@ struct JoinEventView: View {
                     .frame(maxWidth: .infinity)
                 }
 
-                Text("Join this Event to get photos of you found on participating members’ phones.")
+                Text("Join this Event to get your photos found on other participating members’ phones.")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.ink.opacity(0.82))
                     .multilineTextAlignment(.center)
@@ -264,7 +291,7 @@ struct JoinEventView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                } else {
+                } else if route.action == .review {
                     Button {
                         guard !model.isJoining, !model.isDeclining else { return }
                         Task { await model.join(event: event) }
@@ -278,6 +305,14 @@ struct JoinEventView: View {
                     }
                     .buttonStyle(MyPicsTubePrimaryButtonStyle())
                     .disabled(model.isJoining || model.isDeclining)
+                } else {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(route.action == .decline ? "Declining invitation…" : "Joining Event…")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 48)
                 }
 
                 if let actionError = model.actionError {
@@ -288,7 +323,7 @@ struct JoinEventView: View {
                         .padding(.horizontal, 8)
                 }
 
-                if isPhoneInvitation {
+                if isPhoneInvitation && route.action == .review {
                     Button(role: .destructive) {
                         guard !model.isJoining, !model.isDeclining else { return }
                         Task { await model.decline(event: event) }
