@@ -1,3 +1,4 @@
+const { randomUUID } = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
 const { removeRecipientMatchMetadata } = require("./change4MatchMetadata");
@@ -47,7 +48,11 @@ async function disableOwnMatchesEverywhereFor(uid) {
     const memberRef = db.doc(`events/${eventRef.id}/members/${uid}`);
     const member = await memberRef.get();
     if (!member.exists || member.data()?.includeOwnMatches !== true) continue;
-    await memberRef.update({ includeOwnMatches: false, ownMatchesUpdatedAt: Timestamp.now() });
+    await memberRef.update({
+      includeOwnMatches: false,
+      ownMatchesRevision: randomUUID(),
+      ownMatchesUpdatedAt: Timestamp.now(),
+    });
     changed += 1;
   }
   return changed;
@@ -61,12 +66,16 @@ exports.getMemberPhotoPreferences = onCall(async (request) => {
   const sharingRevision = typeof data.sharingRevision === "string" && data.sharingRevision.trim()
     ? data.sharingRevision.trim()
     : null;
+  const ownMatchesRevision = typeof data.ownMatchesRevision === "string" && data.ownMatchesRevision.trim()
+    ? data.ownMatchesRevision.trim()
+    : null;
 
   return {
     eventId,
     sharingEnabled,
     includeOwnMatches: sharingEnabled && data.includeOwnMatches === true,
     sharingRevision,
+    ownMatchesRevision,
     sharingUpdatedAtMillis: data.sharingUpdatedAt?.toMillis ? data.sharingUpdatedAt.toMillis() : 0,
     ownMatchesUpdatedAtMillis: data.ownMatchesUpdatedAt?.toMillis ? data.ownMatchesUpdatedAt.toMillis() : 0,
   };
@@ -95,13 +104,18 @@ exports.setOwnPhotoVisibility = onCall(async (request) => {
   }
 
   if (data.includeOwnMatches !== enabled) {
-    await ref.update({ includeOwnMatches: enabled, ownMatchesUpdatedAt: Timestamp.now() });
+    await ref.update({
+      includeOwnMatches: enabled,
+      ownMatchesRevision: randomUUID(),
+      ownMatchesUpdatedAt: Timestamp.now(),
+    });
   }
 
   // Turning this off hides existing photos sourced from this account from the
   // owner's own Gallery while preserving every other recipient and preserving a
-  // prior explicit Not-Me tombstone. Turning it back on creates a fresh local
-  // own-recipient cursor, so cached photo-face extraction can republish safely.
+  // prior explicit Not-Me tombstone. The ownMatchesRevision changes on both OFF
+  // and ON, so the source device can invalidate only its own recipient cursor on
+  // the next scan even if no scan happened while the setting was OFF.
   if (!enabled) {
     const sourceSnap = await db.collection(`events/${eventId}/photos`)
       .where("sourceUserId", "==", uid)
