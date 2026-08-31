@@ -59,10 +59,33 @@ enum EventFaceProfileClient {
         )
     }
 
-    /// Compatibility surface for callers that only need recipient descriptors.
+    /// Compatibility surface used by existing scan callers. If the source user
+    /// is still an Event member but no longer has an active/matchable Face Setup,
+    /// append a deliberately non-matchable membership carrier. The coordinator
+    /// needs the source membership generation for the publication commit barrier,
+    /// but FaceMatcher will ignore this row because its face profile version and
+    /// identity are intentionally invalid for matching.
     @MainActor
     static func list(eventId: String) async throws -> [EventParticipant] {
-        try await manifest(eventId: eventId).participants
+        let manifest = try await manifest(eventId: eventId)
+        var participants = manifest.participants
+
+        if let userId = Auth.auth().currentUser?.uid,
+           participants.first(where: { $0.userId == userId }) == nil,
+           let sourceMembershipId = manifest.sourceMembershipId {
+            participants.append(EventParticipant(
+                userId: userId,
+                membershipId: sourceMembershipId,
+                displayName: nil,
+                faceIdentityId: nil,
+                faceEmbedding: FaceEmbedding(normalized: [1]),
+                faceTemplates: [],
+                faceProfileVersion: 0,
+                joinedAt: .distantPast
+            ))
+        }
+
+        return participants
     }
 
     @MainActor
