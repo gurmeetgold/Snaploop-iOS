@@ -199,8 +199,31 @@ final class InMemoryMatchRepository: MatchRepository, @unchecked Sendable {
     private var store: [String: PhotoMatch] = [:]
 
     func upload(match: PhotoMatch, thumbnailJPEG: Data) async throws {
-        lock.lock(); store[match.id] = match; lock.unlock()
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard match.isSourceScopedIdentity, let existing = store[match.id] else {
+            store[match.id] = match
+            return
+        }
+
+        // Change-4 publishes only the recipients newly evaluated for a cached
+        // source photo. Merge those rows into the deterministic source-scoped
+        // document so retries/new members never erase earlier valid recipients.
+        var appearancesByUser = Dictionary(
+            uniqueKeysWithValues: existing.appearances.map { ($0.participantUserId, $0) }
+        )
+        for appearance in match.appearances {
+            appearancesByUser[appearance.participantUserId] = appearance
+        }
+        var merged = match
+        merged.appearances = appearancesByUser.values.sorted {
+            if $0.confidence != $1.confidence { return $0.confidence > $1.confidence }
+            return $0.participantUserId < $1.participantUserId
+        }
+        store[match.id] = merged
     }
+
     func dismissAppearance(matchId: String, participantUserId: String) async throws {
         lock.lock(); defer { lock.unlock() }
         guard var m = store[matchId] else { return }
