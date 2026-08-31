@@ -11,21 +11,40 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function memberPath(eventId, userId) {
+      return /databases/$(database)/documents/events/$(eventId)/members/$(userId);
+    }
+
     function isMember(eventId) {
-      return isSignedIn() &&
-        exists(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid));
+      return isSignedIn() && exists(memberPath(eventId, request.auth.uid));
     }
 
     function isOrganizer(eventId) {
       return isMember(eventId) &&
-        get(/databases/$(database)/documents/events/$(eventId)/members/$(request.auth.uid)).data.role == 'organizer';
+        get(memberPath(eventId, request.auth.uid)).data.role == 'organizer';
     }
 
     function faceProfilePath(userId) {
       return /databases/$(database)/documents/users/$(userId)/faceProfile/current;
     }
 
-    function isMatchedInPhoto() {
+    // Legacy photo documents have no per-participation binding and continue to
+    // use the existing stable-face authorization during migration. New photo
+    // documents contain matchedMembershipIds; for those, leave/rejoin must not
+    // revive access from the previous Event participation.
+    function currentMembershipGenerationMatches(eventId) {
+      return resource.data.get('matchedMembershipIds', {}) is map
+        && (
+          resource.data.get('matchedMembershipIds', {}).get(request.auth.uid, '') == ''
+          || (
+            get(memberPath(eventId, request.auth.uid)).data.get('membershipId', '') != ''
+            && resource.data.get('matchedMembershipIds', {}).get(request.auth.uid, '') ==
+               get(memberPath(eventId, request.auth.uid)).data.get('membershipId', '')
+          )
+        );
+    }
+
+    function isMatchedInPhoto(eventId) {
       return isSignedIn()
         && resource.data.matchedUserIds is list
         && resource.data.matchedUserIds.hasAny([request.auth.uid])
@@ -33,7 +52,8 @@ service cloud.firestore {
         && exists(faceProfilePath(request.auth.uid))
         && resource.data.matchedFaceIdentityIds.get(request.auth.uid, '') != ''
         && resource.data.matchedFaceIdentityIds.get(request.auth.uid, '') ==
-           get(faceProfilePath(request.auth.uid)).data.get('faceIdentityId', '');
+           get(faceProfilePath(request.auth.uid)).data.get('faceIdentityId', '')
+        && currentMembershipGenerationMatches(eventId);
     }
 
     match /users/{userId} {
@@ -113,11 +133,11 @@ service cloud.firestore {
       }
 
       match /photos/{photoId} {
-        // Continued access is tied to the viewer's stable biometric identity,
-        // not to a particular enrollment revision. A verified same-person Face
-        // Setup refresh preserves existing positive matches; deleting Face Setup
-        // and enrolling a new identity revokes the older photo authorization.
-        allow read: if isMember(eventId) && isMatchedInPhoto();
+        // Access is tied to both the viewer's stable biometric identity and, for
+        // newly published photos, the exact uninterrupted Event participation.
+        // Same-person Face Setup refreshes preserve identity access; leave/rejoin
+        // receives a new membershipId and cannot revive generation-bound photos.
+        allow read: if isMember(eventId) && isMatchedInPhoto(eventId);
         allow create, update, delete: if false;
       }
     }
