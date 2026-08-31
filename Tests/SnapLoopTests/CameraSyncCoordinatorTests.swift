@@ -3,6 +3,7 @@ import XCTest
 
 final class CameraSyncCoordinatorTests: XCTestCase {
     private let day: TimeInterval = 86_400
+    private let installationId = "test-source-installation"
 
     private struct ScriptedLibrary: PhotoLibraryService {
         let assetsList: [PhotoAsset]
@@ -21,6 +22,13 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding { FaceEmbedding(normalized: [1, 0, 0]) }
     }
 
+    private final class FixedInstallationIdentity: AccountInstallationIdentityProviding, @unchecked Sendable {
+        let value: String
+        init(_ value: String) { self.value = value }
+        func id(for userId: String) -> String { value }
+        func resetInstallation() {}
+    }
+
     private func face(_ raw: [Float]) -> DetectedFace { DetectedFace(embedding: FaceEmbedding(raw)!, sizeFraction: 0.5) }
 
     private func makeEvent(now: Date) -> Event {
@@ -30,7 +38,7 @@ final class CameraSyncCoordinatorTests: XCTestCase {
     }
 
     private func bobRoster(identity: String = "bob-face", revision: String = "A") -> [EventParticipant] {
-        [EventParticipant(userId: "bob", displayName: "Bob",
+        [EventParticipant(userId: "bob", membershipId: "bob-membership", displayName: "Bob",
                           faceIdentityId: identity,
                           faceEmbedding: FaceEmbedding([1, 0, 0])!,
                           faceTemplates: [
@@ -41,30 +49,33 @@ final class CameraSyncCoordinatorTests: XCTestCase {
                           joinedAt: Date(timeIntervalSince1970: 1))]
     }
 
-    private func scanKey(
-        eventId: String = "e1",
-        userId: String = "alice",
-        includeOwnMatches: Bool = false,
-        preferenceRevision: String = "default",
-        participants: [EventParticipant]? = nil
-    ) -> String {
-        let roster = participants ?? bobRoster()
-        let rosterIdentity = roster
-            .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
-            .sorted()
-            .joined(separator: ";")
-        return [
-            eventId,
-            userId,
-            FaceModelPolicy.scanGeneration,
-            "sharing-v5",
-            includeOwnMatches ? "own-on" : "own-off",
-            preferenceRevision,
-            rosterIdentity,
-        ].joined(separator: "::")
+    private func scanKey(eventId: String = "e1") -> String {
+        CameraSyncCoordinator.scanStateKey(
+            eventId: eventId,
+            sourceInstallationId: installationId
+        )
     }
 
-    func testUploadsOnlyMatchesForOtherMembersAndMarksAllScanned() async throws {
+    private func coordinator(
+        now: Date,
+        assets: [PhotoAsset],
+        detector: ScriptedDetector,
+        matches: MatchRepository = InMemoryMatchRepository(),
+        scanStore: ScanStateStore
+    ) -> CameraSyncCoordinator {
+        CameraSyncCoordinator(
+            config: StaticConfigProvider(.default),
+            clock: FixedClock(now),
+            photoLibrary: ScriptedLibrary(assetsList: assets),
+            faceDetection: detector,
+            thumbnailEncoder: PassthroughThumbnailEncoder(),
+            matches: matches,
+            scanStateStore: scanStore,
+            accountInstallationIdentity: FixedInstallationIdentity(installationId)
+        )
+    }
+
+    func testUploadsOnlyMatchesForOtherMembersAndBuildsCorpusForAllAssets() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let event = makeEvent(now: now)
         let roster = bobRoster()
@@ -81,14 +92,12 @@ final class CameraSyncCoordinatorTests: XCTestCase {
 
         let matchRepo = InMemoryMatchRepository()
         let scanStore = InMemoryScanStateStore()
-        let coordinator = CameraSyncCoordinator(
-            config: StaticConfigProvider(.default),
-            clock: FixedClock(now),
-            photoLibrary: ScriptedLibrary(assetsList: assets),
-            faceDetection: detector,
-            thumbnailEncoder: PassthroughThumbnailEncoder(),
+        let coordinator = coordinator(
+            now: now,
+            assets: assets,
+            detector: detector,
             matches: matchRepo,
-            scanStateStore: scanStore
+            scanStore: scanStore
         )
 
         let summary = try await coordinator.sync(event: event, participants: roster, currentUserId: "alice")
@@ -99,6 +108,7 @@ final class CameraSyncCoordinatorTests: XCTestCase {
 
         let bobPhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "bob")
         XCTAssertEqual(Set(bobPhotos.map(\.assetLocalId)), ["a1", "a3"])
+        XCTAssertTrue(bobPhotos.allSatisfy { $0.isSourceScopedIdentity })
         XCTAssertTrue(bobPhotos.allSatisfy { match in
             match.appearances.allSatisfy {
                 $0.faceIdentityId == roster[0].stableFaceIdentityId
@@ -107,26 +117,21 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         })
         let alicePhotos = try await matchRepo.myPhotos(eventId: "e1", userId: "alice")
         XCTAssertTrue(alicePhotos.isEmpty)
-        XCTAssertEqual(scanStore.load(eventId: scanKey(participants: roster)).scannedCount, 3)
+
+        let storedState = scanStore.load(eventId: scanKey())
+        XCTAssertEqual(storedState.corpusCount, 3)
+        XCTAssertEqual(storedState.recipientCursor(userId: "bob")?.positiveAssetIds, ["a1", "a3"])
+        XCTAssertEqual(storedState.recipientCursor(userId: "bob")?.negativeAssetIds, ["a2"])
     }
 
-    func testSecondPassIsCaughtUpAndRescansNothing() async throws {
+    func testSecondPassIsCaughtUpAndProcessesNothing() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let event = makeEvent(now: now)
         let assets = [PhotoAsset(id: "a1", creationDate: now)]
         let detector = ScriptedDetector(facesByAsset: ["a1": [face([1, 0, 0])]])
         let scanStore = InMemoryScanStateStore()
         let roster = bobRoster()
-
-        let coordinator = CameraSyncCoordinator(
-            config: StaticConfigProvider(.default),
-            clock: FixedClock(now),
-            photoLibrary: ScriptedLibrary(assetsList: assets),
-            faceDetection: detector,
-            thumbnailEncoder: PassthroughThumbnailEncoder(),
-            matches: InMemoryMatchRepository(),
-            scanStateStore: scanStore
-        )
+        let coordinator = coordinator(now: now, assets: assets, detector: detector, scanStore: scanStore)
 
         _ = try await coordinator.sync(event: event, participants: roster, currentUserId: "alice")
         let second = try await coordinator.sync(event: event, participants: roster, currentUserId: "alice")
@@ -135,21 +140,13 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         XCTAssertTrue(second.alreadyCaughtUp)
     }
 
-    func testSameIdentityFaceSetupRefreshPreservesScanState() async throws {
+    func testSameIdentityFaceSetupRefreshPreservesPriorPositive() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let event = makeEvent(now: now)
         let assets = [PhotoAsset(id: "a1", creationDate: now)]
         let detector = ScriptedDetector(facesByAsset: ["a1": [face([1, 0, 0])]])
         let scanStore = InMemoryScanStateStore()
-        let coordinator = CameraSyncCoordinator(
-            config: StaticConfigProvider(.default),
-            clock: FixedClock(now),
-            photoLibrary: ScriptedLibrary(assetsList: assets),
-            faceDetection: detector,
-            thumbnailEncoder: PassthroughThumbnailEncoder(),
-            matches: InMemoryMatchRepository(),
-            scanStateStore: scanStore
-        )
+        let coordinator = coordinator(now: now, assets: assets, detector: detector, scanStore: scanStore)
 
         let oldRoster = bobRoster(identity: "bob-face", revision: "A")
         let refreshedRoster = bobRoster(identity: "bob-face", revision: "B")
@@ -160,32 +157,25 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         let afterRefresh = try await coordinator.sync(event: event, participants: refreshedRoster, currentUserId: "alice")
 
         XCTAssertEqual(first.scanned, 1)
-        XCTAssertEqual(afterRefresh.scanned, 0, "Same-person Face Setup refresh must preserve prior scan state and positive matches")
+        XCTAssertEqual(afterRefresh.scanned, 0, "Same-person Face Setup refresh must preserve prior positive matches")
         XCTAssertTrue(afterRefresh.alreadyCaughtUp)
     }
 
-    func testNewFaceIdentityForcesFreshScanNamespace() async throws {
+    func testNewFaceIdentityReevaluatesCachedCorpus() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let event = makeEvent(now: now)
         let assets = [PhotoAsset(id: "a1", creationDate: now)]
         let detector = ScriptedDetector(facesByAsset: ["a1": [face([1, 0, 0])]])
         let scanStore = InMemoryScanStateStore()
-        let coordinator = CameraSyncCoordinator(
-            config: StaticConfigProvider(.default),
-            clock: FixedClock(now),
-            photoLibrary: ScriptedLibrary(assetsList: assets),
-            faceDetection: detector,
-            thumbnailEncoder: PassthroughThumbnailEncoder(),
-            matches: InMemoryMatchRepository(),
-            scanStateStore: scanStore
-        )
+        let coordinator = coordinator(now: now, assets: assets, detector: detector, scanStore: scanStore)
 
         let oldRoster = bobRoster(identity: "bob-face-A", revision: "A")
         let newIdentityRoster = bobRoster(identity: "bob-face-B", revision: "A")
         _ = try await coordinator.sync(event: event, participants: oldRoster, currentUserId: "alice")
         let afterIdentityChange = try await coordinator.sync(event: event, participants: newIdentityRoster, currentUserId: "alice")
 
-        XCTAssertEqual(afterIdentityChange.scanned, 1, "A genuinely new face identity must not reuse the old identity's scan state")
+        XCTAssertEqual(afterIdentityChange.scanned, 1, "A genuinely new face identity must reevaluate the historical corpus")
+        XCTAssertEqual(scanStore.load(eventId: scanKey()).corpusCount, 1)
     }
 
     func testRefusesToSyncExpiredEvent() async {
@@ -194,14 +184,11 @@ final class CameraSyncCoordinatorTests: XCTestCase {
                           startsAt: now.addingTimeInterval(-30 * day),
                           endsAt: now.addingTimeInterval(-20 * day),
                           createdAt: now.addingTimeInterval(-30 * day))
-        let coordinator = CameraSyncCoordinator(
-            config: StaticConfigProvider(.default),
-            clock: FixedClock(now),
-            photoLibrary: ScriptedLibrary(assetsList: []),
-            faceDetection: ScriptedDetector(facesByAsset: [:]),
-            thumbnailEncoder: PassthroughThumbnailEncoder(),
-            matches: InMemoryMatchRepository(),
-            scanStateStore: InMemoryScanStateStore()
+        let coordinator = coordinator(
+            now: now,
+            assets: [],
+            detector: ScriptedDetector(facesByAsset: [:]),
+            scanStore: InMemoryScanStateStore()
         )
 
         do {
