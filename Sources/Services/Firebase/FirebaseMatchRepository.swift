@@ -22,16 +22,6 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         let path = "events/\(match.eventId)/photos/\(match.ownerUserId)/\(docId)/thumbnail.jpg"
         let ref = storage.reference(withPath: path)
 
-        let metadata = StorageMetadata()
-        metadata.contentType = "image/jpeg"
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            ref.putData(thumbnailJPEG, metadata: metadata) { _, error in
-                if let error { continuation.resume(throwing: error) }
-                else { continuation.resume(returning: ()) }
-            }
-        }
-
         let appearances: [[String: Any]] = try match.appearances.map {
             guard let identityId = $0.faceIdentityId?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !identityId.isEmpty,
@@ -51,17 +41,57 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             return row
         }
 
+        let recipientRemovals: [[String: Any]] = try (match.recipientRemovals ?? []).map { removal in
+            let identityId = removal.faceIdentityId.trimmingCharacters(in: .whitespacesAndNewlines)
+            let revision = removal.faceProfileRevision.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !removal.participantUserId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !identityId.isEmpty,
+                  !revision.isEmpty else {
+                throw AppError.decoding("recipient removal missing current identity metadata")
+            }
+            var row: [String: Any] = [
+                "participantUserId": removal.participantUserId,
+                "faceIdentityId": identityId,
+                "faceProfileRevision": revision,
+            ]
+            if let membershipId = removal.recipientMembershipId,
+               !membershipId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                row["recipientMembershipId"] = membershipId
+            }
+            return row
+        }
+
+        // A removal-only ambiguity reconciliation changes authorization metadata
+        // on an already-published photo. It must not decode, encode or upload the
+        // image again merely to revoke a stale recipient.
+        let metadataOnly = match.isSourceScopedIdentity
+            && appearances.isEmpty
+            && !recipientRemovals.isEmpty
+
+        if !metadataOnly {
+            let metadata = StorageMetadata()
+            metadata.contentType = "image/jpeg"
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                ref.putData(thumbnailJPEG, metadata: metadata) { _, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: ()) }
+                }
+            }
+        }
+
         var payload: [String: Any] = [
             "id": match.id,
             "eventId": match.eventId,
             "assetLocalId": match.assetLocalId,
             "appearances": appearances,
+            "recipientRemovals": recipientRemovals,
             "capturedAtMillis": Int64(match.capturedAt.timeIntervalSince1970 * 1000),
             "matchedAtMillis": Int64(match.matchedAt.timeIntervalSince1970 * 1000),
             "thumbnailPath": path,
             // Only Change-4 source-scoped photo IDs request additive recipient
             // merge semantics. Legacy installed clients retain full replacement.
-            "mergeAppearances": match.isSourceScopedIdentity
+            "mergeAppearances": match.isSourceScopedIdentity,
+            "metadataOnly": metadataOnly,
         ]
         if let sourceInstallationId = match.sourceInstallationId,
            !sourceInstallationId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -82,8 +112,9 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             // Leave the deterministic object in place; a retry overwrites it and
             // normal retention cleanup can remove a truly orphaned first upload.
             // Legacy IDs are single-shot replacement publications, so their
-            // failed upload remains safe to clean up eagerly.
-            if !match.isSourceScopedIdentity {
+            // failed upload remains safe to clean up eagerly. Metadata-only
+            // reconciliation never uploaded an object in this call.
+            if !metadataOnly && !match.isSourceScopedIdentity {
                 try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     ref.delete { cleanupError in
                         if let cleanupError { continuation.resume(throwing: cleanupError) }
