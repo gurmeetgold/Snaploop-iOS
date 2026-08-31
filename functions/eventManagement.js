@@ -1,4 +1,5 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
+const { randomUUID } = require("crypto");
 const admin = require("firebase-admin");
 
 const db = admin.firestore();
@@ -127,6 +128,7 @@ async function loadIdentity(uid, tx = null) {
 function memberData(uid, role, profile, joinedAt) {
   return {
     userId: uid,
+    membershipId: randomUUID(),
     role,
     joinedAt,
     sharingEnabled: true,
