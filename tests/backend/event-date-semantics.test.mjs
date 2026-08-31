@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const {
   PHOTO_WINDOW_VERSION,
+  isWithinEventGraceWindow,
   localDayNumber,
   timeZoneOffsetMinutes,
   validateEventDatePayload,
@@ -83,6 +84,28 @@ test("civil day numbers advance by one across Toronto spring and fall DST", () =
     localDayNumber(fallAfter, timeZoneOffsetMinutes(fallAfter, zone))
       - localDayNumber(fallBefore, timeZoneOffsetMinutes(fallBefore, zone)),
     1
+  );
+});
+
+test("canonical grace window remains fifteen civil days across fall DST", () => {
+  const zone = "America/Toronto";
+  const eventEnd = millis("2026-10-26T03:59:59.999Z"); // Oct 25 23:59:59.999 EDT
+  const event = {
+    photoWindowVersion: PHOTO_WINDOW_VERSION,
+    photoWindowTimeZoneId: zone,
+    photoWindowEndDayNumber: localDayNumber(
+      eventEnd,
+      timeZoneOffsetMinutes(eventEnd, zone)
+    ),
+  };
+
+  assert.equal(
+    isWithinEventGraceWindow(event, millis("2026-11-10T04:59:59.999Z"), 15), // Nov 9 23:59:59.999 EST
+    true
+  );
+  assert.equal(
+    isWithinEventGraceWindow(event, millis("2026-11-10T05:00:00.000Z"), 15), // Nov 10 00:00 EST
+    false
   );
 });
 
