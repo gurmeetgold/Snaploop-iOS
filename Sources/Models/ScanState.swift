@@ -236,7 +236,7 @@ public struct ScanState: Equatable, Codable, Sendable {
     public mutating func retainCurrentAssets(_ validIds: Set<String>) {
         scannedAssetIds.formIntersection(validIds)
         photoCorpus = photoCorpus.filter { validIds.contains($0.key) }
-        for userId in recipientCursors.keys {
+        for userId in Array(recipientCursors.keys) {
             guard var cursor = recipientCursors[userId] else { continue }
             cursor.retainAssetIds(validIds)
             recipientCursors[userId] = cursor
