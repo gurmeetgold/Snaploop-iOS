@@ -83,6 +83,42 @@ final class AutomaticSyncIdentityScopeTests: XCTestCase {
         XCTAssertNotEqual(firstFingerprint, rejoinedFingerprint)
     }
 
+    func testSourceMembershipChangeTriggersEvenWhenSourceHasNoFaceRosterRow() {
+        let roster = [participant(membershipId: "recipient-membership")]
+        let first = AutomaticSyncIdentityScope.scanTriggerFingerprint(
+            event: event(),
+            participants: roster,
+            sourceMembershipId: "source-membership-1",
+            sharingRevision: "id:sharing"
+        )
+        let rejoined = AutomaticSyncIdentityScope.scanTriggerFingerprint(
+            event: event(),
+            participants: roster,
+            sourceMembershipId: "source-membership-2",
+            sharingRevision: "id:sharing"
+        )
+
+        XCTAssertNotEqual(first, rejoined)
+    }
+
+    func testSharingGenerationChangeBypassesAutomaticCooldownFingerprint() {
+        let roster = [participant(membershipId: "recipient-membership")]
+        let before = AutomaticSyncIdentityScope.scanTriggerFingerprint(
+            event: event(),
+            participants: roster,
+            sourceMembershipId: "source-membership",
+            sharingRevision: "id:sharing-1"
+        )
+        let after = AutomaticSyncIdentityScope.scanTriggerFingerprint(
+            event: event(),
+            participants: roster,
+            sourceMembershipId: "source-membership",
+            sharingRevision: "id:sharing-2"
+        )
+
+        XCTAssertNotEqual(before, after)
+    }
+
     func testFaceSetupRevisionChangesFingerprintForSameMembership() {
         let oldProfile = participant(membershipId: "membership", revisionLabel: "old")
         let newProfile = participant(membershipId: "membership", revisionLabel: "new")
