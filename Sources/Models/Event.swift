@@ -42,6 +42,11 @@ public enum EventStatus: String, Codable, Sendable {
 }
 
 public struct Event: Identifiable, Equatable, Codable, Sendable {
+    /// v1 means `startsAt...endsAt` is already the authoritative inclusive
+    /// full-calendar-day photo window in `photoWindowTimeZoneId`. Older records
+    /// omit the metadata and keep the legacy local-calendar fallback below.
+    public static let canonicalPhotoWindowVersion = 1
+
     public let id: String
     public let joinCode: String
     public let inviteToken: String
@@ -54,6 +59,13 @@ public struct Event: Identifiable, Equatable, Codable, Sendable {
 
     public var startsAt: Date
     public var endsAt: Date
+
+    /// Additive metadata for explicit civil-day semantics. These remain optional
+    /// so cached/pre-migration Events decode without data migration or logout.
+    public var photoWindowVersion: Int?
+    public var photoWindowTimeZoneId: String?
+    public var photoWindowStartDayNumber: Int?
+    public var photoWindowEndDayNumber: Int?
 
     public var status: EventStatus
     public let createdAt: Date
@@ -70,6 +82,10 @@ public struct Event: Identifiable, Equatable, Codable, Sendable {
         locationName: String? = nil,
         startsAt: Date,
         endsAt: Date,
+        photoWindowVersion: Int? = nil,
+        photoWindowTimeZoneId: String? = nil,
+        photoWindowStartDayNumber: Int? = nil,
+        photoWindowEndDayNumber: Int? = nil,
         status: EventStatus = .active,
         createdAt: Date,
         updatedAt: Date? = nil
@@ -84,20 +100,65 @@ public struct Event: Identifiable, Equatable, Codable, Sendable {
         self.locationName = locationName
         self.startsAt = startsAt
         self.endsAt = endsAt
+        self.photoWindowVersion = photoWindowVersion
+        self.photoWindowTimeZoneId = photoWindowTimeZoneId
+        self.photoWindowStartDayNumber = photoWindowStartDayNumber
+        self.photoWindowEndDayNumber = photoWindowEndDayNumber
         self.status = status
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }
 
-    /// Event dates are selected as calendar days in the UI, so scanning must
-    /// include the entire first and last selected day regardless of the hidden
-    /// time component retained by a date-only DatePicker.
+    public var photoWindowTimeZone: TimeZone? {
+        guard photoWindowVersion == Self.canonicalPhotoWindowVersion,
+              let raw = photoWindowTimeZoneId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        return TimeZone(identifier: raw)
+    }
+
+    /// Event-date editing and display use the timezone in which the organizer's
+    /// civil dates were committed, not whichever timezone a participant happens
+    /// to be in later.
+    public var photoWindowCalendar: Calendar {
+        guard let timeZone = photoWindowTimeZone else { return .current }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
+    public var usesCanonicalPhotoWindow: Bool {
+        photoWindowVersion == Self.canonicalPhotoWindowVersion
+            && photoWindowTimeZone != nil
+            && startsAt <= endsAt
+    }
+
+    /// Stable semantic revision for the upcoming photo-corpus/cursor migration.
+    /// Day numbers are timezone-independent civil-day ordinals calculated by the
+    /// same contract on iOS and the backend.
+    public var photoWindowRevision: String {
+        if usesCanonicalPhotoWindow,
+           let startDay = photoWindowStartDayNumber,
+           let endDay = photoWindowEndDayNumber,
+           let timeZoneId = photoWindowTimeZoneId {
+            return "v\(Self.canonicalPhotoWindowVersion):\(timeZoneId):\(startDay)-\(endDay)"
+        }
+        return "legacy:\(startsAt.timeIntervalSince1970)-\(endsAt.timeIntervalSince1970)"
+    }
+
+    /// New Events persist absolute, complete-day bounds once and every phone uses
+    /// those exact instants. Legacy Events retain the previous local expansion so
+    /// an app update does not silently narrow an already-existing scan window.
     public var dateRange: ClosedRange<Date> {
+        if usesCanonicalPhotoWindow {
+            return startsAt...endsAt
+        }
+
         let calendar = Calendar.current
         let lower = calendar.startOfDay(for: startsAt)
         let endStart = calendar.startOfDay(for: endsAt)
-        let upper = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: endStart)
-            ?? endsAt
+        let dayAfterEnd = calendar.date(byAdding: .day, value: 1, to: endStart)
+            ?? endStart.addingTimeInterval(86_400)
+        let upper = dayAfterEnd.addingTimeInterval(-0.001)
         return lower...max(lower, upper)
     }
 }
