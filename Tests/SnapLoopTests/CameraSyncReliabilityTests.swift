@@ -179,6 +179,70 @@ final class CameraSyncReliabilityTests: XCTestCase {
         XCTAssertEqual(photos.count, 1)
     }
 
+    func testSharingGenerationChangeRepublishesOnlyCachedPositiveWork() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let currentEvent = event(now: now)
+        let asset = PhotoAsset(id: "a1", creationDate: now)
+        let participant = bob(now: now)
+        let scanStore = InMemoryScanStateStore()
+        let detector = CountingMatchDetector()
+        let matches = InMemoryMatchRepository()
+        let installation = FixedInstallationIdentity("fixed-installation")
+        let coordinator = CameraSyncCoordinator(
+            config: StaticConfigProvider(.default),
+            clock: FixedClock(now),
+            photoLibrary: OneAssetLibrary(asset: asset),
+            faceDetection: detector,
+            thumbnailEncoder: PassthroughThumbnailEncoder(),
+            matches: matches,
+            scanStateStore: scanStore,
+            accountInstallationIdentity: installation
+        )
+
+        let first = try await coordinator.sync(
+            event: currentEvent,
+            participants: [participant],
+            currentUserId: "alice",
+            sourceMembershipId: "membership-alice",
+            preferenceRevision: "id:sharing-1"
+        )
+        XCTAssertEqual(first.scanned, 1)
+        XCTAssertEqual(first.matchedPhotos, 1)
+        XCTAssertEqual(detector.detectionCount, 1)
+
+        let unchanged = try await coordinator.sync(
+            event: currentEvent,
+            participants: [participant],
+            currentUserId: "alice",
+            sourceMembershipId: "membership-alice",
+            preferenceRevision: "id:sharing-1"
+        )
+        XCTAssertEqual(unchanged.scanned, 0)
+        XCTAssertTrue(unchanged.alreadyCaughtUp)
+        XCTAssertEqual(detector.detectionCount, 1)
+
+        // Server-side sharing OFF removes the published source row. The new
+        // sharing generation must replay the prior positive from cached faces.
+        let reenabled = try await coordinator.sync(
+            event: currentEvent,
+            participants: [participant],
+            currentUserId: "alice",
+            sourceMembershipId: "membership-alice",
+            preferenceRevision: "id:sharing-2"
+        )
+        XCTAssertEqual(reenabled.scanned, 1)
+        XCTAssertEqual(reenabled.matchedPhotos, 1)
+        XCTAssertEqual(detector.detectionCount, 1, "Sharing replay must not rerun face detection")
+
+        let key = CameraSyncCoordinator.scanStateKey(
+            eventId: currentEvent.id,
+            sourceInstallationId: installation.value
+        )
+        let state = scanStore.load(eventId: key)
+        XCTAssertEqual(state.sourceSharingRevision, "id:sharing-2")
+        XCTAssertEqual(state.recipientCursor(userId: "bob")?.positiveAssetIds, [asset.id])
+    }
+
     func testScanStatePrunesCorpusAndCursorEntriesNoLongerVisibleInPhotoKitWindow() {
         let embedding = FaceEmbedding(normalized: [1, 0, 0])
         var state = ScanState(
