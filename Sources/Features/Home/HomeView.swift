@@ -20,6 +20,7 @@ final class HomeModel: ObservableObject {
     @Published var events: [Event] = []
     @Published var rolesByEventId: [String: EventMember.Role] = [:]
     @Published var notifications: [EventNotification] = []
+    @Published var pendingInviteRoute: DeepLinkRoute?
     @Published var isLoading = false
     @Published var errorMessage: String?
     private var env: AppEnvironment?
@@ -63,6 +64,12 @@ final class HomeModel: ObservableObject {
         }
 
         notifications = (try? await EventNotificationClient.unread(userId: userId)) ?? notifications
+        do {
+            pendingInviteRoute = try await EventInviteClient.nextPendingRoute()
+        } catch {
+            // A pending-invite refresh should never make the Home screen fail.
+            // Keep the last known state and retry on the next foreground/refresh.
+        }
         isLoading = false
     }
 
@@ -77,6 +84,7 @@ struct HomeView: View {
     var showsGreeting: Bool = true
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var session: AppSession
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var model = HomeModel()
     @State private var showCreate = false
     @State private var showJoin = false
@@ -94,6 +102,9 @@ struct HomeView: View {
                     if showsGreeting {
                         greeting
                         createJoinRow
+                        if let pendingInviteRoute = model.pendingInviteRoute {
+                            pendingInvitationsSection(pendingInviteRoute)
+                        }
                         if !model.notifications.isEmpty {
                             updatesSection
                         }
@@ -138,6 +149,11 @@ struct HomeView: View {
             model.configure(env: env, session: session)
             await model.reload()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await model.reload() }
+            }
+        }
         .refreshable { await model.reload() }
         .sheet(isPresented: $showCreate) {
             CreateEventView { event in
@@ -174,7 +190,9 @@ struct HomeView: View {
             }
             .presentationDetents([.medium, .large])
         }
-        .sheet(item: $joinRoute) { route in
+        .sheet(item: $joinRoute, onDismiss: {
+            Task { await model.reload() }
+        }) { route in
             NavigationStack {
                 JoinEventView(route: route) { event in
                     joinRoute = nil
@@ -182,6 +200,47 @@ struct HomeView: View {
                     Task { await model.reload() }
                 }
             }
+        }
+    }
+
+    private func pendingInvitationsSection(_ route: DeepLinkRoute) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pending Invitations")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(Theme.ink)
+                .padding(.horizontal)
+
+            PremiumCard {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle().fill(Theme.violet.opacity(0.12))
+                        Image(systemName: "envelope.open.fill")
+                            .foregroundStyle(Theme.violet)
+                    }
+                    .frame(width: 44, height: 44)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Event invitation waiting")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(Theme.ink)
+                        Text("Open the invitation to review the Event and choose Join or Decline.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Button("Open Invite") {
+                        joinRoute = route
+                    }
+                    .font(.caption.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 38)
+                    .background(Theme.socialGradient, in: Capsule())
+                }
+            }
+            .padding(.horizontal)
         }
     }
 
