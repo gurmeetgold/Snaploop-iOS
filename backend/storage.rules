@@ -33,6 +33,18 @@ service firebase.storage {
         firestore.get(memberPath(eventId, request.auth.uid)).data.sharingEnabled == true;
     }
 
+    function publishedMembershipGenerationMatches(eventId, photoId) {
+      return firestore.get(photoPath(eventId, photoId)).data.get('matchedMembershipIds', {}) is map
+        && (
+          firestore.get(photoPath(eventId, photoId)).data.get('matchedMembershipIds', {}).get(request.auth.uid, '') == ''
+          || (
+            firestore.get(memberPath(eventId, request.auth.uid)).data.get('membershipId', '') != ''
+            && firestore.get(photoPath(eventId, photoId)).data.get('matchedMembershipIds', {}).get(request.auth.uid, '') ==
+               firestore.get(memberPath(eventId, request.auth.uid)).data.get('membershipId', '')
+          )
+        );
+    }
+
     function publishedPhotoVisibleToViewer(eventId, ownerUserId, photoId) {
       return firestore.exists(photoPath(eventId, photoId))
         && firestore.exists(faceProfilePath(request.auth.uid))
@@ -42,7 +54,8 @@ service firebase.storage {
         && firestore.get(photoPath(eventId, photoId)).data.matchedFaceIdentityIds is map
         && firestore.get(photoPath(eventId, photoId)).data.matchedFaceIdentityIds.get(request.auth.uid, '') != ''
         && firestore.get(photoPath(eventId, photoId)).data.matchedFaceIdentityIds.get(request.auth.uid, '') ==
-           firestore.get(faceProfilePath(request.auth.uid)).data.get('faceIdentityId', '');
+           firestore.get(faceProfilePath(request.auth.uid)).data.get('faceIdentityId', '')
+        && publishedMembershipGenerationMatches(eventId, photoId);
     }
 
     match /events/{eventId}/cover.jpg {
@@ -54,9 +67,8 @@ service firebase.storage {
     }
 
     match /events/{eventId}/photos/{ownerUserId}/{photoId}/thumbnail.jpg {
-      // Preview access follows the viewer's stable face identity. Updating Face
-      // Setup for the same verified person keeps existing previews available;
-      // deleting Face Setup and enrolling another identity invalidates them.
+      // Preview access follows the viewer's stable face identity and, for newly
+      // published photos, the exact uninterrupted Event membership generation.
       allow read: if isMember(eventId)
         && publishedPhotoVisibleToViewer(eventId, ownerUserId, photoId);
 
