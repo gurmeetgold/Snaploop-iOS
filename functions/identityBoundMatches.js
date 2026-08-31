@@ -180,6 +180,7 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
   const sourceInstallationId = optionalString(data.sourceInstallationId);
   const suppliedSourceMembershipId = optionalString(data.sourceMembershipId);
   const modernSourceContext = sourceInstallationId !== null;
+  const mergeAppearances = data.mergeAppearances === true;
 
   if (sourceInstallationId && !SOURCE_INSTALLATION_ID_PATTERN.test(sourceInstallationId)) {
     throw new HttpsError("invalid-argument", "Source installation identity is invalid.");
@@ -188,15 +189,15 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
     throw new HttpsError("failed-precondition", "Refresh this Event before sharing photos.");
   }
 
-  // Change 2 carries source identity metadata but deliberately allows the legacy
-  // photo ID until the corpus/cursor migration. Future source-scoped IDs are
-  // already accepted so activation does not require another backend contract.
   const legacyMatchId = `${eventId}:${assetLocalId}`;
   const sourceScopedMatchId = sourceInstallationId
     ? `${eventId}:${sourceInstallationId}:${assetLocalId}`
     : null;
   if (matchId !== legacyMatchId && matchId !== sourceScopedMatchId) {
     throw new HttpsError("invalid-argument", "Photo identity is invalid.");
+  }
+  if (mergeAppearances && (!modernSourceContext || matchId !== sourceScopedMatchId)) {
+    throw new HttpsError("invalid-argument", "Incremental photo updates require a source-scoped photo identity.");
   }
 
   const capturedAtMillis = requireMillis(data.capturedAtMillis, "capturedAt");
@@ -254,14 +255,15 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
 
   const photoRef = db.doc(`events/${eventId}/photos/${docId}`);
   await db.runTransaction(async (tx) => {
-    // This is the actual commit barrier. Membership, sharing, Event lifecycle and
-    // Face Setup are re-read transactionally after thumbnail verification so a
-    // leave/rejoin or Face Setup update cannot race a stale match into storage.
+    // This is the actual commit barrier. Membership, sharing, Event lifecycle,
+    // existing source-photo identity and Face Setup are all re-read
+    // transactionally after thumbnail verification.
     const eventRef = db.doc(`events/${eventId}`);
     const sourceMemberRef = db.doc(`events/${eventId}/members/${uid}`);
-    const [eventSnap, sourceMemberSnap] = await Promise.all([
+    const [eventSnap, sourceMemberSnap, existingPhotoSnap] = await Promise.all([
       tx.get(eventRef),
       tx.get(sourceMemberRef),
+      tx.get(photoRef),
     ]);
 
     if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
@@ -278,9 +280,7 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
 
     // Canonical v1 Events persist the exact inclusive full-day bounds selected by
     // the organizer, so this transaction verifies the same absolute interval that
-    // PhotoKit scanned on iOS. Legacy Events intentionally retain their original
-    // narrower trusted timestamps rather than widening privacy scope without a
-    // persisted timezone; an intentional date edit migrates them to v1 first.
+    // PhotoKit scanned on iOS. Legacy Events keep their trusted stored timestamps.
     if (!(event.startsAt instanceof Timestamp) || !(event.endsAt instanceof Timestamp)) {
       throw new HttpsError("failed-precondition", "This event has invalid dates.");
     }
@@ -295,10 +295,40 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
       }
     }
 
-    const appearances = [];
-    const matchedFaceIdentityIds = {};
-    const matchedProfileRevisions = {};
-    const matchedMembershipIds = {};
+    const existingPhoto = existingPhotoSnap.exists ? existingPhotoSnap.data() || {} : null;
+    if (mergeAppearances && existingPhoto) {
+      const existingCapturedAtMillis = existingPhoto.capturedAt instanceof Timestamp
+        ? existingPhoto.capturedAt.toMillis()
+        : null;
+      if (existingPhoto.eventId !== eventId
+          || existingPhoto.sourceUserId !== uid
+          || existingPhoto.assetLocalId !== assetLocalId
+          || existingPhoto.sourceInstallationId !== sourceInstallationId
+          || existingCapturedAtMillis !== capturedAtMillis) {
+        throw new HttpsError("failed-precondition", "Existing source photo identity does not match this scan.");
+      }
+    }
+
+    const appearanceByUser = new Map();
+    const matchedFaceIdentityIds = mergeAppearances && existingPhoto
+      && existingPhoto.matchedFaceIdentityIds && typeof existingPhoto.matchedFaceIdentityIds === "object"
+      ? { ...existingPhoto.matchedFaceIdentityIds }
+      : {};
+    const matchedProfileRevisions = mergeAppearances && existingPhoto
+      && existingPhoto.matchedProfileRevisions && typeof existingPhoto.matchedProfileRevisions === "object"
+      ? { ...existingPhoto.matchedProfileRevisions }
+      : {};
+    const matchedMembershipIds = mergeAppearances && existingPhoto
+      && existingPhoto.matchedMembershipIds && typeof existingPhoto.matchedMembershipIds === "object"
+      ? { ...existingPhoto.matchedMembershipIds }
+      : {};
+
+    if (mergeAppearances && existingPhoto && Array.isArray(existingPhoto.appearances)) {
+      for (const appearance of existingPhoto.appearances) {
+        if (!appearance || typeof appearance.participantUserId !== "string") continue;
+        appearanceByUser.set(appearance.participantUserId, appearance);
+      }
+    }
 
     for (const requested of requestedAppearances) {
       const memberRef = db.doc(`events/${eventId}/members/${requested.participantUserId}`);
@@ -318,8 +348,6 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
           throw new HttpsError("failed-precondition", "An Event member changed while this photo was being matched. Refresh the Event and scan again.");
         }
       } else if (modernSourceContext) {
-        // Defensive duplicate of the parse-time requirement at the actual commit
-        // barrier. Never downgrade a modern match to legacy authorization.
         throw new HttpsError("failed-precondition", "Refresh this Event before sharing photos.");
       }
 
@@ -345,11 +373,17 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
         appearance.recipientMembershipId = requested.suppliedMembershipId;
         matchedMembershipIds[requested.participantUserId] = requested.suppliedMembershipId;
       }
-      appearances.push(appearance);
+      appearanceByUser.set(requested.participantUserId, appearance);
       matchedFaceIdentityIds[requested.participantUserId] = currentIdentity;
       matchedProfileRevisions[requested.participantUserId] = currentRevision;
     }
 
+    const appearances = [...appearanceByUser.values()];
+    if (appearances.length > MAX_APPEARANCES) {
+      throw new HttpsError("resource-exhausted", "This photo has too many Event appearances.");
+    }
+
+    const now = Timestamp.now();
     const document = {
       id: matchId,
       eventId,
@@ -363,8 +397,10 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
       capturedAt: Timestamp.fromMillis(capturedAtMillis),
       matchedAt: Timestamp.fromMillis(matchedAtMillis),
       thumbnailPath,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now(),
+      createdAt: mergeAppearances && existingPhoto && existingPhoto.createdAt instanceof Timestamp
+        ? existingPhoto.createdAt
+        : now,
+      updatedAt: now,
     };
     if (sourceInstallationId) document.sourceInstallationId = sourceInstallationId;
     if (modernSourceContext) document.sourceMembershipId = suppliedSourceMembershipId;
@@ -412,8 +448,24 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
     });
   }
 
-  result.sort((a, b) => Number(b.capturedAtMillis || 0) - Number(a.capturedAtMillis || 0));
-  return { eventId, photos: result };
+  // During the one-time Change-4 transition, a legacy event:user:asset document
+  // can coexist with the new source-scoped document for the same physical source
+  // photo. Prefer the modern row in that exact equivalence class, but never
+  // collapse two modern installation IDs from the same account.
+  const equivalenceKey = (row) => [
+    row.sourceUserId || "",
+    row.assetLocalId || "",
+    String(row.capturedAtMillis || ""),
+  ].join("\u0000");
+  const modernKeys = new Set(
+    result.filter((row) => row.sourceInstallationId).map(equivalenceKey)
+  );
+  const deduped = result.filter((row) =>
+    row.sourceInstallationId || !modernKeys.has(equivalenceKey(row))
+  );
+
+  deduped.sort((a, b) => Number(b.capturedAtMillis || 0) - Number(a.capturedAtMillis || 0));
+  return { eventId, photos: deduped };
 });
 
 // Secure fallback for clients whose direct Firebase Storage read fails after the
