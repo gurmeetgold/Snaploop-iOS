@@ -128,6 +128,7 @@ test("membership generation is stable for one participation and rotates after le
   const firstRoster = await listFaceProfiles({ eventId: "event-membership" });
   const firstFaceRow = firstRoster.data.participants.find((member) => member.userId === uid);
   assert.ok(firstFaceRow);
+  assert.equal(firstRoster.data.callerMembershipId, first.membershipId);
   assert.equal(
     firstFaceRow.membershipId,
     first.membershipId,
@@ -164,6 +165,23 @@ test("membership generation is stable for one participation and rotates after le
   const rejoinedRoster = await listFaceProfiles({ eventId: "event-membership" });
   const rejoinedFaceRow = rejoinedRoster.data.participants.find((member) => member.userId === uid);
   assert.ok(rejoinedFaceRow);
+  assert.equal(rejoinedRoster.data.callerMembershipId, rejoined.membershipId);
   assert.equal(rejoinedFaceRow.membershipId, rejoined.membershipId);
   assert.notEqual(rejoinedFaceRow.membershipId, first.membershipId);
+
+  // Source membership must remain available to Change 4 even when the caller is
+  // temporarily not a match recipient. Sharing authorization is membership state,
+  // not Face Setup state.
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await deleteDoc(doc(db, `users/${uid}/faceProfile/current`));
+  });
+
+  const sourceOnlyRoster = await listFaceProfiles({ eventId: "event-membership" });
+  assert.equal(sourceOnlyRoster.data.callerMembershipId, rejoined.membershipId);
+  assert.equal(
+    sourceOnlyRoster.data.participants.some((member) => member.userId === uid),
+    false,
+    "caller without active Face Setup must not be emitted as a biometric recipient"
+  );
 });
