@@ -463,7 +463,11 @@ private struct EventCard: View {
 
                 HStack(spacing: 6) {
                     Image(systemName: "calendar")
-                    Text(DateFormatting.range(event.startsAt, event.endsAt))
+                    Text(DateFormatting.range(
+                        event.startsAt,
+                        event.endsAt,
+                        timeZone: event.photoWindowTimeZone
+                    ))
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                         .allowsTightening(true)
