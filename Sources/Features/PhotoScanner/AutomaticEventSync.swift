@@ -27,17 +27,28 @@ enum AutomaticSyncIdentityScope {
         return "legacy-\(participant.joinedAt.timeIntervalSince1970)"
     }
 
-    static func scanTriggerFingerprint(event: Event, participants: [EventParticipant]) -> String {
+    static func scanTriggerFingerprint(
+        event: Event,
+        participants: [EventParticipant],
+        sourceMembershipId: String? = nil,
+        sharingRevision: String? = nil
+    ) -> String {
         let roster = participants
             .map {
                 "\($0.userId)=\(participantEpoch($0))=\($0.stableFaceIdentityId)@\($0.faceProfileRevision)"
             }
             .sorted()
             .joined(separator: ";")
+        let sourceMembership = sourceMembershipId?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sharing = sharingRevision?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return [
             String(event.updatedAt.timeIntervalSince1970),
             String(event.startsAt.timeIntervalSince1970),
             String(event.endsAt.timeIntervalSince1970),
+            "source=\(sourceMembership)",
+            "sharing=\(sharing)",
             roster,
         ].joined(separator: "::")
     }
@@ -50,7 +61,7 @@ enum AutomaticSyncIdentityScope {
 /// - no eligible Event -> no photo scan and no background task is kept scheduled
 /// - sharing off -> that Event is skipped
 /// - unchanged Events have a persistent one-hour automatic-scan cooldown
-/// - roster/date changes bypass that cooldown on the next foreground opportunity
+/// - roster/date/membership/sharing-generation changes bypass that cooldown
 /// - only one bounded coordinator batch is processed per automatic pass
 /// - Low Power Mode skips automatic scanning entirely
 ///
@@ -210,16 +221,18 @@ final class AutomaticEventSync {
                     guard preferences.sharingEnabled else { continue }
                     hasEligibleSharingEvent = true
 
-                    // Load the roster before applying the cooldown. A new/rejoined
-                    // member or a Face Setup revision changes the fingerprint and
-                    // should trigger matching on the next foreground opportunity.
-                    let participants = try await EventFaceProfileClient.list(eventId: event.id)
+                    // Load the trusted manifest before applying the cooldown. A
+                    // roster/template update, source leave/rejoin, or sharing
+                    // OFF→ON generation change must run on the next opportunity.
+                    let manifest = try await EventFaceProfileClient.manifest(eventId: event.id)
                     try Task.checkCancellation()
                     guard session.isCurrent(executionContext) else { return false }
 
                     let fingerprint = AutomaticSyncIdentityScope.scanTriggerFingerprint(
                         event: event,
-                        participants: participants
+                        participants: manifest.participants,
+                        sourceMembershipId: manifest.sourceMembershipId,
+                        sharingRevision: preferences.revisionToken
                     )
                     let triggerChanged = storedFingerprint(
                         for: event.id,
@@ -241,8 +254,9 @@ final class AutomaticEventSync {
                     // coordinator itself applies the device-safety batch cap.
                     _ = try await environment.makeSyncCoordinator().sync(
                         event: event,
-                        participants: participants,
+                        participants: manifest.participants,
                         currentUserId: userId,
+                        sourceMembershipId: manifest.sourceMembershipId,
                         includeOwnMatches: preferences.includeOwnMatches,
                         preferenceRevision: preferences.revisionToken
                     )
