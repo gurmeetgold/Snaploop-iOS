@@ -1,11 +1,10 @@
 import XCTest
 @testable import SnapLoop
 
-/// Reproduces the two lifecycle gaps that the upcoming photo-corpus + recipient-
-/// cursor migration must fix. These are expected failures on the legacy
-/// scannedAssetIds implementation, so they document the bug without making the
-/// current release-hardening test suite red before the replacement lands.
-final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
+/// Regression coverage for the lifecycle cases that motivated Change 4. The
+/// scanner must reuse cached photo-face embeddings while independently advancing
+/// each recipient's membership/identity/template cursor.
+final class ScannerLifecycleRegressionTests: XCTestCase {
     private struct ScriptedLibrary: PhotoLibraryService {
         let assetsList: [PhotoAsset]
 
@@ -39,6 +38,8 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
     }
 
     private func participant(
+        userId: String = "recipient",
+        membershipId: String? = nil,
         identityId: String,
         revisionLabel: String,
         vector: [Float],
@@ -46,7 +47,8 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
     ) -> EventParticipant {
         let embedding = FaceEmbedding(vector)!
         return EventParticipant(
-            userId: "recipient",
+            userId: userId,
+            membershipId: membershipId,
             displayName: nil,
             faceIdentityId: identityId,
             faceEmbedding: embedding,
@@ -86,7 +88,8 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
     private func coordinator(
         now: Date,
         store: ScanStateStore,
-        detector: ScriptedDetector
+        detector: ScriptedDetector,
+        matches: MatchRepository = InMemoryMatchRepository()
     ) -> CameraSyncCoordinator {
         CameraSyncCoordinator(
             config: StaticConfigProvider(.default),
@@ -96,18 +99,24 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
             ),
             faceDetection: detector,
             thumbnailEncoder: PassthroughThumbnailEncoder(),
-            matches: InMemoryMatchRepository(),
+            matches: matches,
             scanStateStore: store
         )
     }
 
-    func testKnownGap_SameIdentityFaceSetupRefreshMustReevaluatePreviouslyNegativePhoto() async throws {
+    func testSameIdentityFaceSetupRefreshReevaluatesPreviouslyNegativePhoto() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let store = InMemoryScanStateStore()
+        let matchRepository = InMemoryMatchRepository()
         let detector = ScriptedDetector(facesByAsset: [
             "asset": [face([1, 0, 0])]
         ])
-        let coordinator = coordinator(now: now, store: store, detector: detector)
+        let coordinator = coordinator(
+            now: now,
+            store: store,
+            detector: detector,
+            matches: matchRepository
+        )
         let oldProfile = participant(
             identityId: "stable-face",
             revisionLabel: "old",
@@ -137,13 +146,15 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
             currentUserId: "source"
         )
 
-        XCTExpectFailure(
-            "Legacy scan state keys only on stable face identity, so a same-person Face Setup revision does not revisit a photo that previously failed matching. Recipient cursors must make this pass."
-        )
         XCTAssertEqual(afterRefresh.scanned, 1)
+        XCTAssertEqual(afterRefresh.matchedPhotos, 1)
+        XCTAssertEqual(
+            try await matchRepository.myPhotos(eventId: "event", userId: "recipient").map(\.assetLocalId),
+            ["asset"]
+        )
     }
 
-    func testKnownGap_LeaveAndRejoinMustCreateFreshHistoricalEvaluation() async throws {
+    func testLeaveAndRejoinCreatesFreshHistoricalEvaluation() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let store = InMemoryScanStateStore()
         let detector = ScriptedDetector(facesByAsset: [
@@ -151,12 +162,14 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
         ])
         let coordinator = coordinator(now: now, store: store, detector: detector)
         let firstMembership = participant(
+            membershipId: "membership-1",
             identityId: "stable-face",
             revisionLabel: "same",
             vector: [1, 0, 0],
             joinedAt: Date(timeIntervalSince1970: 1)
         )
         let rejoinedMembership = participant(
+            membershipId: "membership-2",
             identityId: "stable-face",
             revisionLabel: "same",
             vector: [1, 0, 0],
@@ -170,7 +183,7 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
         )
         XCTAssertEqual(first.scanned, 1)
         XCTAssertEqual(first.matchedPhotos, 1)
-        XCTAssertNotEqual(firstMembership.joinedAt, rejoinedMembership.joinedAt)
+        XCTAssertNotEqual(firstMembership.membershipId, rejoinedMembership.membershipId)
         XCTAssertEqual(firstMembership.stableFaceIdentityId, rejoinedMembership.stableFaceIdentityId)
 
         let afterRejoin = try await coordinator.sync(
@@ -179,9 +192,47 @@ final class ScannerLifecycleKnownLimitationsTests: XCTestCase {
             currentUserId: "source"
         )
 
-        XCTExpectFailure(
-            "Legacy scan state ignores membership generation/joinedAt, so leave + rejoin with the same stable face identity can reuse stale processed-photo state. membershipId + recipient cursors must make this pass."
-        )
         XCTAssertEqual(afterRejoin.scanned, 1)
+        XCTAssertEqual(afterRejoin.matchedPhotos, 1)
+    }
+
+    func testNewMemberGetsHistoricalEvaluationWithoutNewPhoto() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let store = InMemoryScanStateStore()
+        let matches = InMemoryMatchRepository()
+        let detector = ScriptedDetector(facesByAsset: [
+            "asset": [face([1, 0, 0])]
+        ])
+        let coordinator = coordinator(now: now, store: store, detector: detector, matches: matches)
+
+        // First pass builds the local corpus while there is nobody to receive the
+        // photo. The photo must not become permanently "done".
+        let first = try await coordinator.sync(
+            event: event(now: now),
+            participants: [],
+            currentUserId: "source"
+        )
+        XCTAssertEqual(first.scanned, 1)
+        XCTAssertEqual(first.matchedPhotos, 0)
+
+        let joined = participant(
+            membershipId: "membership-new",
+            identityId: "new-member-face",
+            revisionLabel: "v1",
+            vector: [1, 0, 0],
+            joinedAt: Date(timeIntervalSince1970: 3)
+        )
+        let afterJoin = try await coordinator.sync(
+            event: event(now: now),
+            participants: [joined],
+            currentUserId: "source"
+        )
+
+        XCTAssertEqual(afterJoin.scanned, 1)
+        XCTAssertEqual(afterJoin.matchedPhotos, 1)
+        XCTAssertEqual(
+            try await matches.myPhotos(eventId: "event", userId: "recipient").count,
+            1
+        )
     }
 }
