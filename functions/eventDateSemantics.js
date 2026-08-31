@@ -107,6 +107,10 @@ function verifyCanonicalBoundaries(startsAtMillis, endsAtMillis, startOffset, en
 function validateEventDatePayload(data, options = {}) {
   const startsAtMillis = requireMillis(data.startsAtMillis, "startsAt");
   const endsAtMillis = requireMillis(data.endsAtMillis, "endsAt");
+  if (endsAtMillis <= startsAtMillis) {
+    invalid("Event end date must be after the start date.");
+  }
+
   const nowMillis = Number.isFinite(Number(options.nowMillis))
     ? Math.round(Number(options.nowMillis))
     : Date.now();
