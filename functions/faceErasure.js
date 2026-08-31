@@ -37,28 +37,29 @@ async function scrubUserFromEventPhotos(eventId, uid) {
     const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
       ? { ...data.matchedProfileRevisions }
       : {};
+    const matchedMembershipIds = data.matchedMembershipIds && typeof data.matchedMembershipIds === "object"
+      ? { ...data.matchedMembershipIds }
+      : {};
     delete matchedFaceIdentityIds[uid];
     delete matchedProfileRevisions[uid];
+    delete matchedMembershipIds[uid];
     return {
       ref: doc.ref,
-      data: { appearances, matchedUserIds, matchedFaceIdentityIds, matchedProfileRevisions, updatedAt: Timestamp.now() },
+      data: {
+        appearances,
+        matchedUserIds,
+        matchedFaceIdentityIds,
+        matchedProfileRevisions,
+        matchedMembershipIds,
+        updatedAt: Timestamp.now(),
+      },
     };
   });
   if (updates.length) await commitUpdates(updates);
   return updates.length;
 }
 
-// Deleting Face Setup is the explicit identity boundary. It removes the active
-// biometric identity, scrubs its face-derived photo associations, turns off the
-// user's own-match preference in every Event, and deactivates current consent.
-// A future Face Setup therefore requires fresh consent and receives a new
-// server-issued faceIdentityId.
-exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
-  const uid = requireAuth(request);
-  if (typeof (request.data || {}).userId === "string" && request.data.userId !== uid) {
-    throw new HttpsError("permission-denied", "You can only delete your own Face Setup.");
-  }
-
+async function eraseIdentityBound(uid, withdrawalReason) {
   const userRef = db.doc(`users/${uid}`);
   const eventRefs = await userRef.collection("eventRefs").get();
   let scrubbedPhotos = 0;
@@ -88,15 +89,42 @@ exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
   batch.set(userRef, { hasFaceProfile: false, updatedAt: now }, { merge: true });
   batch.set(db.doc(`users/${uid}/privacy/biometricConsent`), {
     withdrawnAt: now,
-    withdrawalReason: "face-setup-deleted",
+    withdrawalReason,
   }, { merge: true });
   await batch.commit();
 
   return {
-    erased: true,
     consentDeactivated: true,
     scrubbedPhotos,
     rosterEntriesRemoved,
     ownMatchPreferencesDisabled,
   };
+}
+
+// Deleting Face Setup is the explicit identity boundary. It removes the active
+// biometric identity, scrubs every face/membership-derived photo association,
+// turns off the user's own-match preference in every Event, and deactivates
+// current consent. A future Face Setup therefore requires fresh consent and gets
+// a new server-issued faceIdentityId.
+exports.eraseMyFaceProfileIdentityBound = onCall(async (request) => {
+  const uid = requireAuth(request);
+  if (typeof (request.data || {}).userId === "string" && request.data.userId !== uid) {
+    throw new HttpsError("permission-denied", "You can only delete your own Face Setup.");
+  }
+
+  const result = await eraseIdentityBound(uid, "face-setup-deleted");
+  return { erased: true, ...result };
+});
+
+// Explicit consent withdrawal must use the same identity-bound erasure path.
+// The former generic security handler removed matchedUserIds before the profile
+// trigger ran, which could strand Change-4 identity/revision/membership maps.
+exports.withdrawBiometricConsentIdentityBound = onCall(async (request) => {
+  const uid = requireAuth(request);
+  if (typeof (request.data || {}).userId === "string" && request.data.userId !== uid) {
+    throw new HttpsError("permission-denied", "You can only withdraw your own biometric consent.");
+  }
+
+  const result = await eraseIdentityBound(uid, "biometric-consent-withdrawn");
+  return { withdrawn: true, erased: true, ...result };
 });
