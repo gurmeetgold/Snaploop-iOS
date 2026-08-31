@@ -5,7 +5,7 @@ final class CreateEventModel: ObservableObject {
     @Published var name = ""
     @Published var category: EventCategory = .trip
     @Published var startsAt = Date()
-    @Published var endsAt = Calendar.current.date(byAdding: .day, value: 3, to: Date()) ?? Date().addingTimeInterval(3 * 86_400)
+    @Published var endsAt = EventLifecycle.calendar().date(byAdding: .day, value: 3, to: Date()) ?? Date().addingTimeInterval(3 * 86_400)
     @Published var locationName = ""
     @Published var isSaving = false
     @Published var errorMessage: String?
@@ -29,7 +29,14 @@ final class CreateEventModel: ObservableObject {
         errorMessage = nil
         defer { isSaving = false }
         do {
-            let factory = EventFactory(config: env.config.current, clock: env.clock)
+            // Capture one Gregorian/device-timezone calendar for this write so
+            // validation, canonicalization and persisted timezone metadata agree.
+            let eventCalendar = EventLifecycle.calendar()
+            let factory = EventFactory(
+                config: env.config.current,
+                clock: env.clock,
+                calendar: eventCalendar
+            )
             let draft = EventDraft(
                 name: name,
                 category: category,
@@ -62,18 +69,27 @@ struct CreateEventView: View {
         _model = StateObject(wrappedValue: CreateEventModel())
     }
 
+    private var creationCalendar: Calendar { EventLifecycle.calendar() }
+
     private var allowedDates: ClosedRange<Date> {
-        EventLifecycle.allowedDateRange(now: env.clock.now())
+        EventLifecycle.allowedDateRange(
+            now: env.clock.now(),
+            calendar: creationCalendar
+        )
     }
 
     private var allowedEndDates: ClosedRange<Date> {
-        let durationEnd = EventLifecycle.maximumEndDate(from: model.startsAt, config: env.config.current)
+        let durationEnd = EventLifecycle.maximumEndDate(
+            from: model.startsAt,
+            config: env.config.current,
+            calendar: creationCalendar
+        )
         let upper = min(allowedDates.upperBound, durationEnd)
         return model.startsAt...max(model.startsAt, upper)
     }
 
     private func suggestedEndDate(from start: Date) -> Date {
-        Calendar.current.date(byAdding: .day, value: 3, to: start)
+        creationCalendar.date(byAdding: .day, value: 3, to: start)
             ?? start.addingTimeInterval(3 * 86_400)
     }
 
