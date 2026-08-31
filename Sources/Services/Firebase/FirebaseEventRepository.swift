@@ -88,18 +88,41 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
 
     public func updateEventDates(id: String, startsAt: Date, endsAt: Date) async throws {
         guard endsAt >= startsAt else { throw AppError.invalidEventDates }
-        let timeZone = TimeZone.current
-        _ = try await call(
-            "updateEventManaged",
-            data: [
-                "eventId": id,
-                "startsAtMillis": Self.millis(startsAt),
-                "endsAtMillis": Self.millis(endsAt),
-                "startsAtOffsetMinutes": Self.offsetMinutes(for: startsAt, in: timeZone),
-                "endsAtOffsetMinutes": Self.offsetMinutes(for: endsAt, in: timeZone),
-                "nowOffsetMinutes": Self.offsetMinutes(for: Date(), in: timeZone)
-            ]
+
+        // Keep this protocol-level compatibility path safe even though the live
+        // Edit Event UI uses EventManagementClient. A direct caller must never
+        // downgrade a canonical Event back to legacy offset-only semantics.
+        let current = try await fetchEvent(id: id)
+        let timeZone = current.photoWindowTimeZone ?? .current
+        let calendar = EventLifecycle.calendar(timeZone: timeZone)
+        let bounds = EventLifecycle.canonicalBounds(
+            startsAt: startsAt,
+            endsAt: endsAt,
+            calendar: calendar
         )
+        let canonical = Event(
+            id: current.id,
+            joinCode: current.joinCode,
+            inviteToken: current.inviteToken,
+            creatorUserId: current.creatorUserId,
+            name: current.name,
+            category: current.category,
+            coverImagePath: current.coverImagePath,
+            locationName: current.locationName,
+            startsAt: bounds.lowerBound,
+            endsAt: bounds.upperBound,
+            photoWindowVersion: Event.canonicalPhotoWindowVersion,
+            photoWindowTimeZoneId: timeZone.identifier,
+            photoWindowStartDayNumber: EventLifecycle.localDayNumber(startsAt, calendar: calendar),
+            photoWindowEndDayNumber: EventLifecycle.localDayNumber(endsAt, calendar: calendar),
+            status: current.status,
+            createdAt: current.createdAt,
+            updatedAt: current.updatedAt
+        )
+
+        var payload: [String: Any] = ["eventId": id]
+        Self.datePayload(for: canonical).forEach { payload[$0.key] = $0.value }
+        _ = try await call("updateEventManaged", data: payload)
     }
 
     public func endEvent(id: String) async throws {
