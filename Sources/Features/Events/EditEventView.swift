@@ -23,6 +23,9 @@ final class EditEventModel: ObservableObject {
         locationName = event.locationName ?? ""
     }
 
+    var editingCalendar: Calendar { baseline.photoWindowCalendar }
+    var editingTimeZone: TimeZone { editingCalendar.timeZone }
+
     func configure(env: AppEnvironment) async {
         guard !didConfigure else { return }
         didConfigure = true
@@ -43,34 +46,10 @@ final class EditEventModel: ObservableObject {
             }
         }
 
-        let allowed = EventLifecycle.allowedDateRange(now: env.clock.now())
-        var adjusted = false
-
-        if startsAt < allowed.lowerBound {
-            startsAt = allowed.lowerBound
-            adjusted = true
-        } else if startsAt > allowed.upperBound {
-            startsAt = Calendar.current.date(byAdding: .day, value: -1, to: allowed.upperBound)
-                ?? allowed.upperBound.addingTimeInterval(-86_400)
-            adjusted = true
-        }
-
-        let maximumEnd = min(
-            allowed.upperBound,
-            EventLifecycle.maximumEndDate(from: startsAt, config: env.config.current)
-        )
-        if endsAt <= startsAt || endsAt > maximumEnd || !allowed.contains(endsAt) {
-            let suggested = Calendar.current.date(byAdding: .day, value: 3, to: startsAt)
-                ?? startsAt.addingTimeInterval(3 * 86_400)
-            endsAt = min(maximumEnd, suggested)
-            adjusted = true
-        }
-
-        if adjusted {
-            errorMessage = "This older event uses dates outside the current limits. Review the adjusted dates before saving."
-        } else {
-            errorMessage = nil
-        }
+        // Never clamp an Event merely by opening Edit. Historical/legacy Events
+        // may legitimately sit outside today's creation window. Their dates stay
+        // byte-for-byte unchanged unless the user deliberately edits a date.
+        errorMessage = nil
     }
 
     func save() async -> Event? {
@@ -80,27 +59,36 @@ final class EditEventModel: ObservableObject {
         defer { isSaving = false }
 
         do {
+            let trimmedLocation = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
             let draft = EventDraft(
                 name: name,
                 category: category,
                 startsAt: startsAt,
                 endsAt: endsAt,
-                locationName: locationName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : locationName.trimmingCharacters(in: .whitespacesAndNewlines),
+                locationName: trimmedLocation.isEmpty ? nil : trimmedLocation,
                 coverImagePath: baseline.coverImagePath
             )
-            let updated = try EventFactory(config: env.config.current, clock: env.clock).applyEdit(draft, to: baseline)
+            let datesChanged = dateSelectionChanged()
+            let updated = try EventFactory(
+                config: env.config.current,
+                clock: env.clock,
+                calendar: editingCalendar
+            ).applyEdit(draft, to: baseline, datesChanged: datesChanged)
 
             if updated.name == baseline.name,
                updated.category == baseline.category,
                updated.locationName == baseline.locationName,
-               updated.startsAt == baseline.startsAt,
-               updated.endsAt == baseline.endsAt {
+               !datesChanged {
                 errorMessage = "No changes to save."
                 return nil
             }
 
             if AppEnvironment.useLiveServices {
-                _ = try await EventManagementClient.update(updated, expectedUpdatedAt: baseline.updatedAt)
+                _ = try await EventManagementClient.update(
+                    updated,
+                    expectedUpdatedAt: baseline.updatedAt,
+                    includeDates: datesChanged
+                )
             } else {
                 try await env.events.updateEventDetails(
                     id: updated.id,
@@ -109,13 +97,25 @@ final class EditEventModel: ObservableObject {
                     coverImagePath: updated.coverImagePath,
                     locationName: updated.locationName
                 )
-                try await env.events.updateEventDates(id: updated.id, startsAt: updated.startsAt, endsAt: updated.endsAt)
+                if datesChanged {
+                    try await env.events.updateEventDates(
+                        id: updated.id,
+                        startsAt: updated.startsAt,
+                        endsAt: updated.endsAt
+                    )
+                }
             }
             return updated
         } catch {
             errorMessage = EventManagementClient.userMessage(for: error)
         }
         return nil
+    }
+
+    private func dateSelectionChanged() -> Bool {
+        let calendar = editingCalendar
+        return !calendar.isDate(startsAt, inSameDayAs: baseline.startsAt)
+            || !calendar.isDate(endsAt, inSameDayAs: baseline.endsAt)
     }
 }
 
@@ -133,22 +133,25 @@ struct EditEventView: View {
         _model = StateObject(wrappedValue: EditEventModel(event: event))
     }
 
-    private var allowedDates: ClosedRange<Date> {
-        EventLifecycle.allowedDateRange(now: env.clock.now())
-    }
-
-    private var allowedEndDates: ClosedRange<Date> {
-        let durationEnd = EventLifecycle.maximumEndDate(
-            from: model.startsAt,
-            config: env.config.current
-        )
-        let upper = min(allowedDates.upperBound, durationEnd)
-        return model.startsAt...max(model.startsAt, upper)
-    }
-
     private func suggestedEndDate(from start: Date) -> Date {
-        Calendar.current.date(byAdding: .day, value: 3, to: start)
+        model.editingCalendar.date(byAdding: .day, value: 3, to: start)
             ?? start.addingTimeInterval(3 * 86_400)
+    }
+
+    private func repairEndAfterStartChange(_ newStart: Date) {
+        let calendar = model.editingCalendar
+        let startDay = calendar.startOfDay(for: newStart)
+        let endDay = calendar.startOfDay(for: model.endsAt)
+        let distance = calendar.dateComponents([.day], from: startDay, to: endDay).day ?? -1
+        let maxDays = min(EventLifecycle.mvpMaximumDurationDays, max(1, env.config.current.maxEventDurationDays))
+        guard distance < 0 || distance > maxDays else { return }
+
+        let maxEnd = EventLifecycle.maximumEndDate(
+            from: newStart,
+            config: env.config.current,
+            calendar: calendar
+        )
+        model.endsAt = min(maxEnd, suggestedEndDate(from: newStart))
     }
 
     var body: some View {
@@ -191,14 +194,14 @@ struct EditEventView: View {
                             Label("Event dates", systemImage: "calendar").font(.subheadline.bold())
                             Text("Organizer and Admins can change dates. Other members are notified; they do not need to approve the change.")
                                 .font(.caption).foregroundStyle(.secondary)
-                            DatePicker("Starts", selection: $model.startsAt, in: allowedDates, displayedComponents: [.date])
+                            DatePicker("Starts", selection: $model.startsAt, displayedComponents: [.date])
+                                .environment(\.timeZone, model.editingTimeZone)
                                 .onChange(of: model.startsAt) { _, newStart in
-                                    if model.endsAt < newStart || !allowedEndDates.contains(model.endsAt) {
-                                        model.endsAt = min(allowedEndDates.upperBound, suggestedEndDate(from: newStart))
-                                    }
+                                    repairEndAfterStartChange(newStart)
                                 }
                             Divider()
-                            DatePicker("Ends", selection: $model.endsAt, in: allowedEndDates, displayedComponents: [.date])
+                            DatePicker("Ends", selection: $model.endsAt, displayedComponents: [.date])
+                                .environment(\.timeZone, model.editingTimeZone)
                             Text("Dates must stay within 15 days before or after today, and the event can span at most 15 calendar days.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
