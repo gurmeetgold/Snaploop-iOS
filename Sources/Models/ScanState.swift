@@ -44,6 +44,8 @@ public struct PhotoCorpusRecord: Equatable, Codable, Sendable {
 /// - a verified same-person Face Setup refresh keeps old positive matches but
 ///   clears negatives so an improved template can discover photos it missed;
 /// - a new face identity or Event membership generation clears both sets;
+/// - a source sharing-generation change clears positives only because server
+///   sharing-off cleanup removed published rows while old misses remain valid;
 /// - new corpus assets are simply absent from both sets and therefore pending.
 public struct RecipientMatchCursor: Equatable, Codable, Sendable {
     public let userId: String
@@ -105,6 +107,10 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
         }
     }
 
+    public mutating func clearPositives() {
+        positiveAssetIds.removeAll(keepingCapacity: true)
+    }
+
     public mutating func clearNegatives() {
         negativeAssetIds.removeAll(keepingCapacity: true)
     }
@@ -122,7 +128,7 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
 /// longer treats it as a permanent "this photo is done" bit. Change 4 uses the
 /// photo corpus plus per-recipient cursors instead.
 public struct ScanState: Equatable, Codable, Sendable {
-    public static let currentSchemaVersion = 2
+    public static let currentSchemaVersion = 3
 
     public let eventId: String
     public var schemaVersion: Int
@@ -141,6 +147,12 @@ public struct ScanState: Equatable, Codable, Sendable {
     /// A leave/rejoin clears recipient cursors but preserves the local corpus.
     public var sourceMembershipEpoch: String?
 
+    /// Source-sharing publication generation. Sharing OFF deletes this account's
+    /// server photo rows. When sharing comes back ON with a new revision, only
+    /// prior positive cursor results are invalidated so cached photos republish;
+    /// negatives and expensive photo-face extraction remain valid.
+    public var sourceSharingRevision: String?
+
     /// Revision of the complete ambiguity roster used by FaceMatcher. A roster
     /// change can turn an old ambiguous/negative decision into a positive for an
     /// unchanged recipient, so all negatives are conservatively invalidated when
@@ -156,6 +168,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         photoCorpus: [String: PhotoCorpusRecord] = [:],
         recipientCursors: [String: RecipientMatchCursor] = [:],
         sourceMembershipEpoch: String? = nil,
+        sourceSharingRevision: String? = nil,
         rosterAmbiguityRevision: String? = nil,
         lastSyncedAt: Date? = nil,
         schemaVersion: Int = ScanState.currentSchemaVersion
@@ -166,6 +179,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         self.photoCorpus = photoCorpus
         self.recipientCursors = recipientCursors
         self.sourceMembershipEpoch = sourceMembershipEpoch
+        self.sourceSharingRevision = sourceSharingRevision
         self.rosterAmbiguityRevision = rosterAmbiguityRevision
         self.lastSyncedAt = lastSyncedAt
     }
@@ -229,6 +243,18 @@ public struct ScanState: Equatable, Codable, Sendable {
         recipientCursors.removeAll(keepingCapacity: true)
     }
 
+    public var hasPositiveRecipientEvaluations: Bool {
+        recipientCursors.values.contains { !$0.positiveAssetIds.isEmpty }
+    }
+
+    public mutating func clearPositiveRecipientEvaluations() {
+        for userId in Array(recipientCursors.keys) {
+            guard var cursor = recipientCursors[userId] else { continue }
+            cursor.clearPositives()
+            recipientCursors[userId] = cursor
+        }
+    }
+
     public mutating func clearNegativeRecipientEvaluations() {
         for userId in Array(recipientCursors.keys) {
             guard var cursor = recipientCursors[userId] else { continue }
@@ -281,6 +307,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         case photoCorpus
         case recipientCursors
         case sourceMembershipEpoch
+        case sourceSharingRevision
         case rosterAmbiguityRevision
         case lastSyncedAt
     }
@@ -293,6 +320,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         photoCorpus = try container.decodeIfPresent([String: PhotoCorpusRecord].self, forKey: .photoCorpus) ?? [:]
         recipientCursors = try container.decodeIfPresent([String: RecipientMatchCursor].self, forKey: .recipientCursors) ?? [:]
         sourceMembershipEpoch = try container.decodeIfPresent(String.self, forKey: .sourceMembershipEpoch)
+        sourceSharingRevision = try container.decodeIfPresent(String.self, forKey: .sourceSharingRevision)
         rosterAmbiguityRevision = try container.decodeIfPresent(String.self, forKey: .rosterAmbiguityRevision)
         lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
     }
