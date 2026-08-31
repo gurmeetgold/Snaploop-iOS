@@ -97,16 +97,16 @@ public struct FaceMatcher {
         in faces: [DetectedFace],
         participants: [EventParticipant]
     ) -> AppearanceResult {
-        let matchableParticipantCount = participants.filter(isMatchable).count
-        guard !faces.isEmpty, !participants.isEmpty else {
+        let matchableParticipantCount = participants.filter { isMatchable($0) }.count
+        guard !faces.isEmpty else {
             return AppearanceResult(
                 appearances: [],
                 diagnostics: Diagnostics(
-                    detectedFaceCount: faces.count,
+                    detectedFaceCount: 0,
                     sizeRejectedFaceCount: 0,
-                    eligibleFaceCount: faces.count,
+                    eligibleFaceCount: 0,
                     acceptedFaceCount: 0,
-                    belowThresholdFaceCount: faces.isEmpty ? 0 : faces.count,
+                    belowThresholdFaceCount: 0,
                     ambiguityRejectedFaceCount: 0,
                     rosterCount: participants.count,
                     matchableParticipantCount: matchableParticipantCount
