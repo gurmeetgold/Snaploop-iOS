@@ -3,6 +3,7 @@ import Foundation
 public enum EventLifecycle {
     public static let mvpMaximumDurationDays = 15
     public static let mvpDateWindowDays = 15
+    public static let photoWindowVersion = Event.canonicalPhotoWindowVersion
 
     public enum Status: String, Equatable, Sendable {
         case upcoming
@@ -11,21 +12,34 @@ public enum EventLifecycle {
         case expired
     }
 
+    /// Product date semantics are Gregorian civil days in an explicit timezone.
+    /// This avoids elapsed-second/DST drift and keeps server/client calculations
+    /// mirrorable. Callers editing a canonical Event should pass the Event's
+    /// persisted photo-window timezone rather than the device's new timezone.
+    public static func calendar(timeZone: TimeZone = .current) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
     public static func graceEnd(
         for event: Event,
         config: RemoteConfigValues,
-        calendar: Calendar = .current
+        calendar explicitCalendar: Calendar? = nil
     ) -> Date {
         let days = max(0, config.eventGracePeriodDays)
-        return calendar.date(byAdding: .day, value: days, to: event.endsAt)
-            ?? event.endsAt.addingTimeInterval(TimeInterval(days) * 86_400)
+        let calendar = explicitCalendar ?? event.photoWindowCalendar
+        let eventEnd = event.dateRange.upperBound
+        return calendar.date(byAdding: .day, value: days, to: eventEnd)
+            ?? eventEnd.addingTimeInterval(TimeInterval(days) * 86_400)
     }
 
     public static func status(for event: Event, clock: Clock, config: RemoteConfigValues) -> Status {
         guard event.status == .active else { return .expired }
         let now = clock.now()
-        if now < event.startsAt { return .upcoming }
-        if now <= event.endsAt { return .active }
+        let range = event.dateRange
+        if now < range.lowerBound { return .upcoming }
+        if now <= range.upperBound { return .active }
         if now <= graceEnd(for: event, config: config) { return .grace }
         return .expired
     }
@@ -46,8 +60,9 @@ public enum EventLifecycle {
         let today = calendar.startOfDay(for: now)
         let lower = calendar.date(byAdding: .day, value: -mvpDateWindowDays, to: today) ?? today
         let upperDay = calendar.date(byAdding: .day, value: mvpDateWindowDays, to: today) ?? today
-        let dayAfterUpper = calendar.date(byAdding: .day, value: 1, to: upperDay) ?? upperDay.addingTimeInterval(86_400)
-        return lower...dayAfterUpper.addingTimeInterval(-1)
+        let dayAfterUpper = calendar.date(byAdding: .day, value: 1, to: upperDay)
+            ?? upperDay.addingTimeInterval(86_400)
+        return lower...dayAfterUpper.addingTimeInterval(-0.001)
     }
 
     public static func maximumEndDate(
@@ -56,8 +71,9 @@ public enum EventLifecycle {
         calendar: Calendar = .current
     ) -> Date {
         let days = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
-        return calendar.date(byAdding: .day, value: days, to: startsAt)
-            ?? startsAt.addingTimeInterval(TimeInterval(days) * 86_400)
+        let startDay = calendar.startOfDay(for: startsAt)
+        return calendar.date(byAdding: .day, value: days, to: startDay)
+            ?? startDay.addingTimeInterval(TimeInterval(days) * 86_400)
     }
 
     public static func validateDates(
@@ -73,8 +89,14 @@ public enum EventLifecycle {
             config: config,
             calendar: calendar
         )
-        let allowed = allowedDateRange(now: now, calendar: calendar)
-        guard allowed.contains(startsAt), allowed.contains(endsAt) else {
+
+        let today = calendar.startOfDay(for: now)
+        let startDay = calendar.startOfDay(for: startsAt)
+        let endDay = calendar.startOfDay(for: endsAt)
+        let lower = calendar.date(byAdding: .day, value: -mvpDateWindowDays, to: today) ?? today
+        let upper = calendar.date(byAdding: .day, value: mvpDateWindowDays, to: today) ?? today
+
+        guard startDay >= lower, startDay <= upper, endDay >= lower, endDay <= upper else {
             throw AppError.eventDatesOutsideAllowedWindow(days: mvpDateWindowDays)
         }
     }
@@ -102,13 +124,45 @@ public enum EventLifecycle {
         config: RemoteConfigValues,
         calendar: Calendar
     ) throws {
-        guard endsAt > startsAt else { throw AppError.invalidEventDates }
+        let startDay = calendar.startOfDay(for: startsAt)
+        let endDay = calendar.startOfDay(for: endsAt)
+        guard endDay >= startDay else { throw AppError.invalidEventDates }
+
         let maxDays = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
-        let maximumEnd = calendar.date(byAdding: .day, value: maxDays, to: startsAt)
-            ?? startsAt.addingTimeInterval(TimeInterval(maxDays) * 86_400)
-        if endsAt > maximumEnd {
+        let dayDistance = calendar.dateComponents([.day], from: startDay, to: endDay).day
+        guard let dayDistance, dayDistance >= 0 else { throw AppError.invalidEventDates }
+        if dayDistance > maxDays {
             throw AppError.eventDurationTooLong(maxDays: maxDays)
         }
+    }
+
+    /// Converts user-selected civil dates into one authoritative inclusive photo
+    /// window. The last selected date ends at 23:59:59.999 in the chosen Event
+    /// timezone; PhotoKit and backend publish validation then use the same bounds.
+    public static func canonicalBounds(
+        startsAt: Date,
+        endsAt: Date,
+        calendar: Calendar
+    ) -> ClosedRange<Date> {
+        let lower = calendar.startOfDay(for: startsAt)
+        let endDay = calendar.startOfDay(for: endsAt)
+        let dayAfterEnd = calendar.date(byAdding: .day, value: 1, to: endDay)
+            ?? endDay.addingTimeInterval(86_400)
+        let upper = dayAfterEnd.addingTimeInterval(-0.001)
+        return lower...max(lower, upper)
+    }
+
+    /// Civil-day ordinal mirrored by functions/eventDateSemantics.js. It is
+    /// deliberately based on Y/M/D components rather than elapsed local seconds,
+    /// so DST changes cannot alter a day identity.
+    public static func localDayNumber(_ date: Date, calendar: Calendar) -> Int {
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let midnightUTC = utc.date(from: components) else {
+            return Int(floor(date.timeIntervalSince1970 / 86_400))
+        }
+        return Int(floor(midnightUTC.timeIntervalSince1970 / 86_400))
     }
 
     public static func defaultEndDate(
