@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const membershipIdentity = require("./membershipIdentity");
 
 const db = admin.firestore();
 
@@ -32,11 +33,20 @@ exports.listEventMembers = onCall(async (request) => {
     if (name) namesById.set(snap.id, name);
   });
 
+  // Pre-migration memberships may not have a generation ID yet. Backfill them
+  // through a transaction that refuses to recreate a concurrently removed
+  // membership. New memberships normally already have this field via the
+  // on-create trigger in membershipIdentity.js.
+  const membershipIds = await Promise.all(membersSnap.docs.map((doc) =>
+    membershipIdentity.ensureMembershipIdentity(eventId, doc.id, doc.data() || {})
+  ));
+
   return {
-    members: membersSnap.docs.map((doc) => {
+    members: membersSnap.docs.map((doc, index) => {
       const data = doc.data() || {};
       return {
         userId: doc.id,
+        membershipId: membershipIds[index] || null,
         displayName: namesById.get(doc.id) || null,
         role: data.role || "participant",
         sharingEnabled: data.sharingEnabled !== false,
