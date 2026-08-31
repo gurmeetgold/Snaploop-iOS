@@ -107,6 +107,12 @@ struct EventDashboardView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadDashboard() }
+        .onChange(of: session.activeEvent?.id) { _, activeEventId in
+            // A successful Leave Event clears the active Event from the child
+            // Members screen. Pop this now-invalid dashboard as well instead of
+            // leaving the user on a stale, non-interactive Event screen.
+            if activeEventId == nil { dismiss() }
+        }
         .confirmationDialog("End this Event?", isPresented: $confirmEnd, titleVisibility: .visible) {
             Button("End Event", role: .destructive) {
                 Task { await changeStatus { try await env.events.endEvent(id: currentEvent.id) } }
