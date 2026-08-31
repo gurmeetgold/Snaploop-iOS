@@ -60,15 +60,18 @@ struct RootView: View {
             guard postAuthUserId != userId else { return }
             kickOffDeferredStartupWork()
         }
-        .onChange(of: session.hasFaceProfile) { _, hasFaceProfile in
-            guard hasFaceProfile, session.user != nil else { return }
+        .onChange(of: session.hasFaceProfile) { _, _ in
+            // Source photo sharing is authorized by Event membership + sharing
+            // preference, not by the source user's own Face Setup. Re-run on both
+            // setup and deletion so recipient/template state can settle promptly.
+            guard session.user != nil else { return }
             configureAutomaticSyncAndRun()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, hasCompletedOnboarding else { return }
             Task {
                 await loadPendingInviteIfNeeded()
-                if session.user != nil && session.hasFaceProfile { configureAutomaticSyncAndRun() }
+                if session.user != nil { configureAutomaticSyncAndRun() }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { notification in
@@ -123,7 +126,10 @@ struct RootView: View {
             }
             _ = await (configRefresh, inviteLoad, pushRegistration)
 
-            if session.user?.id == userId && session.hasFaceProfile {
+            // An authenticated Event member may contribute photos even when they
+            // skipped, deleted or temporarily lost their own Face Setup. Recipient
+            // eligibility is independently determined by the trusted face manifest.
+            if session.user?.id == userId {
                 configureAutomaticSyncAndRun()
             }
         }
