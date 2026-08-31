@@ -4,6 +4,11 @@ import Foundation
 struct MemberPhotoPreferences: Equatable, Sendable {
     let sharingEnabled: Bool
     let includeOwnMatches: Bool
+
+    /// Publication-generation token for this member's source photos. It changes
+    /// only when sharing itself changes, not when the local-own-photo visibility
+    /// preference changes. Change 4 uses it to republish cached positive matches
+    /// after sharing OFF deleted server rows, without re-running face detection.
     let revisionToken: String
 }
 
@@ -16,11 +21,16 @@ enum MemberPhotoPreferencesClient {
         }
 
         let sharingUpdated = millisString(data["sharingUpdatedAtMillis"])
-        let ownUpdated = millisString(data["ownMatchesUpdatedAtMillis"])
+        let serverRevision = (data["sharingRevision"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sharingRevision = serverRevision.flatMap { $0.isEmpty ? nil : $0 }
+            .map { "id:\($0)" }
+            ?? "legacy:\(sharingUpdated)"
+
         return MemberPhotoPreferences(
             sharingEnabled: data["sharingEnabled"] as? Bool ?? true,
             includeOwnMatches: data["includeOwnMatches"] as? Bool ?? false,
-            revisionToken: "\(sharingUpdated)-\(ownUpdated)"
+            revisionToken: sharingRevision
         )
     }
 
