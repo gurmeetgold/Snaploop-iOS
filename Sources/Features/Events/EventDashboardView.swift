@@ -184,7 +184,14 @@ struct EventDashboardView: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                 HStack(spacing: 8) {
-                    Label(DateFormatting.range(currentEvent.startsAt, currentEvent.endsAt), systemImage: "calendar")
+                    Label(
+                        DateFormatting.range(
+                            currentEvent.startsAt,
+                            currentEvent.endsAt,
+                            timeZone: currentEvent.photoWindowTimeZone
+                        ),
+                        systemImage: "calendar"
+                    )
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.92))
                     if let role = currentUserRole {
