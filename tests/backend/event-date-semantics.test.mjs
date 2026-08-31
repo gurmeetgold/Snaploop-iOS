@@ -26,7 +26,7 @@ function canonicalPayload({ start, end, zone = "UTC", startOffset, endOffset }) 
   return payload;
 }
 
-test("spring DST: fifteen civil-day distance is accepted despite 359-hour boundary span", () => {
+test("spring DST: fifteen civil-day distance is accepted without elapsed-hour assumptions", () => {
   const payload = canonicalPayload({
     zone: "America/Toronto",
     start: "2026-03-01T05:00:00.000Z", // Mar 1 00:00 EST
@@ -41,10 +41,12 @@ test("spring DST: fifteen civil-day distance is accepted despite 359-hour bounda
 
   assert.equal(result.endDay - result.startDay, 15);
   assert.equal(result.photoWindowTimeZoneId, "America/Toronto");
-  assert.equal(payload.endsAtMillis - payload.startsAtMillis, (359 * 60 * 60 * 1000) - 1);
+  // Inclusive whole-day bounds cover 16 selected date labels when the start/end
+  // civil-day ordinal distance is 15. Spring DST removes one elapsed hour.
+  assert.equal(payload.endsAtMillis - payload.startsAtMillis, (383 * 60 * 60 * 1000) - 1);
 });
 
-test("fall DST: fifteen civil-day distance is accepted despite 361-hour boundary span", () => {
+test("fall DST: fifteen civil-day distance is accepted without elapsed-hour assumptions", () => {
   const payload = canonicalPayload({
     zone: "America/Toronto",
     start: "2026-10-25T04:00:00.000Z", // Oct 25 00:00 EDT
@@ -58,7 +60,8 @@ test("fall DST: fifteen civil-day distance is accepted despite 361-hour boundary
   });
 
   assert.equal(result.endDay - result.startDay, 15);
-  assert.equal(payload.endsAtMillis - payload.startsAtMillis, (361 * 60 * 60 * 1000) - 1);
+  // Fall DST adds one elapsed hour to the same civil-day span.
+  assert.equal(payload.endsAtMillis - payload.startsAtMillis, (385 * 60 * 60 * 1000) - 1);
 });
 
 test("civil day numbers advance by one across Toronto spring and fall DST", () => {
