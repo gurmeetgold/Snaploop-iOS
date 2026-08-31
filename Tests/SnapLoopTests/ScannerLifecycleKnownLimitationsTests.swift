@@ -148,10 +148,8 @@ final class ScannerLifecycleRegressionTests: XCTestCase {
 
         XCTAssertEqual(afterRefresh.scanned, 1)
         XCTAssertEqual(afterRefresh.matchedPhotos, 1)
-        XCTAssertEqual(
-            try await matchRepository.myPhotos(eventId: "event", userId: "recipient").map(\.assetLocalId),
-            ["asset"]
-        )
+        let recipientPhotos = try await matchRepository.myPhotos(eventId: "event", userId: "recipient")
+        XCTAssertEqual(recipientPhotos.map(\.assetLocalId), ["asset"])
     }
 
     func testLeaveAndRejoinCreatesFreshHistoricalEvaluation() async throws {
@@ -230,9 +228,7 @@ final class ScannerLifecycleRegressionTests: XCTestCase {
 
         XCTAssertEqual(afterJoin.scanned, 1)
         XCTAssertEqual(afterJoin.matchedPhotos, 1)
-        XCTAssertEqual(
-            try await matches.myPhotos(eventId: "event", userId: "recipient").count,
-            1
-        )
+        let recipientPhotos = try await matches.myPhotos(eventId: "event", userId: "recipient")
+        XCTAssertEqual(recipientPhotos.count, 1)
     }
 }
