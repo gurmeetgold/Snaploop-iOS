@@ -43,11 +43,18 @@ public struct EventFactory {
 
     public let config: RemoteConfigValues
     public let clock: Clock
+    public let calendar: Calendar
     public let generators: Generators
 
-    public init(config: RemoteConfigValues, clock: Clock, generators: Generators = .init()) {
+    public init(
+        config: RemoteConfigValues,
+        clock: Clock,
+        calendar: Calendar = EventLifecycle.calendar(),
+        generators: Generators = .init()
+    ) {
         self.config = config
         self.clock = clock
+        self.calendar = calendar
         self.generators = generators
     }
 
@@ -59,8 +66,17 @@ public struct EventFactory {
             startsAt: draft.startsAt,
             endsAt: draft.endsAt,
             now: now,
-            config: config
+            config: config,
+            calendar: calendar
         )
+
+        let bounds = EventLifecycle.canonicalBounds(
+            startsAt: draft.startsAt,
+            endsAt: draft.endsAt,
+            calendar: calendar
+        )
+        let startDay = EventLifecycle.localDayNumber(draft.startsAt, calendar: calendar)
+        let endDay = EventLifecycle.localDayNumber(draft.endsAt, calendar: calendar)
 
         return Event(
             id: generators.id(),
@@ -71,31 +87,57 @@ public struct EventFactory {
             category: draft.category,
             coverImagePath: draft.coverImagePath,
             locationName: draft.locationName,
-            startsAt: draft.startsAt,
-            endsAt: draft.endsAt,
+            startsAt: bounds.lowerBound,
+            endsAt: bounds.upperBound,
+            photoWindowVersion: EventLifecycle.photoWindowVersion,
+            photoWindowTimeZoneId: calendar.timeZone.identifier,
+            photoWindowStartDayNumber: startDay,
+            photoWindowEndDayNumber: endDay,
             status: .active,
             createdAt: now,
             updatedAt: now
         )
     }
 
-    public func applyEdit(_ draft: EventDraft, to event: Event) throws -> Event {
+    /// `datesChanged == false` is important for legacy Events. A rename/details
+    /// edit must not validate, clamp, normalize or otherwise mutate historical
+    /// date values simply because today's ±15 window has moved on.
+    public func applyEdit(
+        _ draft: EventDraft,
+        to event: Event,
+        datesChanged: Bool = true
+    ) throws -> Event {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw AppError.invalidEventName }
         let now = clock.now()
-        try EventLifecycle.validateDates(
-            startsAt: draft.startsAt,
-            endsAt: draft.endsAt,
-            now: now,
-            config: config
-        )
+
         var updated = event
         updated.name = name
         updated.category = draft.category
         updated.locationName = draft.locationName
         updated.coverImagePath = draft.coverImagePath
-        updated.startsAt = draft.startsAt
-        updated.endsAt = draft.endsAt
+
+        if datesChanged {
+            try EventLifecycle.validateDates(
+                startsAt: draft.startsAt,
+                endsAt: draft.endsAt,
+                now: now,
+                config: config,
+                calendar: calendar
+            )
+            let bounds = EventLifecycle.canonicalBounds(
+                startsAt: draft.startsAt,
+                endsAt: draft.endsAt,
+                calendar: calendar
+            )
+            updated.startsAt = bounds.lowerBound
+            updated.endsAt = bounds.upperBound
+            updated.photoWindowVersion = EventLifecycle.photoWindowVersion
+            updated.photoWindowTimeZoneId = calendar.timeZone.identifier
+            updated.photoWindowStartDayNumber = EventLifecycle.localDayNumber(draft.startsAt, calendar: calendar)
+            updated.photoWindowEndDayNumber = EventLifecycle.localDayNumber(draft.endsAt, calendar: calendar)
+        }
+
         updated.updatedAt = now
         return updated
     }
