@@ -46,7 +46,7 @@ jobs:
           firebase emulators:exec \
             --project demo-mypicsroom-security \
             --only auth,firestore,storage,functions \
-            "node --test tests/backend/security-rules.test.mjs && node --test tests/backend/functions-integration.test.mjs"
+            "node --test tests/backend/security-rules.test.mjs && node --test tests/backend/functions-integration.test.mjs && node --test tests/backend/membership-identity.test.mjs"
 
   build-test:
     runs-on: macos-15
