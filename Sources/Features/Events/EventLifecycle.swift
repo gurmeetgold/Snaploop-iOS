@@ -56,7 +56,10 @@ public enum EventLifecycle {
         event.status == .active && clock.now() <= graceEnd(for: event, config: config)
     }
 
-    public static func allowedDateRange(now: Date, calendar: Calendar = .current) -> ClosedRange<Date> {
+    public static func allowedDateRange(
+        now: Date,
+        calendar: Calendar = EventLifecycle.calendar()
+    ) -> ClosedRange<Date> {
         let today = calendar.startOfDay(for: now)
         let lower = calendar.date(byAdding: .day, value: -mvpDateWindowDays, to: today) ?? today
         let upperDay = calendar.date(byAdding: .day, value: mvpDateWindowDays, to: today) ?? today
@@ -68,7 +71,7 @@ public enum EventLifecycle {
     public static func maximumEndDate(
         from startsAt: Date,
         config: RemoteConfigValues,
-        calendar: Calendar = .current
+        calendar: Calendar = EventLifecycle.calendar()
     ) -> Date {
         let days = min(mvpMaximumDurationDays, max(1, config.maxEventDurationDays))
         let startDay = calendar.startOfDay(for: startsAt)
@@ -81,7 +84,7 @@ public enum EventLifecycle {
         endsAt: Date,
         now: Date,
         config: RemoteConfigValues,
-        calendar: Calendar = .current
+        calendar: Calendar = EventLifecycle.calendar()
     ) throws {
         try validateDuration(
             startsAt: startsAt,
@@ -108,7 +111,7 @@ public enum EventLifecycle {
         startsAt: Date,
         endsAt: Date,
         config: RemoteConfigValues,
-        calendar: Calendar = .current
+        calendar: Calendar = EventLifecycle.calendar()
     ) throws {
         try validateDuration(
             startsAt: startsAt,
@@ -168,7 +171,7 @@ public enum EventLifecycle {
     public static func defaultEndDate(
         from startsAt: Date,
         config: RemoteConfigValues,
-        calendar: Calendar = .current
+        calendar: Calendar = EventLifecycle.calendar()
     ) -> Date {
         let days = min(mvpMaximumDurationDays, max(1, config.defaultEventDurationDays))
         return calendar.date(byAdding: .day, value: days, to: startsAt)
