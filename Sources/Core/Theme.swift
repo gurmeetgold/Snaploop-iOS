@@ -142,6 +142,17 @@ public enum Theme {
     }
 }
 
+private struct EventContextNameKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var eventContextName: String? {
+        get { self[EventContextNameKey.self] }
+        set { self[EventContextNameKey.self] = newValue }
+    }
+}
+
 struct GradientTile: View {
     let title: String
     let subtitle: String
@@ -221,6 +232,14 @@ struct InsightBanner: View {
     let value: String
     let label: String
     let systemImage: String
+    @Environment(\.eventContextName) private var eventContextName
+
+    private var displayedLabel: String {
+        guard label == "photos found of you",
+              let eventContextName = eventContextName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !eventContextName.isEmpty else { return label }
+        return "\(label) in \(eventContextName)"
+    }
 
     var body: some View {
         HStack(spacing: 16) {
@@ -228,7 +247,7 @@ struct InsightBanner: View {
                 Text(value)
                     .font(.system(size: 42, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
-                Text(label)
+                Text(displayedLabel)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.94))
             }
