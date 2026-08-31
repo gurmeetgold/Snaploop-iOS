@@ -27,6 +27,7 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
     public var thumbnailPath: String?     // Storage path once uploaded
 
     public init(
+        id explicitId: String? = nil,
         eventId: String,
         ownerUserId: String,
         sourceInstallationId: String? = nil,
@@ -42,7 +43,13 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
         self.sourceInstallationId = normalizedSource
-        if useSourceScopedIdentity, let normalizedSource {
+        if let explicitId = explicitId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty {
+            // Trusted repository decoding preserves the server-issued identity,
+            // including future source-scoped IDs. New local matches omit this.
+            self.id = explicitId
+        } else if useSourceScopedIdentity, let normalizedSource {
             self.id = "\(eventId):\(normalizedSource):\(assetLocalId)"
         } else {
             // Preserve the legacy ID during Change 2. The upcoming corpus/cursor
