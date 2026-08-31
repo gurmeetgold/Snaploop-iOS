@@ -1,4 +1,5 @@
 import BackgroundTasks
+import Combine
 import Foundation
 
 /// Resource-conscious, best-effort automatic photo discovery for Events whose
@@ -21,6 +22,7 @@ final class AutomaticEventSync {
     private weak var environment: AppEnvironment?
     private weak var session: AppSession?
     private var activeRun: Task<Void, Never>?
+    private var sessionGenerationObservation: AnyCancellable?
 
     private let automaticCooldown: TimeInterval = 60 * 60
     private let backgroundEarliestDelay: TimeInterval = 60 * 60
@@ -33,12 +35,19 @@ final class AutomaticEventSync {
     func configure(environment: AppEnvironment, session: AppSession) {
         self.environment = environment
         self.session = session
+        sessionGenerationObservation = session.$sessionGeneration
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.cancelForSessionChange()
+                }
+            }
         // Do not schedule background work blindly. The first foreground eligibility
         // check decides whether there is an Event worth scanning.
     }
 
-    /// Called when the authenticated session is being cleared or replaced. Task
-    /// cancellation is immediate; session-generation checks below are the second
+    /// Called automatically when the authenticated session generation changes.
+    /// Task cancellation is immediate; generation checks below are the second
     /// line of defense for work already between suspension points.
     func cancelForSessionChange() {
         activeRun?.cancel()
