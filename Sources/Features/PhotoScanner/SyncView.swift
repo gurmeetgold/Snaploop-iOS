@@ -53,13 +53,14 @@ final class SyncModel: ObservableObject {
                 return
             }
 
-            let participants = try await EventFaceProfileClient.list(eventId: event.id)
+            let manifest = try await EventFaceProfileClient.manifest(eventId: event.id)
             try Task.checkCancellation()
             let coordinator = env.makeSyncCoordinator()
             let summary = try await coordinator.sync(
                 event: event,
-                participants: participants,
+                participants: manifest.participants,
                 currentUserId: userId,
+                sourceMembershipId: manifest.sourceMembershipId,
                 includeOwnMatches: preferences.includeOwnMatches,
                 preferenceRevision: preferences.revisionToken
             ) { [weak self] progress in
