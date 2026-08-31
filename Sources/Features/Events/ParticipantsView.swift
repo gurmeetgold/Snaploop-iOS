@@ -7,6 +7,7 @@ final class ParticipantsModel: ObservableObject {
     @Published var includeOwnMatches = false
     @Published var hasFaceSetup = false
     @Published var isUpdatingIncludeOwnMatches = false
+    @Published var memberActionUserId: String?
     @Published var errorMessage: String?
 
     private var env: AppEnvironment?
@@ -153,7 +154,10 @@ final class ParticipantsModel: ObservableObject {
     }
 
     func remove(_ member: EventMember) async {
+        guard memberActionUserId == nil else { return }
+        memberActionUserId = member.userId
         errorMessage = nil
+        defer { memberActionUserId = nil }
         do {
             if AppEnvironment.useLiveServices {
                 try await EventManagementClient.remove(eventId: event.id, userId: member.userId)
@@ -168,8 +172,10 @@ final class ParticipantsModel: ObservableObject {
     }
 
     func setRole(_ role: EventMember.Role, for member: EventMember) async {
-        guard currentUserIsOrganizer else { return }
+        guard currentUserIsOrganizer, memberActionUserId == nil else { return }
+        memberActionUserId = member.userId
         errorMessage = nil
+        defer { memberActionUserId = nil }
         do {
             if AppEnvironment.useLiveServices {
                 try await EventManagementClient.setRole(eventId: event.id, userId: member.userId, role: role)
@@ -294,7 +300,12 @@ struct ParticipantsView: View {
                                     }
                                     Spacer()
                                     roleBadge(member.role)
-                                    if model.canManage(member) {
+                                    if model.memberActionUserId == member.userId {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .frame(width: 28, height: 28)
+                                            .accessibilityLabel("Updating member")
+                                    } else if model.canManage(member) {
                                         managementMenu(member)
                                     }
                                 }
