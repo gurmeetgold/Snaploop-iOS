@@ -9,6 +9,7 @@ public struct CameraSyncCoordinator {
     private let thumbnailEncoder: ThumbnailEncoder
     private let matches: MatchRepository
     private let scanStateStore: ScanStateStore
+    private let accountInstallationIdentity: AccountInstallationIdentityProviding
 
     private static let normalSafetyBatchCap = 100
     private static let lowPowerSafetyBatchCap = 100
@@ -21,7 +22,8 @@ public struct CameraSyncCoordinator {
         faceDetection: FaceDetectionService,
         thumbnailEncoder: ThumbnailEncoder,
         matches: MatchRepository,
-        scanStateStore: ScanStateStore
+        scanStateStore: ScanStateStore,
+        accountInstallationIdentity: AccountInstallationIdentityProviding = InMemoryAccountInstallationIdentityStore()
     ) {
         self.config = config
         self.clock = clock
@@ -30,6 +32,7 @@ public struct CameraSyncCoordinator {
         self.thumbnailEncoder = thumbnailEncoder
         self.matches = matches
         self.scanStateStore = scanStateStore
+        self.accountInstallationIdentity = accountInstallationIdentity
     }
 
     public struct Summary: Equatable, Sendable {
@@ -92,6 +95,15 @@ public struct CameraSyncCoordinator {
             guard status.canRead else { throw AppError.photoLibraryAccessDenied }
         }
 
+        let sourceInstallationId = accountInstallationIdentity.id(for: currentUserId)
+        guard !sourceInstallationId.isEmpty else { throw AppError.notAuthenticated }
+        // Face-roster rows now carry the server membership generation. Legacy
+        // deployed backends can temporarily return nil; the server then applies
+        // its compatibility path rather than inventing a client-side identity.
+        let sourceMembershipId = participants
+            .first(where: { $0.userId == currentUserId })?
+            .membershipId
+
         try Task.checkCancellation()
         let assets = try await photoLibrary.assets(in: event.dateRange)
 
@@ -101,9 +113,10 @@ public struct CameraSyncCoordinator {
         // wasteful full rescan. Deleting Face Setup and enrolling a new identity
         // changes the stable ID and creates a fresh scan namespace.
         //
-        // NOTE: Change 1 intentionally leaves this legacy behavior untouched so
-        // diagnostics can reproduce the current lifecycle gaps before the state
-        // model is replaced by the photo-corpus + recipient-cursor architecture.
+        // NOTE: Change 2 intentionally leaves this legacy state namespace intact.
+        // Activating source-scoped photo IDs or a new scan namespace before the
+        // photo-corpus + recipient-cursor migration could create duplicate photo
+        // documents during roster-triggered rescans.
         let rosterIdentityRevision = participants
             .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
             .sorted()
@@ -162,6 +175,8 @@ public struct CameraSyncCoordinator {
                     event: event,
                     participants: participants,
                     currentUserId: currentUserId,
+                    sourceInstallationId: sourceInstallationId,
+                    sourceMembershipId: sourceMembershipId,
                     includeOwnMatches: includeOwnMatches,
                     matcher: matcher,
                     values: values
@@ -216,6 +231,8 @@ public struct CameraSyncCoordinator {
         event: Event,
         participants: [EventParticipant],
         currentUserId: String,
+        sourceInstallationId: String,
+        sourceMembershipId: String?,
         includeOwnMatches: Bool,
         matcher: FaceMatcher,
         values: RemoteConfigValues
@@ -258,10 +275,15 @@ public struct CameraSyncCoordinator {
         let match = PhotoMatch(
             eventId: event.id,
             ownerUserId: currentUserId,
+            sourceInstallationId: sourceInstallationId,
+            sourceMembershipId: sourceMembershipId,
             assetLocalId: asset.id,
             appearances: appearances,
             capturedAt: asset.creationDate,
-            matchedAt: clock.now()
+            matchedAt: clock.now(),
+            // Keep legacy photo document identity until the corpus/cursor state
+            // migration lands. Source metadata is already carried to the server.
+            useSourceScopedIdentity: false
         )
         try await matches.upload(match: match, thumbnailJPEG: thumbnail)
         return ProcessResult(
