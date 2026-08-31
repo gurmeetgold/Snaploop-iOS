@@ -6,12 +6,6 @@ import Foundation
 enum EventFaceProfileClient {
     @MainActor
     static func list(eventId: String) async throws -> [EventParticipant] {
-        // Membership generation is fetched independently from the non-biometric
-        // member directory. Failure of this additive migration lookup must not
-        // break existing face matching; pre-migration participants remain valid
-        // with membershipId == nil until a later reconciliation succeeds.
-        async let membershipIdsTask = loadMembershipIds(eventId: eventId)
-
         let raw: Any = try await withCheckedThrowingContinuation { continuation in
             Functions.functions().httpsCallable("listEventFaceProfiles").call([
                 "eventId": eventId
@@ -29,10 +23,23 @@ enum EventFaceProfileClient {
             throw AppError.decoding("Event face profile response is malformed")
         }
 
-        let membershipIds = (try? await membershipIdsTask) ?? [:]
+        // Current backends return membershipId in the same trusted roster row as
+        // the biometric descriptor. That avoids a race where a leave/rejoin can
+        // happen between two independent callable reads. Keep one compatibility
+        // fallback for an older deployed backend during rollout, but never let
+        // fallback data override a generation supplied with the face roster.
+        let requiresLegacyMembershipLookup = rows.contains {
+            normalizedMembershipId($0["membershipId"]) == nil
+        }
+        let legacyMembershipIds = requiresLegacyMembershipLookup
+            ? ((try? await loadMembershipIds(eventId: eventId)) ?? [:])
+            : [:]
+
         return try rows.map { row in
             let userId = row["userId"] as? String
-            return try Self.decode(row, membershipId: userId.flatMap { membershipIds[$0] })
+            let membershipId = normalizedMembershipId(row["membershipId"])
+                ?? userId.flatMap { legacyMembershipIds[$0] }
+            return try Self.decode(row, membershipId: membershipId)
         }
     }
 
@@ -58,12 +65,16 @@ enum EventFaceProfileClient {
         var result: [String: String] = [:]
         for row in rows {
             guard let userId = row["userId"] as? String,
-                  let rawMembershipId = row["membershipId"] as? String else { continue }
-            let membershipId = rawMembershipId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !membershipId.isEmpty else { continue }
+                  let membershipId = normalizedMembershipId(row["membershipId"]) else { continue }
             result[userId] = membershipId
         }
         return result
+    }
+
+    private static func normalizedMembershipId(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func decode(_ data: [String: Any], membershipId: String?) throws -> EventParticipant {
