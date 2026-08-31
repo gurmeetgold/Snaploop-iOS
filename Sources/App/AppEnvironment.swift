@@ -120,7 +120,10 @@ public final class AppEnvironment: ObservableObject {
             events: FirebaseEventRepository(),
             matches: FirebaseMatchRepository(),
             transfers: InMemoryTransferRepository(),
-            scanStateStore: UserDefaultsScanStateStore(),
+            // Change 4 caches candidate photo-face embeddings locally. Keep that
+            // biometric-derived corpus out of UserDefaults and under iOS Data
+            // Protection in Application Support instead.
+            scanStateStore: ProtectedFileScanStateStore(),
             faceProfiles: FirebaseFaceProfileStore(),
             biometricConsent: FirebaseBiometricConsentStore(),
             users: FirebaseUserDirectory(),
