@@ -2,6 +2,7 @@ const { onCall, HttpsError } = require("firebase-functions/https");
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 const { normalizedMembershipId } = require("./membershipIdentity");
+const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
@@ -9,6 +10,7 @@ const Timestamp = admin.firestore.Timestamp;
 const MAX_APPEARANCES = 50;
 const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const EVENT_GRACE_DAYS = 15;
 const FACE_PROFILE_VERSION = 5;
 const CONSENT_POLICY_VERSION = 5;
 const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
@@ -267,17 +269,22 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
     const event = eventSnap.data() || {};
     const sourceMember = sourceMemberSnap.data() || {};
     if (event.status !== "active") throw new HttpsError("failed-precondition", "This event has ended.");
+    if (!isWithinEventGraceWindow(event, Date.now(), EVENT_GRACE_DAYS)) {
+      throw new HttpsError("failed-precondition", "This event's photo window has expired.");
+    }
     if (sourceMember.sharingEnabled === false) {
       throw new HttpsError("failed-precondition", "Photo sharing is turned off for this event.");
     }
 
-    // Change 3 will replace these raw bounds with the canonical full-day photo
-    // window. Keep the existing narrower rule unchanged during this identity-only
-    // migration rather than silently widening privacy scope here.
-    if (event.startsAt instanceof Timestamp && capturedAtMillis < event.startsAt.toMillis()) {
-      throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
+    // Canonical v1 Events persist the exact inclusive full-day bounds selected by
+    // the organizer, so this transaction verifies the same absolute interval that
+    // PhotoKit scanned on iOS. Legacy Events intentionally retain their original
+    // narrower trusted timestamps rather than widening privacy scope without a
+    // persisted timezone; an intentional date edit migrates them to v1 first.
+    if (!(event.startsAt instanceof Timestamp) || !(event.endsAt instanceof Timestamp)) {
+      throw new HttpsError("failed-precondition", "This event has invalid dates.");
     }
-    if (event.endsAt instanceof Timestamp && capturedAtMillis > event.endsAt.toMillis()) {
+    if (capturedAtMillis < event.startsAt.toMillis() || capturedAtMillis > event.endsAt.toMillis()) {
       throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
     }
 
