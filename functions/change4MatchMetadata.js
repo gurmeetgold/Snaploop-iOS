@@ -6,6 +6,10 @@ function normalizedUserId(value) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function normalizedMembershipId(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 function normalizedDismissedUserIds(data) {
   const values = new Set();
   const raw = data && Array.isArray(data.dismissedUserIds) ? data.dismissedUserIds : [];
@@ -41,14 +45,27 @@ function prepareIncrementalMatchState(existingPhoto) {
   return {
     appearanceByUser,
     dismissedUserIds,
+    dismissedMembershipIds: recordMap(data.dismissedMembershipIds),
     matchedFaceIdentityIds: recordMap(data.matchedFaceIdentityIds),
     matchedProfileRevisions: recordMap(data.matchedProfileRevisions),
     matchedMembershipIds: recordMap(data.matchedMembershipIds),
   };
 }
 
-function isRecipientDismissed(state, userId) {
-  return !!state && state.dismissedUserIds instanceof Set && state.dismissedUserIds.has(userId);
+function recipientDismissalApplies(state, userId, membershipId = null) {
+  if (!state || !(state.dismissedUserIds instanceof Set) || !state.dismissedUserIds.has(userId)) return false;
+  const bound = normalizedMembershipId(state.dismissedMembershipIds[userId]);
+  const current = normalizedMembershipId(membershipId);
+
+  // A generation-bound dismissal belongs only to the participation in which the
+  // user made it. If they leave and later rejoin, the new membership is allowed
+  // to receive a fresh match. Legacy unbound dismissals fail closed and persist.
+  if (bound && current && bound !== current) {
+    state.dismissedUserIds.delete(userId);
+    delete state.dismissedMembershipIds[userId];
+    return false;
+  }
+  return true;
 }
 
 function upsertActiveAppearance(state, {
@@ -59,7 +76,7 @@ function upsertActiveAppearance(state, {
   recipientMembershipId = null,
 }) {
   const userId = normalizedUserId(participantUserId);
-  if (!userId || isRecipientDismissed(state, userId)) return false;
+  if (!userId || recipientDismissalApplies(state, userId, recipientMembershipId)) return false;
 
   const appearance = {
     participantUserId: userId,
@@ -99,6 +116,9 @@ function finalizeIncrementalMatchState(state) {
   for (const key of Object.keys(state.matchedMembershipIds)) {
     if (!active.has(key)) delete state.matchedMembershipIds[key];
   }
+  for (const key of Object.keys(state.dismissedMembershipIds)) {
+    if (!state.dismissedUserIds.has(key)) delete state.dismissedMembershipIds[key];
+  }
 
   return {
     appearances,
@@ -107,15 +127,19 @@ function finalizeIncrementalMatchState(state) {
     matchedProfileRevisions: state.matchedProfileRevisions,
     matchedMembershipIds: state.matchedMembershipIds,
     dismissedUserIds: [...state.dismissedUserIds].sort(),
+    dismissedMembershipIds: state.dismissedMembershipIds,
   };
 }
 
-function dismissRecipientMatchMetadata(data, userId) {
+function dismissRecipientMatchMetadata(data, userId, membershipId = null) {
   const normalized = normalizedUserId(userId);
   if (!normalized) throw new TypeError("userId is required");
   const state = prepareIncrementalMatchState(data);
   state.appearanceByUser.delete(normalized);
   state.dismissedUserIds.add(normalized);
+  const normalizedMembership = normalizedMembershipId(membershipId);
+  if (normalizedMembership) state.dismissedMembershipIds[normalized] = normalizedMembership;
+  else delete state.dismissedMembershipIds[normalized];
   delete state.matchedFaceIdentityIds[normalized];
   delete state.matchedProfileRevisions[normalized];
   delete state.matchedMembershipIds[normalized];
@@ -127,7 +151,10 @@ function removeRecipientMatchMetadata(data, userId, { removeDismissal = false } 
   if (!normalized) throw new TypeError("userId is required");
   const state = prepareIncrementalMatchState(data);
   state.appearanceByUser.delete(normalized);
-  if (removeDismissal) state.dismissedUserIds.delete(normalized);
+  if (removeDismissal) {
+    state.dismissedUserIds.delete(normalized);
+    delete state.dismissedMembershipIds[normalized];
+  }
   delete state.matchedFaceIdentityIds[normalized];
   delete state.matchedProfileRevisions[normalized];
   delete state.matchedMembershipIds[normalized];
@@ -137,9 +164,9 @@ function removeRecipientMatchMetadata(data, userId, { removeDismissal = false } 
 module.exports = {
   dismissRecipientMatchMetadata,
   finalizeIncrementalMatchState,
-  isRecipientDismissed,
   normalizedDismissedUserIds,
   prepareIncrementalMatchState,
+  recipientDismissalApplies,
   removeRecipientMatchMetadata,
   upsertActiveAppearance,
 };
