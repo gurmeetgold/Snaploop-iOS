@@ -65,6 +65,26 @@ final class PhotoCorpusScanStateTests: XCTestCase {
         XCTAssertEqual(cursor.faceIdentityId, "face-2")
     }
 
+    func testSharingGenerationReplayClearsOnlyPositiveHistory() {
+        var state = ScanState(eventId: "state")
+        state.reconcileRecipient(
+            userId: "member",
+            membershipEpoch: "membership",
+            faceIdentityId: "face",
+            faceProfileRevision: "revision"
+        )
+        state.markRecipientEvaluation(userId: "member", assetId: "positive", matched: true)
+        state.markRecipientEvaluation(userId: "member", assetId: "negative", matched: false)
+
+        XCTAssertTrue(state.hasPositiveRecipientEvaluations)
+        state.clearPositiveRecipientEvaluations()
+
+        let cursor = state.recipientCursor(userId: "member")
+        XCTAssertTrue(cursor?.positiveAssetIds.isEmpty == true)
+        XCTAssertEqual(cursor?.negativeAssetIds, ["negative"])
+        XCTAssertFalse(state.hasPositiveRecipientEvaluations)
+    }
+
     func testLegacyScanStateDecodesWithoutCorpusFields() throws {
         let data = Data(#"{"eventId":"legacy-state","scannedAssetIds":["asset-1"]}"#.utf8)
         let decoded = try JSONDecoder().decode(ScanState.self, from: data)
@@ -75,6 +95,7 @@ final class PhotoCorpusScanStateTests: XCTestCase {
         XCTAssertTrue(decoded.photoCorpus.isEmpty)
         XCTAssertTrue(decoded.recipientCursors.isEmpty)
         XCTAssertNil(decoded.sourceMembershipEpoch)
+        XCTAssertNil(decoded.sourceSharingRevision)
     }
 
     func testCorpusStateRoundTripsWithCachedFacesAndRecipientCursors() throws {
@@ -94,6 +115,7 @@ final class PhotoCorpusScanStateTests: XCTestCase {
         )
         state.markRecipientEvaluation(userId: "member", assetId: "asset", matched: true)
         state.sourceMembershipEpoch = "source-membership"
+        state.sourceSharingRevision = "id:sharing-generation"
 
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
@@ -101,6 +123,7 @@ final class PhotoCorpusScanStateTests: XCTestCase {
         let decoded = try PropertyListDecoder().decode(ScanState.self, from: encoded)
 
         XCTAssertEqual(decoded, state)
+        XCTAssertEqual(decoded.sourceSharingRevision, "id:sharing-generation")
         XCTAssertEqual(decoded.corpusRecord(for: "asset")?.faces.first?.embedding, embedding)
         XCTAssertTrue(decoded.recipientCursor(userId: "member")?.hasEvaluated("asset") == true)
     }
