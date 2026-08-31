@@ -6,6 +6,7 @@ const {
   finalizeIncrementalMatchState,
   prepareIncrementalMatchState,
   recipientDismissalApplies,
+  removeActiveAppearance,
   upsertActiveAppearance,
 } = require("./change4MatchMetadata");
 
@@ -13,6 +14,7 @@ const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
 
 const MAX_APPEARANCES = 50;
+const MAX_RECIPIENT_REMOVALS = 50;
 const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const EVENT_GRACE_DAYS = 15;
@@ -81,6 +83,53 @@ function profileIsCurrent(profile) {
     && !!profileIdentity(profile);
 }
 
+async function validateCurrentRecipient(tx, eventId, requested, modernSourceContext) {
+  const memberRef = db.doc(`events/${eventId}/members/${requested.participantUserId}`);
+  const profileRef = db.doc(`users/${requested.participantUserId}/faceProfile/current`);
+  const [memberSnap, profileSnap] = await Promise.all([
+    tx.get(memberRef),
+    tx.get(profileRef),
+  ]);
+
+  if (!memberSnap.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "An Event member changed while this photo was being matched. Refresh the Event and scan again."
+    );
+  }
+  const member = memberSnap.data() || {};
+  const currentMembershipId = normalizedMembershipId(member.membershipId);
+  if (requested.suppliedMembershipId) {
+    if (!currentMembershipId || requested.suppliedMembershipId !== currentMembershipId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "An Event member changed while this photo was being matched. Refresh the Event and scan again."
+      );
+    }
+  } else if (modernSourceContext) {
+    throw new HttpsError("failed-precondition", "Refresh this Event before sharing photos.");
+  }
+
+  const profile = profileSnap.exists ? profileSnap.data() || {} : null;
+  if (!profileIsCurrent(profile)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A matched person's Face Setup is no longer active. Refresh the Event and scan again."
+    );
+  }
+
+  const currentIdentity = profileIdentity(profile);
+  const currentRevision = profileRevision(profile);
+  if (requested.suppliedIdentity !== currentIdentity || requested.suppliedRevision !== currentRevision) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A Face Setup changed while this photo was being matched. Refresh the Event and scan again."
+    );
+  }
+
+  return { currentMembershipId, currentIdentity, currentRevision };
+}
+
 exports.publishMatchIdentityBound = onCall(async (request) => {
   const uid = requireAuth(request);
   const data = request.data || {};
@@ -91,6 +140,7 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
   const suppliedSourceMembershipId = optionalString(data.sourceMembershipId);
   const modernSourceContext = sourceInstallationId !== null;
   const mergeAppearances = data.mergeAppearances === true;
+  const metadataOnly = data.metadataOnly === true;
 
   if (sourceInstallationId && !SOURCE_INSTALLATION_ID_PATTERN.test(sourceInstallationId)) {
     throw new HttpsError("invalid-argument", "Source installation identity is invalid.");
@@ -149,21 +199,64 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
     };
   });
 
+  const rawRemovals = data.recipientRemovals === undefined ? [] : data.recipientRemovals;
+  if (!Array.isArray(rawRemovals) || rawRemovals.length > MAX_RECIPIENT_REMOVALS) {
+    throw new HttpsError("invalid-argument", "Recipient removals are invalid.");
+  }
+  if (rawRemovals.length > 0 && (!modernSourceContext || !mergeAppearances)) {
+    throw new HttpsError("invalid-argument", "Recipient removals require an incremental source-scoped photo.");
+  }
+
+  const removalSeen = new Set();
+  const requestedRemovals = rawRemovals.map((raw) => {
+    const participantUserId = requireString(raw && raw.participantUserId, "participantUserId");
+    const suppliedIdentity = requireString(raw && raw.faceIdentityId, "faceIdentityId");
+    const suppliedRevision = requireString(raw && raw.faceProfileRevision, "faceProfileRevision");
+    const suppliedMembershipId = optionalString(raw && raw.recipientMembershipId);
+    if (seen.has(participantUserId) || removalSeen.has(participantUserId)) {
+      throw new HttpsError("invalid-argument", "A recipient cannot be both added and removed in one photo update.");
+    }
+    if (modernSourceContext && !suppliedMembershipId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "An Event member changed while this photo was being matched. Refresh the Event and scan again."
+      );
+    }
+    removalSeen.add(participantUserId);
+    return {
+      participantUserId,
+      suppliedIdentity,
+      suppliedRevision,
+      suppliedMembershipId,
+    };
+  });
+
+  if (metadataOnly && (
+    !modernSourceContext
+    || !mergeAppearances
+    || requestedAppearances.length !== 0
+    || requestedRemovals.length === 0
+  )) {
+    throw new HttpsError("invalid-argument", "Metadata-only reconciliation is invalid.");
+  }
+
   const docId = photoDocumentId(matchId);
   const thumbnailPath = requireString(data.thumbnailPath, "thumbnailPath");
   if (thumbnailPath !== expectedThumbnailPath(eventId, uid, docId)) {
     throw new HttpsError("invalid-argument", "Thumbnail path is invalid.");
   }
 
-  try {
-    const [metadata] = await admin.storage().bucket().file(thumbnailPath).getMetadata();
-    const size = Number(metadata.size || 0);
-    if (metadata.contentType !== "image/jpeg" || !Number.isFinite(size) || size <= 0 || size > MAX_THUMBNAIL_BYTES) {
-      throw new Error("invalid thumbnail metadata");
+  if (!metadataOnly) {
+    try {
+      const [metadata] = await admin.storage().bucket().file(thumbnailPath).getMetadata();
+      const size = Number(metadata.size || 0);
+      if (metadata.contentType !== "image/jpeg" || !Number.isFinite(size) || size <= 0 || size > MAX_THUMBNAIL_BYTES) {
+        throw new Error("invalid thumbnail metadata");
+      }
+    } catch (error) {
+      console.error("thumbnail verification failed", { eventId, uid, error });
+      throw new HttpsError("failed-precondition", "Thumbnail upload could not be verified.");
     }
-  } catch (error) {
-    console.error("thumbnail verification failed", { eventId, uid, error });
-    throw new HttpsError("failed-precondition", "Thumbnail upload could not be verified.");
   }
 
   const photoRef = db.doc(`events/${eventId}/photos/${docId}`);
@@ -221,15 +314,23 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
     }
 
     // Never carry recipient authorization across a source leave/rejoin. A fast
-    // rejoin can race the asynchronous member-deletion cleanup, so an otherwise
-    // identical source-scoped document from the old participation is treated as
-    // a fresh publication generation rather than merged.
+    // rejoin can race asynchronous member cleanup, so an old-generation document
+    // is either replaced by a fresh positive publication or ignored by a
+    // removal-only reconciliation. In both cases it cannot authorize the new
+    // participation accidentally.
     const existingSourceMembershipId = existingPhoto
       ? normalizedMembershipId(existingPhoto.sourceMembershipId)
       : null;
     const canMergeExistingGeneration = mergeAppearances
       && existingPhoto
       && (!modernSourceContext || existingSourceMembershipId === suppliedSourceMembershipId);
+
+    if (metadataOnly && !canMergeExistingGeneration) {
+      // Nothing from the current source generation exists to revoke. This is a
+      // successful no-op; it can happen if leave/sharing cleanup won the race.
+      return;
+    }
+
     const mergeBase = canMergeExistingGeneration ? existingPhoto : null;
     const state = prepareIncrementalMatchState(mergeBase);
 
@@ -243,56 +344,22 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
         requested.suppliedMembershipId
       )) continue;
 
-      const memberRef = db.doc(`events/${eventId}/members/${requested.participantUserId}`);
-      const profileRef = db.doc(`users/${requested.participantUserId}/faceProfile/current`);
-      const [memberSnap, profileSnap] = await Promise.all([
-        tx.get(memberRef),
-        tx.get(profileRef),
-      ]);
-
-      if (!memberSnap.exists) {
-        throw new HttpsError(
-          "failed-precondition",
-          "An Event member changed while this photo was being matched. Refresh the Event and scan again."
-        );
-      }
-      const member = memberSnap.data() || {};
-      const currentMembershipId = normalizedMembershipId(member.membershipId);
-      if (requested.suppliedMembershipId) {
-        if (!currentMembershipId || requested.suppliedMembershipId !== currentMembershipId) {
-          throw new HttpsError(
-            "failed-precondition",
-            "An Event member changed while this photo was being matched. Refresh the Event and scan again."
-          );
-        }
-      } else if (modernSourceContext) {
-        throw new HttpsError("failed-precondition", "Refresh this Event before sharing photos.");
-      }
-
-      const profile = profileSnap.exists ? profileSnap.data() || {} : null;
-      if (!profileIsCurrent(profile)) {
-        throw new HttpsError(
-          "failed-precondition",
-          "A matched person's Face Setup is no longer active. Refresh the Event and scan again."
-        );
-      }
-
-      const currentIdentity = profileIdentity(profile);
-      const currentRevision = profileRevision(profile);
-      if (requested.suppliedIdentity !== currentIdentity || requested.suppliedRevision !== currentRevision) {
-        throw new HttpsError(
-          "failed-precondition",
-          "A Face Setup changed while this photo was being matched. Refresh the Event and scan again."
-        );
-      }
-
+      const current = await validateCurrentRecipient(tx, eventId, requested, modernSourceContext);
       upsertActiveAppearance(state, {
         participantUserId: requested.participantUserId,
         confidence: requested.confidence,
-        faceIdentityId: currentIdentity,
-        faceProfileRevision: currentRevision,
+        faceIdentityId: current.currentIdentity,
+        faceProfileRevision: current.currentRevision,
         recipientMembershipId: requested.suppliedMembershipId,
       });
+    }
+
+    for (const requested of requestedRemovals) {
+      // A stale negative must be unable to revoke a match created under a newer
+      // membership or Face Setup revision. Re-read and compare all three pieces
+      // of recipient identity at the same transaction commit barrier.
+      await validateCurrentRecipient(tx, eventId, requested, modernSourceContext);
+      removeActiveAppearance(state, requested.participantUserId);
     }
 
     const finalized = finalizeIncrementalMatchState(state);
@@ -315,7 +382,9 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
       dismissedMembershipIds: finalized.dismissedMembershipIds,
       capturedAt: Timestamp.fromMillis(capturedAtMillis),
       matchedAt: Timestamp.fromMillis(matchedAtMillis),
-      thumbnailPath,
+      thumbnailPath: metadataOnly && existingPhoto && typeof existingPhoto.thumbnailPath === "string"
+        ? existingPhoto.thumbnailPath
+        : thumbnailPath,
       createdAt: canMergeExistingGeneration && existingPhoto.createdAt instanceof Timestamp
         ? existingPhoto.createdAt
         : now,
