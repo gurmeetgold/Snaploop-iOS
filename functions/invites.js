@@ -1,8 +1,10 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
+const PHOTO_WINDOW_DAYS = 15;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {
@@ -127,15 +129,28 @@ exports.nextPendingInvite = onCall(async (request) => {
     }
 
     const eventSnap = await db.doc(`events/${eventId}`).get();
-    if (!eventSnap.exists || eventSnap.data().status !== "active") {
-      await doc.ref.set({ status: "expired", updatedAt: Timestamp.now() }, { merge: true });
+    const event = eventSnap.exists ? eventSnap.data() || {} : null;
+    if (!eventSnap.exists
+        || event.status !== "active"
+        || !isWithinEventGraceWindow(event, Date.now(), PHOTO_WINDOW_DAYS)) {
+      const now = Timestamp.now();
+      const batch = db.batch();
+      batch.set(doc.ref, { status: "expired", updatedAt: now }, { merge: true });
+      if (invite.phoneNumber) {
+        batch.set(
+          db.doc(`events/${eventId}/invites/${phoneKey(invite.phoneNumber)}`),
+          { status: "expired", updatedAt: now },
+          { merge: true }
+        );
+      }
+      await batch.commit();
       continue;
     }
 
     return {
       eventId,
-      eventName: invite.eventName || eventSnap.data().name || "MyPicsRoom event",
-      inviteToken: invite.inviteToken || eventSnap.data().inviteToken,
+      eventName: invite.eventName || event.name || "MyPicsRoom event",
+      inviteToken: invite.inviteToken || event.inviteToken,
       status: "invited",
     };
   }
