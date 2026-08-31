@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { removeRecipientMatchMetadata } = require("./change4MatchMetadata");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
@@ -31,6 +32,14 @@ async function hasActiveFaceSetup(uid) {
   return typeof data.faceIdentityId === "string" && data.faceIdentityId.trim().length > 0;
 }
 
+async function commitUpdates(items) {
+  for (let offset = 0; offset < items.length; offset += 400) {
+    const batch = db.batch();
+    for (const item of items.slice(offset, offset + 400)) batch.update(item.ref, item.data);
+    await batch.commit();
+  }
+}
+
 async function disableOwnMatchesEverywhereFor(uid) {
   const eventRefs = await db.collection(`users/${uid}/eventRefs`).get();
   let changed = 0;
@@ -49,11 +58,15 @@ exports.getMemberPhotoPreferences = onCall(async (request) => {
   const eventId = requireEventId(request);
   const { data } = await requireMembership(eventId, uid);
   const sharingEnabled = data.sharingEnabled !== false;
+  const sharingRevision = typeof data.sharingRevision === "string" && data.sharingRevision.trim()
+    ? data.sharingRevision.trim()
+    : null;
 
   return {
     eventId,
     sharingEnabled,
     includeOwnMatches: sharingEnabled && data.includeOwnMatches === true,
+    sharingRevision,
     sharingUpdatedAtMillis: data.sharingUpdatedAt?.toMillis ? data.sharingUpdatedAt.toMillis() : 0,
     ownMatchesUpdatedAtMillis: data.ownMatchesUpdatedAt?.toMillis ? data.ownMatchesUpdatedAt.toMillis() : 0,
   };
@@ -81,32 +94,35 @@ exports.setOwnPhotoVisibility = onCall(async (request) => {
     );
   }
 
-  await ref.update({ includeOwnMatches: enabled, ownMatchesUpdatedAt: Timestamp.now() });
+  if (data.includeOwnMatches !== enabled) {
+    await ref.update({ includeOwnMatches: enabled, ownMatchesUpdatedAt: Timestamp.now() });
+  }
 
-  // Turning this off hides existing photos sourced from this phone from the
-  // owner's own Gallery while preserving appearances for other matched members.
+  // Turning this off hides existing photos sourced from this account from the
+  // owner's own Gallery while preserving every other recipient and preserving a
+  // prior explicit Not-Me tombstone. Turning it back on creates a fresh local
+  // own-recipient cursor, so cached photo-face extraction can republish safely.
   if (!enabled) {
     const sourceSnap = await db.collection(`events/${eventId}/photos`)
       .where("sourceUserId", "==", uid)
       .get();
 
-    const batch = db.batch();
-    let changed = 0;
+    const updates = [];
     for (const doc of sourceSnap.docs) {
       const photo = doc.data() || {};
       const matched = Array.isArray(photo.matchedUserIds) ? photo.matchedUserIds : [];
-      if (!matched.includes(uid)) continue;
-      const appearances = Array.isArray(photo.appearances)
-        ? photo.appearances.filter((appearance) => appearance.participantUserId !== uid)
-        : [];
-      batch.update(doc.ref, {
-        appearances,
-        matchedUserIds: matched.filter((userId) => userId !== uid),
-        updatedAt: Timestamp.now(),
+      const appeared = Array.isArray(photo.appearances)
+        && photo.appearances.some((appearance) => appearance && appearance.participantUserId === uid);
+      if (!matched.includes(uid) && !appeared) continue;
+      updates.push({
+        ref: doc.ref,
+        data: {
+          ...removeRecipientMatchMetadata(photo, uid),
+          updatedAt: Timestamp.now(),
+        },
       });
-      changed += 1;
     }
-    if (changed > 0) await batch.commit();
+    if (updates.length) await commitUpdates(updates);
   }
 
   return { eventId, includeOwnMatches: enabled };
