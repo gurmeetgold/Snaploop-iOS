@@ -6,8 +6,8 @@ import Foundation
 /// - each source photo is decoded/detected/embedded once into a protected local
 ///   corpus;
 /// - each Event recipient owns an independent cursor over that corpus;
-/// - roster, membership and Face Setup changes invalidate only the recipient
-///   work that actually became stale.
+/// - roster, membership and Face Setup changes invalidate only matching work,
+///   never the cached photo-face extraction itself.
 public struct CameraSyncCoordinator {
     private let config: ConfigProviding
     private let clock: Clock
@@ -90,6 +90,31 @@ public struct CameraSyncCoordinator {
         ].joined(separator: "::")
     }
 
+    private static func isMatchable(_ participant: EventParticipant) -> Bool {
+        participant.faceProfileVersion == FaceModelPolicy.currentVersion
+            && !participant.stableFaceIdentityId.isEmpty
+            && !participant.faceProfileRevision.isEmpty
+    }
+
+    /// FaceMatcher's ambiguity margin compares identities against one another, so
+    /// a change to any matchable roster row can change an old *negative* decision
+    /// for another recipient. This revision conservatively reopens negatives while
+    /// preserving already-authorized positives.
+    private static func ambiguityRosterRevision(_ participants: [EventParticipant]) -> String {
+        participants
+            .filter(isMatchable)
+            .map {
+                [
+                    $0.userId,
+                    AutomaticSyncIdentityScope.participantEpoch($0),
+                    $0.stableFaceIdentityId,
+                    $0.faceProfileRevision,
+                ].joined(separator: "=")
+            }
+            .sorted()
+            .joined(separator: ";")
+    }
+
     public func sync(
         event: Event,
         participants: [EventParticipant],
@@ -127,7 +152,8 @@ public struct CameraSyncCoordinator {
         let sourceMembershipEpoch = sourceParticipant.map(AutomaticSyncIdentityScope.participantEpoch)
 
         try Task.checkCancellation()
-        let assets = try await photoLibrary.assets(in: event.dateRange).sorted {
+        let fetchedAssets = try await photoLibrary.assets(in: event.dateRange)
+        let assets = fetchedAssets.sorted {
             if $0.creationDate != $1.creationDate { return $0.creationDate < $1.creationDate }
             return $0.id < $1.id
         }
@@ -151,10 +177,15 @@ public struct CameraSyncCoordinator {
             state.sourceMembershipEpoch = sourceMembershipEpoch
         }
 
+        let ambiguityRevision = Self.ambiguityRosterRevision(participants)
+        if let previous = state.rosterAmbiguityRevision,
+           previous != ambiguityRevision {
+            state.clearNegativeRecipientEvaluations()
+        }
+        state.rosterAmbiguityRevision = ambiguityRevision
+
         let matchableRecipients = participants.filter { participant in
-            participant.faceProfileVersion == FaceModelPolicy.currentVersion
-                && !participant.stableFaceIdentityId.isEmpty
-                && !participant.faceProfileRevision.isEmpty
+            Self.isMatchable(participant)
                 && (includeOwnMatches || participant.userId != currentUserId)
         }
         let activeRecipientIds = Set(matchableRecipients.map(\.userId))
@@ -184,9 +215,10 @@ public struct CameraSyncCoordinator {
         let passCap = min(configuredCap, Self.currentSafetyBatchCap())
         let toProcess = Array(pendingAssets.prefix(passCap))
         let remainingAfterPass = max(0, pendingAssets.count - toProcess.count)
+        let fullMatchableRosterCount = participants.filter(Self.isMatchable).count
 
         Log.scanner.notice(
-            "Scan diagnostics begin assets=\(assets.count, privacy: .public) corpus=\(state.corpusCount, privacy: .public) planned=\(pendingAssets.count, privacy: .public) roster=\(participants.count, privacy: .public) matchable=\(matchableRecipients.count, privacy: .public) includeOwn=\(includeOwnMatches, privacy: .public)"
+            "Scan diagnostics begin assets=\(assets.count, privacy: .public) corpus=\(state.corpusCount, privacy: .public) planned=\(pendingAssets.count, privacy: .public) roster=\(participants.count, privacy: .public) matchable=\(fullMatchableRosterCount, privacy: .public) recipients=\(matchableRecipients.count, privacy: .public) includeOwn=\(includeOwnMatches, privacy: .public)"
         )
 
         if toProcess.isEmpty {
@@ -230,17 +262,12 @@ public struct CameraSyncCoordinator {
                     let cached = PhotoCorpusRecord(
                         assetId: asset.id,
                         creationDate: asset.creationDate,
-                        faces: detected.map(CachedPhotoFace.init),
+                        faces: detected.map { CachedPhotoFace($0) },
                         processedAt: clock.now()
                     )
                     state.cache(cached)
                     corpusRecord = cached
                     passDiagnostics.newlyProcessedAssets += 1
-
-                    // Persist expensive detection immediately. If the network
-                    // upload fails or the app is interrupted, retry can rematch
-                    // the cached faces instead of running the ML pipeline again.
-                    scanStateStore.save(state)
                 } else {
                     passDiagnostics.cachedRematchAssets += 1
                 }
@@ -254,72 +281,69 @@ public struct CameraSyncCoordinator {
                     among: activeRecipientIds
                 )
 
-                if pendingRecipientIds.isEmpty {
-                    // No matchable recipient exists yet (or all are already
-                    // current), but a newly discovered photo can still be safely
-                    // retained in the local corpus for a future Event member.
-                    completedCount += 1
-                    state.lastSyncedAt = clock.now()
-                    scanStateStore.save(state)
-                    continue
+                if !pendingRecipientIds.isEmpty {
+                    let matchResult = matcher.appearancesWithDiagnostics(
+                        in: corpusRecord.faces.map(\.detectedFace),
+                        // Full roster is intentional. Matching only the changed
+                        // recipient would bypass the cross-person ambiguity margin.
+                        participants: participants
+                    )
+                    let ownFiltered = includeOwnMatches
+                        ? 0
+                        : matchResult.appearances.filter { $0.participantUserId == currentUserId }.count
+                    passDiagnostics.record(matchResult.diagnostics, ownFiltered: ownFiltered)
+
+                    let positiveAppearances = matchResult.appearances.filter {
+                        pendingRecipientIds.contains($0.participantUserId)
+                            && (includeOwnMatches || $0.participantUserId != currentUserId)
+                    }
+                    let positiveRecipientIds = Set(positiveAppearances.map(\.participantUserId))
+
+                    if !positiveAppearances.isEmpty {
+                        try Task.checkCancellation()
+                        let working: Data
+                        if let workingImageData {
+                            working = workingImageData
+                        } else {
+                            working = try await photoLibrary.imageData(
+                                for: asset.id,
+                                maxPixelSize: max(values.thumbnailMaxPixelSize, 2048)
+                            )
+                        }
+                        let thumbnail = try thumbnailEncoder.encodeJPEG(
+                            from: working,
+                            maxPixelSize: values.thumbnailMaxPixelSize,
+                            quality: values.thumbnailJPEGQuality
+                        )
+                        let match = PhotoMatch(
+                            eventId: event.id,
+                            ownerUserId: currentUserId,
+                            sourceInstallationId: sourceInstallationId,
+                            sourceMembershipId: sourceMembershipId,
+                            assetLocalId: asset.id,
+                            appearances: positiveAppearances,
+                            capturedAt: asset.creationDate,
+                            matchedAt: clock.now(),
+                            useSourceScopedIdentity: true
+                        )
+                        try await matches.upload(match: match, thumbnailJPEG: thumbnail)
+                        matchedCount += 1
+                    }
+
+                    // Advance cursor outcomes only after any required publication
+                    // has succeeded. Failed uploads therefore remain retryable.
+                    for userId in pendingRecipientIds {
+                        state.markRecipientEvaluation(
+                            userId: userId,
+                            assetId: asset.id,
+                            matched: positiveRecipientIds.contains(userId)
+                        )
+                    }
                 }
 
-                let matchResult = matcher.appearancesWithDiagnostics(
-                    in: corpusRecord.faces.map(\.detectedFace),
-                    // Full roster is intentional. Matching only the changed
-                    // recipient would bypass the cross-person ambiguity margin.
-                    participants: participants
-                )
-                let ownFiltered = includeOwnMatches
-                    ? 0
-                    : matchResult.appearances.filter { $0.participantUserId == currentUserId }.count
-                passDiagnostics.record(matchResult.diagnostics, ownFiltered: ownFiltered)
-
-                let positiveAppearances = matchResult.appearances.filter {
-                    pendingRecipientIds.contains($0.participantUserId)
-                        && (includeOwnMatches || $0.participantUserId != currentUserId)
-                }
-                let positiveRecipientIds = Set(positiveAppearances.map(\.participantUserId))
-
-                if !positiveAppearances.isEmpty {
-                    try Task.checkCancellation()
-                    let working = try await workingImageData ?? photoLibrary.imageData(
-                        for: asset.id,
-                        maxPixelSize: max(values.thumbnailMaxPixelSize, 2048)
-                    )
-                    let thumbnail = try thumbnailEncoder.encodeJPEG(
-                        from: working,
-                        maxPixelSize: values.thumbnailMaxPixelSize,
-                        quality: values.thumbnailJPEGQuality
-                    )
-                    let match = PhotoMatch(
-                        eventId: event.id,
-                        ownerUserId: currentUserId,
-                        sourceInstallationId: sourceInstallationId,
-                        sourceMembershipId: sourceMembershipId,
-                        assetLocalId: asset.id,
-                        appearances: positiveAppearances,
-                        capturedAt: asset.creationDate,
-                        matchedAt: clock.now(),
-                        useSourceScopedIdentity: true
-                    )
-                    try await matches.upload(match: match, thumbnailJPEG: thumbnail)
-                    matchedCount += 1
-                }
-
-                // Advance cursor outcomes only after any required publication has
-                // succeeded. A failed upload therefore remains retryable and can
-                // never turn into a false local "caught up" state.
-                for userId in pendingRecipientIds {
-                    state.markRecipientEvaluation(
-                        userId: userId,
-                        assetId: asset.id,
-                        matched: positiveRecipientIds.contains(userId)
-                    )
-                }
+                // If there are no recipients yet, completing the corpus record is
+                // still useful work. A later member gets a pending cursor over it.
                 completedCount += 1
-                state.lastSyncedAt = clock.now()
-                scanStateStore.save(state)
             } catch is CancellationError {
                 state.lastSyncedAt = clock.now()
                 scanStateStore.save(state)
