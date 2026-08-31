@@ -33,6 +33,7 @@ targets:
         CFBundleDisplayName: SnapLoop
         CFBundleName: SnapLoop
         ITSAppUsesNonExemptEncryption: false
+        PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - app-1-254317517474-ios-c62155e2316187ee1f95fb
