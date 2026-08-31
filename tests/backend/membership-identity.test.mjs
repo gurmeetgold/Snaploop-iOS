@@ -7,6 +7,8 @@ import { deleteDoc, doc, getDoc, setDoc } from "firebase/firestore";
 import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
 
 const PROJECT_ID = "demo-mypicsroom-security";
+const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
+const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";
 let env;
 let app;
 
@@ -18,6 +20,56 @@ function emulatorHostAndPort(variable, fallbackPort) {
     host: value.slice(0, lastColon),
     port: Number(value.slice(lastColon + 1)),
   };
+}
+
+function identityEmbedding() {
+  return [1, ...Array(511).fill(0)];
+}
+
+async function seedMatchableIdentity(db, uid) {
+  const embedding = identityEmbedding();
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const templates = ["center", "sideA", "sideB"].map((pose, index) => ({
+    id: `template-${index + 1}`,
+    embedding,
+    pose,
+    quality: 1,
+    createdAt: new Date(),
+  }));
+
+  await setDoc(doc(db, `users/${uid}`), {
+    id: uid,
+    displayName: "Member",
+    hasFaceProfile: true,
+  });
+  await setDoc(doc(db, `users/${uid}/privacy/biometricConsent`), {
+    userId: uid,
+    policyVersion: 5,
+    disclosureId: CONSENT_DISCLOSURE_ID,
+    disclosureSHA256: CONSENT_DISCLOSURE_SHA256,
+    acceptedAt: new Date(),
+    withdrawnAt: null,
+    expiredAt: null,
+    expiresAt,
+    jurisdictionCountry: "IN",
+    jurisdictionSubdivision: "",
+    age18Attested: true,
+    noticeAcknowledged: true,
+    ownFaceAttested: true,
+  });
+  await setDoc(doc(db, `users/${uid}/faceProfile/current`), {
+    userId: uid,
+    faceIdentityId: "stable-face",
+    identityRevision: "v5:template-1|template-2|template-3",
+    embedding,
+    templates,
+    version: 5,
+    updatedAt: new Date(),
+    expiresAt,
+    consentPolicyVersion: 5,
+    consentDisclosureId: CONSENT_DISCLOSURE_ID,
+    consentDisclosureSHA256: CONSENT_DISCLOSURE_SHA256,
+  });
 }
 
 before(async () => {
@@ -47,6 +99,7 @@ test("membership generation is stable for one participation and rotates after le
   const functionsEndpoint = emulatorHostAndPort("FUNCTIONS_EMULATOR_HOST", 5001);
   connectFunctionsEmulator(functions, functionsEndpoint.host, functionsEndpoint.port);
   const listMembers = httpsCallable(functions, "listEventMembers");
+  const listFaceProfiles = httpsCallable(functions, "listEventFaceProfiles");
 
   await env.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -64,12 +117,22 @@ test("membership generation is stable for one participation and rotates after le
       joinedAt: new Date("2026-08-31T10:00:00Z"),
       faceTemplateVersion: 5,
     });
+    await seedMatchableIdentity(db, uid);
   });
 
   const firstResult = await listMembers({ eventId: "event-membership" });
   const first = firstResult.data.members.find((member) => member.userId === uid);
   assert.ok(first);
   assert.match(first.membershipId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+
+  const firstRoster = await listFaceProfiles({ eventId: "event-membership" });
+  const firstFaceRow = firstRoster.data.participants.find((member) => member.userId === uid);
+  assert.ok(firstFaceRow);
+  assert.equal(
+    firstFaceRow.membershipId,
+    first.membershipId,
+    "biometric roster and member directory must describe the same participation generation"
+  );
 
   const secondResult = await listMembers({ eventId: "event-membership" });
   const second = secondResult.data.members.find((member) => member.userId === uid);
@@ -97,4 +160,10 @@ test("membership generation is stable for one participation and rotates after le
   assert.ok(rejoined);
   assert.match(rejoined.membershipId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   assert.notEqual(rejoined.membershipId, first.membershipId, "rejoin must receive a fresh participation generation");
+
+  const rejoinedRoster = await listFaceProfiles({ eventId: "event-membership" });
+  const rejoinedFaceRow = rejoinedRoster.data.participants.find((member) => member.userId === uid);
+  assert.ok(rejoinedFaceRow);
+  assert.equal(rejoinedFaceRow.membershipId, rejoined.membershipId);
+  assert.notEqual(rejoinedFaceRow.membershipId, first.membershipId);
 });
