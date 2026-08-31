@@ -6,6 +6,12 @@ import Foundation
 enum EventFaceProfileClient {
     @MainActor
     static func list(eventId: String) async throws -> [EventParticipant] {
+        // Membership generation is fetched independently from the non-biometric
+        // member directory. Failure of this additive migration lookup must not
+        // break existing face matching; pre-migration participants remain valid
+        // with membershipId == nil until a later reconciliation succeeds.
+        async let membershipIdsTask = loadMembershipIds(eventId: eventId)
+
         let raw: Any = try await withCheckedThrowingContinuation { continuation in
             Functions.functions().httpsCallable("listEventFaceProfiles").call([
                 "eventId": eventId
@@ -20,26 +26,60 @@ enum EventFaceProfileClient {
 
         guard let wrapper = raw as? [String: Any],
               let rows = wrapper["participants"] as? [[String: Any]] else {
-            throw AppError.decoding("Trip face profile response is malformed")
+            throw AppError.decoding("Event face profile response is malformed")
         }
 
-        return try rows.map(Self.decode)
+        let membershipIds = (try? await membershipIdsTask) ?? [:]
+        return try rows.map { row in
+            let userId = row["userId"] as? String
+            return try Self.decode(row, membershipId: userId.flatMap { membershipIds[$0] })
+        }
     }
 
-    private static func decode(_ data: [String: Any]) throws -> EventParticipant {
+    @MainActor
+    private static func loadMembershipIds(eventId: String) async throws -> [String: String] {
+        let raw: Any = try await withCheckedThrowingContinuation { continuation in
+            Functions.functions().httpsCallable("listEventMembers").call([
+                "eventId": eventId
+            ]) { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: result?.data as Any)
+            }
+        }
+
+        guard let wrapper = raw as? [String: Any],
+              let rows = wrapper["members"] as? [[String: Any]] else {
+            throw AppError.decoding("Event member response is malformed")
+        }
+
+        var result: [String: String] = [:]
+        for row in rows {
+            guard let userId = row["userId"] as? String,
+                  let rawMembershipId = row["membershipId"] as? String else { continue }
+            let membershipId = rawMembershipId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !membershipId.isEmpty else { continue }
+            result[userId] = membershipId
+        }
+        return result
+    }
+
+    private static func decode(_ data: [String: Any], membershipId: String?) throws -> EventParticipant {
         let vector: [Float]
         if let numbers = data["faceEmbedding"] as? [NSNumber] {
             vector = numbers.map(\.floatValue)
         } else if let doubles = data["faceEmbedding"] as? [Double] {
             vector = doubles.map(Float.init)
         } else {
-            throw AppError.decoding("Trip participant face template is missing")
+            throw AppError.decoding("Event participant face template is missing")
         }
 
         guard let userId = data["userId"] as? String, !vector.isEmpty,
               let faceIdentityId = data["faceIdentityId"] as? String,
               !faceIdentityId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw AppError.decoding("Trip participant identity is missing")
+            throw AppError.decoding("Event participant identity is missing")
         }
 
         let joinedMillis = (data["joinedAtMillis"] as? NSNumber)?.doubleValue
@@ -82,6 +122,7 @@ enum EventFaceProfileClient {
 
         return EventParticipant(
             userId: userId,
+            membershipId: membershipId,
             displayName: data["displayName"] as? String,
             phoneNumber: nil,
             faceIdentityId: faceIdentityId,
