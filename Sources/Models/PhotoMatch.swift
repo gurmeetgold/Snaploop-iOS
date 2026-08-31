@@ -2,13 +2,21 @@ import Foundation
 
 /// The result of matching one photo against the event roster: which
 /// participants appear in it, and how confident we are. One `PhotoMatch` is
-/// produced per matched photo per device and uploaded (thumbnail + this
+/// produced per matched photo per source installation and uploaded (thumbnail +
 /// metadata) — originals stay on the device until downloaded on demand.
 public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
-    public let id: String                 // deterministic: "\(eventId):\(assetId)"
+    public let id: String
     public let eventId: String
     public let ownerUserId: String        // whose camera/library this came from
-    public let assetLocalId: String       // PhotoKit id on the owner's device (for on-demand original)
+    /// Pseudonymous account+installation source identity. New matches include it
+    /// so the same PhotoKit local identifier on two phones cannot collide. It is
+    /// never an authentication credential. Optional for legacy stored matches.
+    public let sourceInstallationId: String?
+    /// Server-issued generation of the source user's current event membership.
+    /// Used by the commit barrier to reject work produced before leave/rejoin.
+    /// Optional only for legacy stored matches during migration.
+    public let sourceMembershipId: String?
+    public let assetLocalId: String       // PhotoKit id on the source device
 
     /// Participants detected in this photo, with per-participant confidence.
     public var appearances: [Appearance]
@@ -21,15 +29,27 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
     public init(
         eventId: String,
         ownerUserId: String,
+        sourceInstallationId: String? = nil,
+        sourceMembershipId: String? = nil,
         assetLocalId: String,
         appearances: [Appearance],
         capturedAt: Date,
         matchedAt: Date,
         thumbnailPath: String? = nil
     ) {
-        self.id = "\(eventId):\(assetLocalId)"
+        let normalizedSource = sourceInstallationId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedSource, !normalizedSource.isEmpty {
+            self.id = "\(eventId):\(normalizedSource):\(assetLocalId)"
+            self.sourceInstallationId = normalizedSource
+        } else {
+            // Legacy identity retained for decoded/pre-migration matches. New
+            // production scanner work supplies sourceInstallationId.
+            self.id = "\(eventId):\(assetLocalId)"
+            self.sourceInstallationId = nil
+        }
         self.eventId = eventId
         self.ownerUserId = ownerUserId
+        self.sourceMembershipId = sourceMembershipId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.assetLocalId = assetLocalId
         self.appearances = appearances
         self.capturedAt = capturedAt
@@ -40,27 +60,33 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
     /// One participant's presence in a photo.
     public struct Appearance: Equatable, Codable, Sendable {
         public let participantUserId: String
+        /// Server-issued generation of the recipient's current event membership.
+        /// A later leave/rejoin gets another value, preventing stale match work
+        /// from being authorized for the new participation. Optional for legacy
+        /// stored matches during migration.
+        public let recipientMembershipId: String?
         public let confidence: Double     // cosine similarity of the winning face
         /// Stable server-issued biometric-subject ID. It survives a verified
         /// same-person Face Setup refresh and changes only after Face Setup is
         /// deleted and a new identity is enrolled.
         public let faceIdentityId: String?
-        /// Audit-only revision of the exact template set used for this match.
-        /// The backend verifies it when accepting a new match, but continued
-        /// access is bound to `faceIdentityId`, not to this changing revision.
+        /// Audit revision of the exact template set used for this match. The
+        /// backend verifies it when accepting new matching work.
         public let faceProfileRevision: String
-        /// User correction: a participant can mark a match "Not Me". Suppressed
-        /// appearances stay recorded (for precision tuning) but never surface.
+        /// Legacy compatibility field. The current product has no "Not Me"
+        /// interaction; new matching architecture does not depend on this flag.
         public var dismissedByUser: Bool
 
         public init(
             participantUserId: String,
+            recipientMembershipId: String? = nil,
             confidence: Double,
             faceIdentityId: String? = nil,
             faceProfileRevision: String = "",
             dismissedByUser: Bool = false
         ) {
             self.participantUserId = participantUserId
+            self.recipientMembershipId = recipientMembershipId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
             self.confidence = confidence
             self.faceIdentityId = faceIdentityId
             self.faceProfileRevision = faceProfileRevision
@@ -68,9 +94,13 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
         }
     }
 
-    /// Participants who should see this photo in their "My Photos" feed
-    /// (appearances they haven't dismissed).
+    /// Participants who should see this photo in their "My Photos" feed.
+    /// `dismissedByUser` is retained only for legacy data compatibility.
     public var activeParticipantIds: [String] {
         appearances.filter { !$0.dismissedByUser }.map(\.participantUserId)
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
