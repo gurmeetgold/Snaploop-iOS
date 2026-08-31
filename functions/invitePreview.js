@@ -7,6 +7,12 @@ function clean(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function optionalInteger(value) {
+  if (value === undefined || value === null) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.trunc(numeric) : null;
+}
+
 async function lookupEvent(kind, value) {
   if (!value || (kind !== "e" && kind !== "c")) return null;
   const lookup = kind === "e"
@@ -52,6 +58,10 @@ function responsePayload(eventId, event, inviterName) {
     category: clean(event.category) || "event",
     startsAtMillis: event.startsAt?.toMillis ? event.startsAt.toMillis() : null,
     endsAtMillis: event.endsAt?.toMillis ? event.endsAt.toMillis() : null,
+    photoWindowVersion: optionalInteger(event.photoWindowVersion),
+    photoWindowTimeZoneId: clean(event.photoWindowTimeZoneId) || null,
+    photoWindowStartDayNumber: optionalInteger(event.photoWindowStartDayNumber),
+    photoWindowEndDayNumber: optionalInteger(event.photoWindowEndDayNumber),
     inviterName,
     status: clean(event.status) || "active",
   };
