@@ -114,10 +114,11 @@ public struct CameraSyncCoordinator {
         revision == "default" || revision == "dev" || revision == "legacy:0"
     }
 
-    /// FaceMatcher's ambiguity margin compares identities against one another, so
-    /// a change to any matchable roster row can change an old *negative* decision
-    /// for another recipient. This revision conservatively reopens negatives while
-    /// preserving already-authorized positives.
+    /// FaceMatcher's ambiguity margin compares identities against one another.
+    /// Adding/removing/updating any matchable identity can change either direction
+    /// of a prior decision: a miss can become a hit, while an old hit can become
+    /// ambiguous. The roster fingerprint therefore makes all prior outcomes stale
+    /// without discarding the expensive cached photo-face extraction.
     private static func ambiguityRosterRevision(_ participants: [EventParticipant]) -> String {
         participants
             .filter(isMatchable)
@@ -219,7 +220,7 @@ public struct CameraSyncCoordinator {
         let ambiguityRevision = Self.ambiguityRosterRevision(participants)
         if let previous = state.rosterAmbiguityRevision,
            previous != ambiguityRevision {
-            state.clearNegativeRecipientEvaluations()
+            state.markAllRecipientEvaluationsStale()
         }
         state.rosterAmbiguityRevision = ambiguityRevision
 
@@ -228,6 +229,10 @@ public struct CameraSyncCoordinator {
                 && (includeOwnMatches || participant.userId != currentUserId)
         }
         let activeRecipientIds = Set(matchableRecipients.map(\.userId))
+        let matchableRecipientByUser = Dictionary(
+            matchableRecipients.map { ($0.userId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         state.retainRecipientCursors(for: activeRecipientIds)
 
         for participant in matchableRecipients {
@@ -326,6 +331,14 @@ public struct CameraSyncCoordinator {
                 )
 
                 if !pendingRecipientIds.isEmpty {
+                    // Preserve knowledge of the last successful positive while a
+                    // stale result is being re-evaluated. If the full current
+                    // roster now makes that recipient negative/ambiguous, the
+                    // server must explicitly revoke the old appearance.
+                    let previouslyPositiveRecipientIds = Set(pendingRecipientIds.filter { userId in
+                        state.recipientCursor(userId: userId)?.wasMatched(asset.id) == true
+                    })
+
                     let matchResult = matcher.appearancesWithDiagnostics(
                         in: corpusRecord.faces.map(\.detectedFace),
                         // Full roster is intentional. Matching only the changed
@@ -342,23 +355,47 @@ public struct CameraSyncCoordinator {
                             && (includeOwnMatches || $0.participantUserId != currentUserId)
                     }
                     let positiveRecipientIds = Set(positiveAppearances.map(\.participantUserId))
+                    let removalRecipientIds = previouslyPositiveRecipientIds.subtracting(positiveRecipientIds)
 
-                    if !positiveAppearances.isEmpty {
+                    var recipientRemovals: [PhotoMatch.RecipientContext] = []
+                    recipientRemovals.reserveCapacity(removalRecipientIds.count)
+                    for userId in removalRecipientIds.sorted() {
+                        guard let participant = matchableRecipientByUser[userId] else {
+                            throw AppError.decoding("pending recipient disappeared from the current matching roster")
+                        }
+                        recipientRemovals.append(PhotoMatch.RecipientContext(
+                            participantUserId: participant.userId,
+                            recipientMembershipId: participant.membershipId,
+                            faceIdentityId: participant.stableFaceIdentityId,
+                            faceProfileRevision: participant.faceProfileRevision
+                        ))
+                    }
+
+                    if !positiveAppearances.isEmpty || !recipientRemovals.isEmpty {
                         try Task.checkCancellation()
-                        let working: Data
-                        if let workingImageData {
-                            working = workingImageData
+                        let thumbnail: Data
+                        if positiveAppearances.isEmpty {
+                            // A removal-only reconciliation does not need to read
+                            // or upload the image again; FirebaseMatchRepository
+                            // performs an authenticated metadata-only update.
+                            thumbnail = Data()
                         } else {
-                            working = try await photoLibrary.imageData(
-                                for: asset.id,
-                                maxPixelSize: max(values.thumbnailMaxPixelSize, 2048)
+                            let working: Data
+                            if let workingImageData {
+                                working = workingImageData
+                            } else {
+                                working = try await photoLibrary.imageData(
+                                    for: asset.id,
+                                    maxPixelSize: max(values.thumbnailMaxPixelSize, 2048)
+                                )
+                            }
+                            thumbnail = try thumbnailEncoder.encodeJPEG(
+                                from: working,
+                                maxPixelSize: values.thumbnailMaxPixelSize,
+                                quality: values.thumbnailJPEGQuality
                             )
                         }
-                        let thumbnail = try thumbnailEncoder.encodeJPEG(
-                            from: working,
-                            maxPixelSize: values.thumbnailMaxPixelSize,
-                            quality: values.thumbnailJPEGQuality
-                        )
+
                         let match = PhotoMatch(
                             eventId: event.id,
                             ownerUserId: currentUserId,
@@ -366,16 +403,20 @@ public struct CameraSyncCoordinator {
                             sourceMembershipId: sourceMembershipId,
                             assetLocalId: asset.id,
                             appearances: positiveAppearances,
+                            recipientRemovals: recipientRemovals,
                             capturedAt: asset.creationDate,
                             matchedAt: clock.now(),
                             useSourceScopedIdentity: true
                         )
                         try await matches.upload(match: match, thumbnailJPEG: thumbnail)
-                        matchedCount += 1
+                        if !positiveAppearances.isEmpty {
+                            matchedCount += 1
+                        }
                     }
 
                     // Advance cursor outcomes only after any required publication
-                    // has succeeded. Failed uploads therefore remain retryable.
+                    // or removal has succeeded. Failed backend reconciliation
+                    // therefore remains retryable with the previous positive bit.
                     for userId in pendingRecipientIds {
                         state.markRecipientEvaluation(
                             userId: userId,
