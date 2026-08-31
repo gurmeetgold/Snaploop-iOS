@@ -1,6 +1,7 @@
 const { randomUUID } = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { ensureMembershipIdentities } = require("./membershipIdentity");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
@@ -254,11 +255,22 @@ exports.listEventFaceProfiles = onCall(async (request) => {
   if ((eventSnap.data() || {}).status !== "active") throw new HttpsError("failed-precondition", "Face matching is available only for an active Event.");
 
   const members = await db.collection(`events/${eventId}/members`).get();
+  // Bind every returned biometric descriptor to the authoritative participation
+  // generation from the same member snapshot. If a member leaves while a legacy
+  // ID is being backfilled, ensureMembershipIdentities refuses to recreate that
+  // deleted membership and we simply omit the stale roster row.
+  const membershipIds = await ensureMembershipIdentities(
+    eventId,
+    members.docs.map((member) => ({ userId: member.id, data: member.data() || {} }))
+  );
   const result = [];
   const now = Timestamp.now();
   const nextExpiry = Timestamp.fromMillis(now.toMillis() + BIOMETRIC_INACTIVITY_MS);
 
   for (const member of members.docs) {
+    const membershipId = membershipIds.get(member.id);
+    if (!membershipId) continue;
+
     const profileRef = db.doc(`users/${member.id}/faceProfile/current`);
     const consentRef = db.doc(`users/${member.id}/privacy/biometricConsent`);
     const [profileSnap, userSnap, consentSnap] = await Promise.all([
@@ -285,6 +297,7 @@ exports.listEventFaceProfiles = onCall(async (request) => {
     const memberData = member.data() || {};
     result.push({
       userId: member.id,
+      membershipId,
       displayName: user.displayName || null,
       faceIdentityId: profile.faceIdentityId.trim(),
       faceEmbedding: profile.embedding,
