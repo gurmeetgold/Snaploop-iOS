@@ -1,8 +1,10 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { validateEventDatePayload, PHOTO_WINDOW_VERSION } = require("./eventDateSemantics");
+
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const FieldValue = admin.firestore.FieldValue;
 const ALLOWED_CATEGORIES = new Set(["trip","wedding","party","birthday","conference","family","sports","other"]);
 
 function requireAuth(request) {
@@ -23,12 +25,7 @@ function optionalLocation(value) {
 function millis(value, field) {
   const n = Number(value);
   if (!Number.isFinite(n)) throw new HttpsError("invalid-argument", `${field} is invalid.`);
-  return n;
-}
-function validateDates(start, end) {
-  if (end <= start || end - start > 15 * DAY_MS + 2 * 60 * 60 * 1000) {
-    throw new HttpsError("invalid-argument", "Event dates are invalid or longer than 15 days.");
-  }
+  return Math.round(n);
 }
 function managerRole(snap) {
   const role = snap.exists ? snap.data().role : null;
@@ -94,12 +91,36 @@ exports.updateTripManaged = onCall(async (request) => {
     if (Object.prototype.hasOwnProperty.call(data, "coverImagePath")) update.coverImagePath = typeof data.coverImagePath === "string" ? data.coverImagePath : null;
 
     if (data.startsAtMillis !== undefined || data.endsAtMillis !== undefined) {
+      if (!(current.startsAt instanceof Timestamp) || !(current.endsAt instanceof Timestamp)) {
+        throw new HttpsError("failed-precondition", "This Event has invalid dates.");
+      }
       const start = data.startsAtMillis !== undefined ? millis(data.startsAtMillis, "start") : current.startsAt.toMillis();
       const end = data.endsAtMillis !== undefined ? millis(data.endsAtMillis, "end") : current.endsAt.toMillis();
-      validateDates(start, end);
       datesChanged = start !== current.startsAt.toMillis() || end !== current.endsAt.toMillis();
-      update.startsAt = Timestamp.fromMillis(start);
-      update.endsAt = Timestamp.fromMillis(end);
+
+      // Old installed clients historically resend unchanged date fields during a
+      // rename. Do not validate or rewrite those dates: this is the compatibility
+      // barrier that prevents a rename-only legacy Event from mutating itself.
+      if (datesChanged) {
+        const validated = validateEventDatePayload({ ...data, startsAtMillis: start, endsAtMillis: end });
+        update.startsAt = Timestamp.fromMillis(validated.startsAtMillis);
+        update.endsAt = Timestamp.fromMillis(validated.endsAtMillis);
+
+        if (validated.photoWindowVersion === PHOTO_WINDOW_VERSION) {
+          update.photoWindowVersion = PHOTO_WINDOW_VERSION;
+          update.photoWindowTimeZoneId = validated.photoWindowTimeZoneId;
+          update.photoWindowStartDayNumber = validated.startDay;
+          update.photoWindowEndDayNumber = validated.endDay;
+        } else if (Number(current.photoWindowVersion || 0) === PHOTO_WINDOW_VERSION) {
+          // A genuinely old client can still edit dates, but it cannot supply the
+          // canonical timezone contract. Mark the new window legacy rather than
+          // leaving stale v1 metadata attached to different timestamps.
+          update.photoWindowVersion = FieldValue.delete();
+          update.photoWindowTimeZoneId = FieldValue.delete();
+          update.photoWindowStartDayNumber = FieldValue.delete();
+          update.photoWindowEndDayNumber = FieldValue.delete();
+        }
+      }
     }
     tx.update(eventRef, update);
   });
