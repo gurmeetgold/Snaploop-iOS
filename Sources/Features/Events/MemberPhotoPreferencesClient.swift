@@ -5,10 +5,15 @@ struct MemberPhotoPreferences: Equatable, Sendable {
     let sharingEnabled: Bool
     let includeOwnMatches: Bool
 
-    /// Publication-generation token for this member's source photos. It changes
-    /// only when sharing itself changes, not when the local-own-photo visibility
-    /// preference changes. Change 4 uses it to republish cached positive matches
-    /// after sharing OFF deleted server rows, without re-running face detection.
+    /// Combined matching/publication revision. The coordinator parses the source
+    /// sharing and own-photo visibility components independently:
+    /// - sharing generation changes replay all previously published positives
+    ///   because sharing OFF removes this source's server photo rows;
+    /// - own-photo visibility changes invalidate only the current user's own
+    ///   recipient cursor, so OFF→ON can restore cached self matches even when no
+    ///   scan occurred while the setting was OFF.
+    /// The combined token also makes automatic sync wake immediately for either
+    /// preference change without creating a separate trigger channel.
     let revisionToken: String
 }
 
@@ -21,16 +26,22 @@ enum MemberPhotoPreferencesClient {
         }
 
         let sharingUpdated = millisString(data["sharingUpdatedAtMillis"])
-        let serverRevision = (data["sharingRevision"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let sharingRevision = serverRevision.flatMap { $0.isEmpty ? nil : $0 }
+        let ownUpdated = millisString(data["ownMatchesUpdatedAtMillis"])
+
+        let serverSharingRevision = normalizedString(data["sharingRevision"])
+        let sharingRevision = serverSharingRevision
             .map { "id:\($0)" }
             ?? "legacy:\(sharingUpdated)"
+
+        let serverOwnRevision = normalizedString(data["ownMatchesRevision"])
+        let ownRevision = serverOwnRevision
+            .map { "id:\($0)" }
+            ?? "legacy:\(ownUpdated)"
 
         return MemberPhotoPreferences(
             sharingEnabled: data["sharingEnabled"] as? Bool ?? true,
             includeOwnMatches: data["includeOwnMatches"] as? Bool ?? false,
-            revisionToken: sharingRevision
+            revisionToken: "share=\(sharingRevision);own=\(ownRevision)"
         )
     }
 
@@ -45,6 +56,12 @@ enum MemberPhotoPreferencesClient {
     @MainActor
     static func disableOwnMatchesEverywhere() async throws {
         _ = try await call("disableOwnMatchesEverywhere", data: [:])
+    }
+
+    private static func normalizedString(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func millisString(_ value: Any?) -> String {
