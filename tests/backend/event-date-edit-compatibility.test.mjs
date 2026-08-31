@@ -145,3 +145,48 @@ test("intentional v1 date edit persists canonical timezone and civil-day ordinal
   assert.equal(data.photoWindowTimeZoneId, "UTC");
   assert.equal(data.photoWindowEndDayNumber - data.photoWindowStartDayNumber, 1);
 });
+
+test("resolveInvite carries canonical Event photo-window metadata before join", async () => {
+  const client = await signedInClient();
+  const startsAt = new Date("2026-08-16T04:00:00.000Z");
+  const endsAt = new Date("2026-08-18T03:59:59.999Z");
+  const token = "ABCDEFGHIJKLMNOPQRSTUV";
+
+  await env.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, "events/canonical-invite"), {
+      id: "canonical-invite",
+      joinCode: "XYZ234",
+      inviteToken: token,
+      creatorUserId: "organizer",
+      name: "Toronto Weekend",
+      category: "trip",
+      startsAt,
+      endsAt,
+      photoWindowVersion: 1,
+      photoWindowTimeZoneId: "America/Toronto",
+      photoWindowStartDayNumber: 20681,
+      photoWindowEndDayNumber: 20682,
+      status: "active",
+      createdAt: startsAt,
+      updatedAt: startsAt,
+      memberCount: 1,
+    });
+    await setDoc(doc(db, `inviteTokens/${token}`), {
+      eventId: "canonical-invite",
+      createdAt: startsAt,
+    });
+  });
+
+  const resolve = httpsCallable(client.functions, "resolveInvite");
+  const result = await resolve({ inviteToken: token });
+  const event = result.data.event;
+
+  assert.equal(event.id, "canonical-invite");
+  assert.equal(event.startsAtMillis, startsAt.getTime());
+  assert.equal(event.endsAtMillis, endsAt.getTime());
+  assert.equal(event.photoWindowVersion, 1);
+  assert.equal(event.photoWindowTimeZoneId, "America/Toronto");
+  assert.equal(event.photoWindowStartDayNumber, 20681);
+  assert.equal(event.photoWindowEndDayNumber, 20682);
+});
