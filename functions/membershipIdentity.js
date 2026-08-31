@@ -78,9 +78,9 @@ exports.ensureMembershipIdentity = ensureMembershipIdentity;
 exports.ensureMembershipIdentities = ensureMembershipIdentities;
 exports.normalizedMembershipId = normalizedMembershipId;
 
-// New memberships receive a random generation immediately after their trusted
-// server transaction commits. Existing pre-migration memberships are lazily
-// backfilled by trusted member-directory reads.
+// Current trusted create/join transactions assign membershipId atomically. This
+// trigger remains defense-in-depth for alternate/legacy write paths, while the
+// member directory/face-roster reads lazily backfill pre-migration documents.
 exports.assignMembershipIdentityOnCreate = onDocumentCreated(
   "events/{eventId}/members/{userId}",
   async (event) => {
