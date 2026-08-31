@@ -38,8 +38,6 @@ function normalizedTimeZoneId(value) {
   const timeZoneId = value.trim();
   if (!timeZoneId || timeZoneId.length > 128) invalid("Event timezone is invalid.");
   try {
-    // Construction itself validates IANA identifiers in every Node runtime used
-    // by Firebase Functions. Do not silently fall back to the server timezone.
     new Intl.DateTimeFormat("en-US", { timeZone: timeZoneId }).format(new Date(0));
   } catch (_) {
     invalid("Event timezone is invalid.");
@@ -168,6 +166,34 @@ function validateEventDatePayload(data, options = {}) {
   };
 }
 
+/**
+ * Server lifecycle check mirrored by EventLifecycle.graceEnd on iOS. Canonical
+ * Events compare civil-day ordinals so a DST transition cannot shorten or extend
+ * the recovery period by an hour. Legacy records keep the historical elapsed-ms
+ * fallback until their dates are intentionally edited into v1.
+ */
+function isWithinEventGraceWindow(event, nowMillis = Date.now(), graceDays = 15) {
+  const days = Math.max(0, Math.trunc(Number(graceDays) || 0));
+  const version = Number(event && event.photoWindowVersion || 0);
+  const endDay = Number(event && event.photoWindowEndDayNumber);
+  const timeZoneId = event && typeof event.photoWindowTimeZoneId === "string"
+    ? event.photoWindowTimeZoneId.trim()
+    : "";
+
+  if (version === PHOTO_WINDOW_VERSION && Number.isInteger(endDay) && timeZoneId) {
+    const normalizedZone = normalizedTimeZoneId(timeZoneId);
+    const nowOffset = timeZoneOffsetMinutes(nowMillis, normalizedZone);
+    const nowDay = localDayNumber(nowMillis, nowOffset);
+    return nowDay <= endDay + days;
+  }
+
+  const endsAtMillis = event && event.endsAt && typeof event.endsAt.toMillis === "function"
+    ? event.endsAt.toMillis()
+    : Number(event && event.endsAtMillis);
+  if (!Number.isFinite(endsAtMillis)) return false;
+  return nowMillis <= endsAtMillis + days * DAY_MS;
+}
+
 exports.DAY_MS = DAY_MS;
 exports.MAX_EVENT_DAYS = MAX_EVENT_DAYS;
 exports.DATE_WINDOW_DAYS = DATE_WINDOW_DAYS;
@@ -175,3 +201,4 @@ exports.PHOTO_WINDOW_VERSION = PHOTO_WINDOW_VERSION;
 exports.localDayNumber = localDayNumber;
 exports.timeZoneOffsetMinutes = timeZoneOffsetMinutes;
 exports.validateEventDatePayload = validateEventDatePayload;
+exports.isWithinEventGraceWindow = isWithinEventGraceWindow;
