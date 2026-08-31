@@ -40,13 +40,15 @@ public struct PhotoCorpusRecord: Equatable, Codable, Sendable {
 
 /// Per-recipient matching cursor for the local photo corpus.
 ///
-/// Positive and negative results are deliberately tracked separately:
-/// - a verified same-person Face Setup refresh keeps old positive matches but
-///   clears negatives so an improved template can discover photos it missed;
-/// - a new face identity or Event membership generation clears both sets;
-/// - a source sharing-generation change clears positives only because server
-///   sharing-off cleanup removed published rows while old misses remain valid;
-/// - new corpus assets are simply absent from both sets and therefore pending.
+/// Positive and negative outcomes are retained separately from whether they are
+/// still current. This distinction is important for ambiguity-safe rematching:
+/// when the Event roster or a same-person Face Setup revision changes, the old
+/// outcome becomes stale and must be evaluated again against the full roster. We
+/// keep the previous positive bit until that re-evaluation finishes so a newly
+/// negative result can explicitly revoke an already-published recipient.
+///
+/// A new face identity or Event membership generation is a harder boundary: all
+/// old outcomes are discarded because server authorization is generation-bound.
 public struct RecipientMatchCursor: Equatable, Codable, Sendable {
     public let userId: String
     public var membershipEpoch: String
@@ -54,6 +56,7 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
     public var faceProfileRevision: String
     public private(set) var positiveAssetIds: Set<String>
     public private(set) var negativeAssetIds: Set<String>
+    public private(set) var staleAssetIds: Set<String>
 
     public init(
         userId: String,
@@ -61,7 +64,8 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
         faceIdentityId: String,
         faceProfileRevision: String,
         positiveAssetIds: Set<String> = [],
-        negativeAssetIds: Set<String> = []
+        negativeAssetIds: Set<String> = [],
+        staleAssetIds: Set<String> = []
     ) {
         self.userId = userId
         self.membershipEpoch = membershipEpoch
@@ -69,10 +73,21 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
         self.faceProfileRevision = faceProfileRevision
         self.positiveAssetIds = positiveAssetIds
         self.negativeAssetIds = negativeAssetIds
+        self.staleAssetIds = staleAssetIds
     }
 
+    /// True only when the result exists and is valid for the current roster /
+    /// template revision. A stale result intentionally appears pending.
     public func hasEvaluated(_ assetId: String) -> Bool {
-        positiveAssetIds.contains(assetId) || negativeAssetIds.contains(assetId)
+        !staleAssetIds.contains(assetId)
+            && (positiveAssetIds.contains(assetId) || negativeAssetIds.contains(assetId))
+    }
+
+    /// Last successfully published/local positive outcome, even if it has become
+    /// stale and is awaiting re-evaluation. The coordinator uses this to know
+    /// when a newly negative result must revoke server visibility.
+    public func wasMatched(_ assetId: String) -> Bool {
+        positiveAssetIds.contains(assetId)
     }
 
     public mutating func reconcile(
@@ -86,14 +101,16 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
             faceProfileRevision = newFaceProfileRevision
             positiveAssetIds.removeAll(keepingCapacity: true)
             negativeAssetIds.removeAll(keepingCapacity: true)
+            staleAssetIds.removeAll(keepingCapacity: true)
             return
         }
 
         if faceProfileRevision != newFaceProfileRevision {
             faceProfileRevision = newFaceProfileRevision
-            // Existing positives remain authorized for the same biometric
-            // identity. Only old misses need another comparison.
-            negativeAssetIds.removeAll(keepingCapacity: true)
+            // The biometric subject is the same, but template scores can change.
+            // Re-evaluate both prior hits and misses so a better Face Setup can
+            // discover misses *and* retract an old false positive safely.
+            markAllEvaluatedStale()
         }
     }
 
@@ -105,8 +122,12 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
             negativeAssetIds.insert(assetId)
             positiveAssetIds.remove(assetId)
         }
+        staleAssetIds.remove(assetId)
     }
 
+    /// Sharing OFF removes this source's server publication rows. On OFF→ON the
+    /// old positive bits should be replayed as fresh publications, not treated as
+    /// stale server rows that require a removal decision.
     public mutating func clearPositives() {
         positiveAssetIds.removeAll(keepingCapacity: true)
     }
@@ -115,9 +136,38 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
         negativeAssetIds.removeAll(keepingCapacity: true)
     }
 
+    public mutating func markAllEvaluatedStale() {
+        staleAssetIds.formUnion(positiveAssetIds)
+        staleAssetIds.formUnion(negativeAssetIds)
+    }
+
     public mutating func retainAssetIds(_ validIds: Set<String>) {
         positiveAssetIds.formIntersection(validIds)
         negativeAssetIds.formIntersection(validIds)
+        staleAssetIds.formIntersection(validIds)
+    }
+
+    // MARK: Backward-compatible Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case userId
+        case membershipEpoch
+        case faceIdentityId
+        case faceProfileRevision
+        case positiveAssetIds
+        case negativeAssetIds
+        case staleAssetIds
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        userId = try container.decode(String.self, forKey: .userId)
+        membershipEpoch = try container.decode(String.self, forKey: .membershipEpoch)
+        faceIdentityId = try container.decode(String.self, forKey: .faceIdentityId)
+        faceProfileRevision = try container.decode(String.self, forKey: .faceProfileRevision)
+        positiveAssetIds = try container.decodeIfPresent(Set<String>.self, forKey: .positiveAssetIds) ?? []
+        negativeAssetIds = try container.decodeIfPresent(Set<String>.self, forKey: .negativeAssetIds) ?? []
+        staleAssetIds = try container.decodeIfPresent(Set<String>.self, forKey: .staleAssetIds) ?? []
     }
 }
 
@@ -128,7 +178,7 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
 /// longer treats it as a permanent "this photo is done" bit. Change 4 uses the
 /// photo corpus plus per-recipient cursors instead.
 public struct ScanState: Equatable, Codable, Sendable {
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
 
     public let eventId: String
     public var schemaVersion: Int
@@ -153,11 +203,11 @@ public struct ScanState: Equatable, Codable, Sendable {
     /// negatives and expensive photo-face extraction remain valid.
     public var sourceSharingRevision: String?
 
-    /// Revision of the complete ambiguity roster used by FaceMatcher. A roster
-    /// change can turn an old ambiguous/negative decision into a positive for an
-    /// unchanged recipient, so all negatives are conservatively invalidated when
-    /// this changes. Positives remain stable unless that recipient's own identity
-    /// or membership generation changes.
+    /// Revision of every identity that participates in FaceMatcher's ambiguity
+    /// comparison. Any roster change can change either direction of a decision:
+    /// a miss can become a hit, and an old hit can become ambiguous when a new
+    /// similar-looking member joins. Therefore existing outcomes are marked stale
+    /// and re-evaluated from cached photo-face embeddings.
     public var rosterAmbiguityRevision: String?
 
     public var lastSyncedAt: Date?
@@ -259,6 +309,14 @@ public struct ScanState: Equatable, Codable, Sendable {
         for userId in Array(recipientCursors.keys) {
             guard var cursor = recipientCursors[userId] else { continue }
             cursor.clearNegatives()
+            recipientCursors[userId] = cursor
+        }
+    }
+
+    public mutating func markAllRecipientEvaluationsStale() {
+        for userId in Array(recipientCursors.keys) {
+            guard var cursor = recipientCursors[userId] else { continue }
+            cursor.markAllEvaluatedStale()
             recipientCursors[userId] = cursor
         }
     }
