@@ -2,9 +2,9 @@ const { onCall, HttpsError } = require("firebase-functions/https");
 const { randomUUID } = require("crypto");
 const admin = require("firebase-admin");
 const {
-  DAY_MS,
   PHOTO_WINDOW_VERSION,
   validateEventDatePayload,
+  isWithinEventGraceWindow,
 } = require("./eventDateSemantics");
 
 const db = admin.firestore();
@@ -107,7 +107,7 @@ function participantData(uid, user, profile, joinedAt) {
 function validateJoinable(event) {
   if (event.status !== "active") throw new HttpsError("failed-precondition", "This event has ended.");
   if (!(event.endsAt instanceof Timestamp)) throw new HttpsError("failed-precondition", "This event has invalid dates.");
-  if (Date.now() > event.endsAt.toMillis() + GRACE_PERIOD_DAYS * DAY_MS) {
+  if (!isWithinEventGraceWindow(event, Date.now(), GRACE_PERIOD_DAYS)) {
     throw new HttpsError("failed-precondition", "This event's photo window has expired.");
   }
 }
