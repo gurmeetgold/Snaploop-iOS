@@ -19,6 +19,7 @@ public final class AppEnvironment: ObservableObject {
     public let users: UserDirectory
     public let quality: QualityScoring
     public let analytics: AnalyticsService
+    public let accountInstallationIdentity: AccountInstallationIdentityProviding
 
     public init(
         config: ConfigProviding,
@@ -35,7 +36,8 @@ public final class AppEnvironment: ObservableObject {
         biometricConsent: BiometricConsentStore,
         users: UserDirectory,
         quality: QualityScoring,
-        analytics: AnalyticsService
+        analytics: AnalyticsService,
+        accountInstallationIdentity: AccountInstallationIdentityProviding = InMemoryAccountInstallationIdentityStore()
     ) {
         self.config = config
         self.clock = clock
@@ -52,6 +54,7 @@ public final class AppEnvironment: ObservableObject {
         self.users = users
         self.quality = quality
         self.analytics = analytics
+        self.accountInstallationIdentity = accountInstallationIdentity
     }
 
     public func makeErasureService() -> ErasureService {
@@ -94,7 +97,8 @@ public final class AppEnvironment: ObservableObject {
             biometricConsent: InMemoryBiometricConsentStore(),
             users: InMemoryUserDirectory(),
             quality: StubQualityScoring(),
-            analytics: InMemoryAnalytics()
+            analytics: InMemoryAnalytics(),
+            accountInstallationIdentity: InMemoryAccountInstallationIdentityStore()
         )
     }
 
@@ -120,7 +124,8 @@ public final class AppEnvironment: ObservableObject {
             biometricConsent: FirebaseBiometricConsentStore(),
             users: FirebaseUserDirectory(),
             quality: StubQualityScoring(),
-            analytics: InMemoryAnalytics()
+            analytics: InMemoryAnalytics(),
+            accountInstallationIdentity: SecureAccountInstallationIdentityStore()
         )
     }
 }
