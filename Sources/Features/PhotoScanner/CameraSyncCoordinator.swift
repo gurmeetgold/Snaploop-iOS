@@ -6,8 +6,8 @@ import Foundation
 /// - each source photo is decoded/detected/embedded once into a protected local
 ///   corpus;
 /// - each Event recipient owns an independent cursor over that corpus;
-/// - roster, membership and Face Setup changes invalidate only matching work,
-///   never the cached photo-face extraction itself.
+/// - roster, membership, Face Setup and sharing-generation changes invalidate
+///   only the minimum matching/publication work, never the cached extraction.
 public struct CameraSyncCoordinator {
     private let config: ConfigProviding
     private let clock: Clock
@@ -102,6 +102,18 @@ public struct CameraSyncCoordinator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private static func normalizedRevision(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Pre-Change-4/test callers do not have a server-issued sharing generation.
+    /// These baseline tokens must not trigger a one-time replay merely because
+    /// schema v3 learned how to persist a sharing revision.
+    private static func isBaselineSharingRevision(_ revision: String) -> Bool {
+        revision == "default" || revision == "dev" || revision == "legacy:0"
+    }
+
     /// FaceMatcher's ambiguity margin compares identities against one another, so
     /// a change to any matchable roster row can change an old *negative* decision
     /// for another recipient. This revision conservatively reopens negatives while
@@ -133,10 +145,6 @@ public struct CameraSyncCoordinator {
         try Task.checkCancellation()
         try Self.checkDeviceSafety()
 
-        // Kept in the public call shape so older UI/tests remain source-compatible.
-        // Change 4 intentionally does not make a new corpus for preference edits.
-        _ = preferenceRevision
-
         let values = config.current
         onProgress?(SyncProgress(phase: .preparing))
         guard EventLifecycle.canSync(event, clock: clock, config: values) else {
@@ -155,9 +163,8 @@ public struct CameraSyncCoordinator {
         guard !sourceInstallationId.isEmpty else { throw AppError.notAuthenticated }
 
         // Source membership is authorization state, not biometric state. The
-        // trusted face-roster manifest now supplies it independently so a member
-        // can continue contributing photos even if their own Face Setup is not a
-        // matchable recipient row. Keep participant fallback for rollout/tests.
+        // trusted face-roster manifest supplies it independently so a member can
+        // contribute photos even when their own Face Setup is not a recipient row.
         let sourceParticipant = participants.first(where: { $0.userId == currentUserId })
         let sourceMembershipId = Self.normalizedMembershipId(explicitSourceMembershipId)
             ?? Self.normalizedMembershipId(sourceParticipant?.membershipId)
@@ -188,6 +195,25 @@ public struct CameraSyncCoordinator {
                 state.resetRecipientCursors()
             }
             state.sourceMembershipEpoch = sourceMembershipEpoch
+        }
+
+        // Sharing OFF deletes this source account's server photo rows. When it is
+        // enabled again, the server issues a new sharing revision. Reopen only the
+        // old positive cursor outcomes so those rows are republished from cached
+        // face extraction; negatives still represent valid misses.
+        if let sharingRevision = Self.normalizedRevision(preferenceRevision) {
+            if let previous = state.sourceSharingRevision {
+                if previous != sharingRevision {
+                    state.clearPositiveRecipientEvaluations()
+                }
+            } else if state.hasPositiveRecipientEvaluations,
+                      !Self.isBaselineSharingRevision(sharingRevision) {
+                // Schema-v2 migration: a non-baseline current revision proves
+                // sharing changed at least once. Replaying positives once is safe
+                // and idempotent, and prevents a permanently empty server album.
+                state.clearPositiveRecipientEvaluations()
+            }
+            state.sourceSharingRevision = sharingRevision
         }
 
         let ambiguityRevision = Self.ambiguityRosterRevision(participants)
