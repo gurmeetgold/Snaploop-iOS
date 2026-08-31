@@ -178,7 +178,7 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
 /// longer treats it as a permanent "this photo is done" bit. Change 4 uses the
 /// photo corpus plus per-recipient cursors instead.
 public struct ScanState: Equatable, Codable, Sendable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
 
     public let eventId: String
     public var schemaVersion: Int
@@ -203,6 +203,13 @@ public struct ScanState: Equatable, Codable, Sendable {
     /// negatives and expensive photo-face extraction remain valid.
     public var sourceSharingRevision: String?
 
+    /// Generation of the source user's per-Event "show my own matches from this
+    /// phone" preference. This is deliberately independent from sharing: a
+    /// change invalidates only the current user's own recipient cursor, so an
+    /// OFF→ON cycle restores self matches from cached photo-face extraction even
+    /// if the scanner never ran while the preference was OFF.
+    public var sourceOwnMatchesRevision: String?
+
     /// Revision of every identity that participates in FaceMatcher's ambiguity
     /// comparison. Any roster change can change either direction of a decision:
     /// a miss can become a hit, and an old hit can become ambiguous when a new
@@ -219,6 +226,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         recipientCursors: [String: RecipientMatchCursor] = [:],
         sourceMembershipEpoch: String? = nil,
         sourceSharingRevision: String? = nil,
+        sourceOwnMatchesRevision: String? = nil,
         rosterAmbiguityRevision: String? = nil,
         lastSyncedAt: Date? = nil,
         schemaVersion: Int = ScanState.currentSchemaVersion
@@ -230,6 +238,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         self.recipientCursors = recipientCursors
         self.sourceMembershipEpoch = sourceMembershipEpoch
         self.sourceSharingRevision = sourceSharingRevision
+        self.sourceOwnMatchesRevision = sourceOwnMatchesRevision
         self.rosterAmbiguityRevision = rosterAmbiguityRevision
         self.lastSyncedAt = lastSyncedAt
     }
@@ -287,6 +296,10 @@ public struct ScanState: Equatable, Codable, Sendable {
 
     public mutating func retainRecipientCursors(for activeUserIds: Set<String>) {
         recipientCursors = recipientCursors.filter { activeUserIds.contains($0.key) }
+    }
+
+    public mutating func removeRecipientCursor(userId: String) {
+        recipientCursors.removeValue(forKey: userId)
     }
 
     public mutating func resetRecipientCursors() {
@@ -366,6 +379,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         case recipientCursors
         case sourceMembershipEpoch
         case sourceSharingRevision
+        case sourceOwnMatchesRevision
         case rosterAmbiguityRevision
         case lastSyncedAt
     }
@@ -379,6 +393,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         recipientCursors = try container.decodeIfPresent([String: RecipientMatchCursor].self, forKey: .recipientCursors) ?? [:]
         sourceMembershipEpoch = try container.decodeIfPresent(String.self, forKey: .sourceMembershipEpoch)
         sourceSharingRevision = try container.decodeIfPresent(String.self, forKey: .sourceSharingRevision)
+        sourceOwnMatchesRevision = try container.decodeIfPresent(String.self, forKey: .sourceOwnMatchesRevision)
         rosterAmbiguityRevision = try container.decodeIfPresent(String.self, forKey: .rosterAmbiguityRevision)
         lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
     }
