@@ -5,6 +5,7 @@
 // below so older installed clients cannot bypass current validation.
 const legacy = require("./index");
 const invites = require("./invites");
+const inviteResolver = require("./inviteResolver");
 const managed = require("./eventManagement");
 const tripManager = require("./tripManager");
 const profile = require("./profileManaged");
@@ -26,7 +27,7 @@ const invitePreview = require("./invitePreview");
 
 exports.createEvent = managed.createEventMVP;
 exports.joinEvent = managed.joinEventManaged;
-exports.resolveInvite = legacy.resolveInvite;
+exports.resolveInvite = inviteResolver.resolveInviteCanonical;
 exports.updateEventManaged = tripManager.updateTripManaged;
 exports.setEventStatus = tripManager.setTripStatusManaged;
 exports.manageEventMember = managed.manageEventMember;
