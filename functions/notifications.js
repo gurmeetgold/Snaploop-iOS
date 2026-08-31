@@ -3,10 +3,12 @@ const { onCall, HttpsError } = require("firebase-functions/https");
 const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
 const messaging = admin.messaging();
+const PHOTO_WINDOW_DAYS = 15;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {
@@ -242,6 +244,17 @@ exports.hydrateDeferredInvites = onDocumentWritten(
     for (const inviteDoc of invites.docs) {
       const invite = inviteDoc.data() || {};
       if (invite.status !== "invited" || !invite.eventId) continue;
+
+      const eventSnap = await db.doc(`events/${invite.eventId}`).get();
+      const eventData = eventSnap.exists ? eventSnap.data() || {} : null;
+      const stillJoinable = eventSnap.exists
+        && eventData.status === "active"
+        && isWithinEventGraceWindow(eventData, Date.now(), PHOTO_WINDOW_DAYS);
+      if (!stillJoinable) {
+        await inviteDoc.ref.set({ status: "expired", updatedAt: Timestamp.now() }, { merge: true });
+        continue;
+      }
+
       const member = await db.doc(`events/${invite.eventId}/members/${event.params.userId}`).get();
       const status = member.exists ? "joined" : "invited";
       const now = Timestamp.now();
@@ -257,17 +270,27 @@ exports.hydrateDeferredInvites = onDocumentWritten(
   }
 );
 
+// Legacy export retained for compatibility with direct module tests. Production
+// bootstrap exports inviteExpiry.expirePendingInvites, but both implementations
+// now use the same canonical grace predicate.
 exports.expirePendingInvites = onSchedule("every 60 minutes", async () => {
   const now = Timestamp.now();
   const snap = await db.collectionGroup("pendingInvites")
     .where("status", "==", "invited")
-    .where("endsAt", "<", now)
     .limit(200)
     .get();
 
   for (const doc of snap.docs) {
     const data = doc.data() || {};
     const eventId = data.eventId || doc.id;
+    const eventSnap = await db.doc(`events/${eventId}`).get();
+    const eventData = eventSnap.exists ? eventSnap.data() || {} : null;
+    if (eventSnap.exists
+        && eventData.status === "active"
+        && isWithinEventGraceWindow(eventData, now.toMillis(), PHOTO_WINDOW_DAYS)) {
+      continue;
+    }
+
     const batch = db.batch();
     batch.set(doc.ref, { status: "expired", updatedAt: now }, { merge: true });
     if (data.phoneNumber) {
