@@ -15,15 +15,11 @@ enum EventManagementClient {
             "category": event.category.rawValue,
             "coverImagePath": NSNull(),
             "locationName": NSNull(),
-            "startsAtMillis": event.startsAt.timeIntervalSince1970 * 1000,
-            "endsAtMillis": event.endsAt.timeIntervalSince1970 * 1000,
-            "startsAtOffsetMinutes": offsetMinutes(for: event.startsAt),
-            "endsAtOffsetMinutes": offsetMinutes(for: event.endsAt),
-            "nowOffsetMinutes": offsetMinutes(for: Date()),
             "status": event.status.rawValue,
-            "createdAtMillis": event.createdAt.timeIntervalSince1970 * 1000,
-            "updatedAtMillis": event.updatedAt.timeIntervalSince1970 * 1000,
+            "createdAtMillis": millis(event.createdAt),
+            "updatedAtMillis": millis(event.updatedAt),
         ]
+        datePayload(for: event).forEach { data[$0.key] = $0.value }
         if let cover = event.coverImagePath { data["coverImagePath"] = cover }
         if let location = event.locationName { data["locationName"] = location }
         _ = try await call("createEvent", data: data)
@@ -34,22 +30,27 @@ enum EventManagementClient {
         _ = try await call("joinEvent", data: ["eventId": eventId])
     }
 
+    /// Date fields are intentionally omitted for rename/details-only edits. This
+    /// prevents an old Event from being normalized or rejected merely because its
+    /// historical dates now fall outside today's ±15-day creation/edit window.
     @MainActor
-    static func update(_ event: Event, expectedUpdatedAt: Date? = nil) async throws -> Bool {
+    static func update(
+        _ event: Event,
+        expectedUpdatedAt: Date? = nil,
+        includeDates: Bool = true
+    ) async throws -> Bool {
         var data: [String: Any] = [
             "eventId": event.id,
             "name": event.name,
             "category": event.category.rawValue,
             "coverImagePath": NSNull(),
             "locationName": NSNull(),
-            "startsAtMillis": event.startsAt.timeIntervalSince1970 * 1000,
-            "endsAtMillis": event.endsAt.timeIntervalSince1970 * 1000,
-            "startsAtOffsetMinutes": offsetMinutes(for: event.startsAt),
-            "endsAtOffsetMinutes": offsetMinutes(for: event.endsAt),
-            "nowOffsetMinutes": offsetMinutes(for: Date()),
         ]
+        if includeDates {
+            datePayload(for: event).forEach { data[$0.key] = $0.value }
+        }
         if let expectedUpdatedAt {
-            data["expectedUpdatedAtMillis"] = expectedUpdatedAt.timeIntervalSince1970 * 1000
+            data["expectedUpdatedAtMillis"] = millis(expectedUpdatedAt)
         }
         if let cover = event.coverImagePath { data["coverImagePath"] = cover }
         if let location = event.locationName { data["locationName"] = location }
@@ -89,8 +90,30 @@ enum EventManagementClient {
         return text
     }
 
-    private static func offsetMinutes(for date: Date) -> Int {
-        TimeZone.current.secondsFromGMT(for: date) / 60
+    private static func datePayload(for event: Event) -> [String: Any] {
+        let timeZone = event.photoWindowTimeZone ?? .current
+        var result: [String: Any] = [
+            "startsAtMillis": millis(event.startsAt),
+            "endsAtMillis": millis(event.endsAt),
+            "startsAtOffsetMinutes": offsetMinutes(for: event.startsAt, in: timeZone),
+            "endsAtOffsetMinutes": offsetMinutes(for: event.endsAt, in: timeZone),
+            "nowOffsetMinutes": offsetMinutes(for: Date(), in: timeZone),
+        ]
+        if event.photoWindowVersion == Event.canonicalPhotoWindowVersion,
+           let timeZoneId = event.photoWindowTimeZoneId,
+           !timeZoneId.isEmpty {
+            result["photoWindowVersion"] = Event.canonicalPhotoWindowVersion
+            result["photoWindowTimeZoneId"] = timeZoneId
+        }
+        return result
+    }
+
+    private static func offsetMinutes(for date: Date, in timeZone: TimeZone) -> Int {
+        timeZone.secondsFromGMT(for: date) / 60
+    }
+
+    private static func millis(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
     }
 
     @MainActor
