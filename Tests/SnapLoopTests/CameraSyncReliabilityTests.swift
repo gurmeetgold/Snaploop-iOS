@@ -21,6 +21,27 @@ final class CameraSyncReliabilityTests: XCTestCase {
         func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding { FaceEmbedding(normalized: [1, 0, 0]) }
     }
 
+    private final class CountingMatchDetector: FaceDetectionService, @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+
+        func detectFaces(in imageData: Data) async throws -> [DetectedFace] {
+            lock.lock()
+            count += 1
+            lock.unlock()
+            return [DetectedFace(embedding: FaceEmbedding(normalized: [1, 0, 0]), sizeFraction: 0.5)]
+        }
+
+        func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding {
+            FaceEmbedding(normalized: [1, 0, 0])
+        }
+
+        var detectionCount: Int {
+            lock.lock(); defer { lock.unlock() }
+            return count
+        }
+    }
+
     private final class FixedInstallationIdentity: AccountInstallationIdentityProviding, @unchecked Sendable {
         let value: String
         init(_ value: String) { self.value = value }
@@ -36,9 +57,8 @@ final class CameraSyncReliabilityTests: XCTestCase {
         func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL { throw AppError.originalUnavailable }
     }
 
-    func testFailedUploadKeepsCachedCorpusRetryableAndCountsAsRemaining() async throws {
-        let now = Date(timeIntervalSince1970: 2_000_000)
-        let event = Event(
+    private func event(now: Date) -> Event {
+        Event(
             id: "e1",
             joinCode: "ABC234",
             creatorUserId: "alice",
@@ -47,9 +67,11 @@ final class CameraSyncReliabilityTests: XCTestCase {
             endsAt: now + day,
             createdAt: now - day
         )
-        let asset = PhotoAsset(id: "a1", creationDate: now)
+    }
+
+    private func bob(now: Date) -> EventParticipant {
         let embedding = FaceEmbedding(normalized: [1, 0, 0])
-        let participant = EventParticipant(
+        return EventParticipant(
             userId: "bob",
             membershipId: "membership-bob",
             displayName: "Bob",
@@ -62,6 +84,13 @@ final class CameraSyncReliabilityTests: XCTestCase {
             faceProfileVersion: FaceModelPolicy.currentVersion,
             joinedAt: now
         )
+    }
+
+    func testFailedUploadKeepsCachedCorpusRetryableAndCountsAsRemaining() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let currentEvent = event(now: now)
+        let asset = PhotoAsset(id: "a1", creationDate: now)
+        let participant = bob(now: now)
         let scanStore = InMemoryScanStateStore()
         let installationId = "fixed-installation"
         let coordinator = CameraSyncCoordinator(
@@ -76,9 +105,10 @@ final class CameraSyncReliabilityTests: XCTestCase {
         )
 
         let summary = try await coordinator.sync(
-            event: event,
+            event: currentEvent,
             participants: [participant],
-            currentUserId: "alice"
+            currentUserId: "alice",
+            sourceMembershipId: "membership-alice"
         )
 
         XCTAssertEqual(summary.scanned, 0)
@@ -87,12 +117,66 @@ final class CameraSyncReliabilityTests: XCTestCase {
         XCTAssertFalse(summary.alreadyCaughtUp)
 
         let key = CameraSyncCoordinator.scanStateKey(
-            eventId: event.id,
+            eventId: currentEvent.id,
             sourceInstallationId: installationId
         )
         let state = scanStore.load(eventId: key)
         XCTAssertEqual(state.corpusCount, 1, "Expensive detection should survive a transient upload failure")
         XCTAssertFalse(state.recipientCursor(userId: "bob")?.hasEvaluated(asset.id) ?? true)
+    }
+
+    func testRetryAfterUploadFailureDoesNotRunFaceDetectionTwice() async throws {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let currentEvent = event(now: now)
+        let asset = PhotoAsset(id: "a1", creationDate: now)
+        let participant = bob(now: now)
+        let scanStore = InMemoryScanStateStore()
+        let detector = CountingMatchDetector()
+        let installation = FixedInstallationIdentity("fixed-installation")
+
+        let failingCoordinator = CameraSyncCoordinator(
+            config: StaticConfigProvider(.default),
+            clock: FixedClock(now),
+            photoLibrary: OneAssetLibrary(asset: asset),
+            faceDetection: detector,
+            thumbnailEncoder: PassthroughThumbnailEncoder(),
+            matches: FailingMatchRepository(),
+            scanStateStore: scanStore,
+            accountInstallationIdentity: installation
+        )
+        let failed = try await failingCoordinator.sync(
+            event: currentEvent,
+            participants: [participant],
+            currentUserId: "alice",
+            sourceMembershipId: "membership-alice"
+        )
+        XCTAssertEqual(failed.remaining, 1)
+        XCTAssertEqual(detector.detectionCount, 1)
+
+        let successfulMatches = InMemoryMatchRepository()
+        let retryCoordinator = CameraSyncCoordinator(
+            config: StaticConfigProvider(.default),
+            clock: FixedClock(now),
+            photoLibrary: OneAssetLibrary(asset: asset),
+            faceDetection: detector,
+            thumbnailEncoder: PassthroughThumbnailEncoder(),
+            matches: successfulMatches,
+            scanStateStore: scanStore,
+            accountInstallationIdentity: installation
+        )
+        let retried = try await retryCoordinator.sync(
+            event: currentEvent,
+            participants: [participant],
+            currentUserId: "alice",
+            sourceMembershipId: "membership-alice"
+        )
+
+        XCTAssertEqual(retried.scanned, 1)
+        XCTAssertEqual(retried.matchedPhotos, 1)
+        XCTAssertEqual(retried.remaining, 0)
+        XCTAssertEqual(detector.detectionCount, 1, "Retry must reuse the protected photo corpus instead of rerunning ML")
+        let photos = try await successfulMatches.myPhotos(eventId: currentEvent.id, userId: "bob")
+        XCTAssertEqual(photos.count, 1)
     }
 
     func testScanStatePrunesCorpusAndCursorEntriesNoLongerVisibleInPhotoKitWindow() {
@@ -130,5 +214,14 @@ final class CameraSyncReliabilityTests: XCTestCase {
         XCTAssertEqual(Set(state.photoCorpus.keys), ["still-here"])
         XCTAssertEqual(state.recipientCursor(userId: "bob")?.positiveAssetIds, ["still-here"])
         XCTAssertTrue(state.recipientCursor(userId: "bob")?.negativeAssetIds.isEmpty == true)
+    }
+
+    func testScanStateNamespaceSeparatesSourceInstallations() {
+        let first = CameraSyncCoordinator.scanStateKey(eventId: "event", sourceInstallationId: "install-a")
+        let second = CameraSyncCoordinator.scanStateKey(eventId: "event", sourceInstallationId: "install-b")
+        let stable = CameraSyncCoordinator.scanStateKey(eventId: "event", sourceInstallationId: "install-a")
+
+        XCTAssertNotEqual(first, second)
+        XCTAssertEqual(first, stable)
     }
 }
