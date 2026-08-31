@@ -33,6 +33,7 @@ private struct AppLaunchView: View {
                 RootView()
                     .environmentObject(environment)
                     .environmentObject(session)
+                    .environment(\.eventContextName, session.activeEvent?.name)
             } else {
                 startupView
             }
