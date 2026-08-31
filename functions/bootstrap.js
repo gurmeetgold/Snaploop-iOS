@@ -11,6 +11,7 @@ const profile = require("./profileManaged");
 const leave = require("./leaveManaged");
 const security = require("./security");
 const memberCleanup = require("./memberCleanup");
+const membershipIdentity = require("./membershipIdentity");
 const notifications = require("./notifications");
 const inviteExpiry = require("./inviteExpiry");
 const privacy = require("./privacyHardening");
@@ -77,4 +78,5 @@ exports.purgeExpiredTripPreviews = privacy.purgeExpiredTripPreviews;
 exports.hardDeleteDeletedTrips = privacy.hardDeleteDeletedTrips;
 
 exports.cleanupRemovedMemberPhotoData = memberCleanup.cleanupRemovedMemberPhotoData;
+exports.assignMembershipIdentityOnCreate = membershipIdentity.assignMembershipIdentityOnCreate;
 exports.syncEventRosterIdentities = legacy.syncEventRosterIdentities;
