@@ -105,6 +105,10 @@ public struct RecipientMatchCursor: Equatable, Codable, Sendable {
         }
     }
 
+    public mutating func clearNegatives() {
+        negativeAssetIds.removeAll(keepingCapacity: true)
+    }
+
     public mutating func retainAssetIds(_ validIds: Set<String>) {
         positiveAssetIds.formIntersection(validIds)
         negativeAssetIds.formIntersection(validIds)
@@ -137,6 +141,13 @@ public struct ScanState: Equatable, Codable, Sendable {
     /// A leave/rejoin clears recipient cursors but preserves the local corpus.
     public var sourceMembershipEpoch: String?
 
+    /// Revision of the complete ambiguity roster used by FaceMatcher. A roster
+    /// change can turn an old ambiguous/negative decision into a positive for an
+    /// unchanged recipient, so all negatives are conservatively invalidated when
+    /// this changes. Positives remain stable unless that recipient's own identity
+    /// or membership generation changes.
+    public var rosterAmbiguityRevision: String?
+
     public var lastSyncedAt: Date?
 
     public init(
@@ -145,6 +156,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         photoCorpus: [String: PhotoCorpusRecord] = [:],
         recipientCursors: [String: RecipientMatchCursor] = [:],
         sourceMembershipEpoch: String? = nil,
+        rosterAmbiguityRevision: String? = nil,
         lastSyncedAt: Date? = nil,
         schemaVersion: Int = ScanState.currentSchemaVersion
     ) {
@@ -154,6 +166,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         self.photoCorpus = photoCorpus
         self.recipientCursors = recipientCursors
         self.sourceMembershipEpoch = sourceMembershipEpoch
+        self.rosterAmbiguityRevision = rosterAmbiguityRevision
         self.lastSyncedAt = lastSyncedAt
     }
 
@@ -216,6 +229,14 @@ public struct ScanState: Equatable, Codable, Sendable {
         recipientCursors.removeAll(keepingCapacity: true)
     }
 
+    public mutating func clearNegativeRecipientEvaluations() {
+        for userId in Array(recipientCursors.keys) {
+            guard var cursor = recipientCursors[userId] else { continue }
+            cursor.clearNegatives()
+            recipientCursors[userId] = cursor
+        }
+    }
+
     public func pendingRecipientUserIds(for assetId: String, among userIds: Set<String>) -> Set<String> {
         Set(userIds.filter { userId in
             guard let cursor = recipientCursors[userId] else { return true }
@@ -260,6 +281,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         case photoCorpus
         case recipientCursors
         case sourceMembershipEpoch
+        case rosterAmbiguityRevision
         case lastSyncedAt
     }
 
@@ -271,6 +293,7 @@ public struct ScanState: Equatable, Codable, Sendable {
         photoCorpus = try container.decodeIfPresent([String: PhotoCorpusRecord].self, forKey: .photoCorpus) ?? [:]
         recipientCursors = try container.decodeIfPresent([String: RecipientMatchCursor].self, forKey: .recipientCursors) ?? [:]
         sourceMembershipEpoch = try container.decodeIfPresent(String.self, forKey: .sourceMembershipEpoch)
+        rosterAmbiguityRevision = try container.decodeIfPresent(String.self, forKey: .rosterAmbiguityRevision)
         lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
     }
 }
