@@ -102,9 +102,16 @@
   const acceptURL = `${baseURL}?action=accept`;
   const declineURL = `${baseURL}?action=decline`;
 
-  const formatDate = (millis) => {
+  const formatDate = (millis, timeZone) => {
     if (!millis) return null;
-    return new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric", year:"numeric" }).format(new Date(millis));
+    const options = { month:"short", day:"numeric", year:"numeric" };
+    if (timeZone) options.timeZone = timeZone;
+    try {
+      return new Intl.DateTimeFormat(undefined, options).format(new Date(millis));
+    } catch (_) {
+      // Legacy/corrupt timezone metadata must never make the invite unusable.
+      return new Intl.DateTimeFormat(undefined, { month:"short", day:"numeric", year:"numeric" }).format(new Date(millis));
+    }
   };
 
   fetch(`/api/invite-preview?kind=${encodeURIComponent(kind)}&value=${value}`, { cache: "no-store" })
@@ -116,8 +123,11 @@
       const name = data.name || "this Event";
       eventName.textContent = `Join “${name}”`;
       document.title = `Join ${name} in SnapLoop`;
-      const start = formatDate(data.startsAtMillis);
-      const end = formatDate(data.endsAtMillis);
+      const canonicalTimeZone = Number(data.photoWindowVersion) === 1
+        ? data.photoWindowTimeZoneId
+        : null;
+      const start = formatDate(data.startsAtMillis, canonicalTimeZone);
+      const end = formatDate(data.endsAtMillis, canonicalTimeZone);
       const dates = start && end ? `, ${start} – ${end}` : "";
       const inviter = data.inviterName || "A SnapLoop member";
       conversation.textContent = `${inviter} invited you to ${name}${dates}.`;
