@@ -33,20 +33,21 @@ exports.listEventMembers = onCall(async (request) => {
     if (name) namesById.set(snap.id, name);
   });
 
-  // Pre-migration memberships may not have a generation ID yet. Backfill them
-  // through a transaction that refuses to recreate a concurrently removed
-  // membership. New memberships normally already have this field via the
-  // on-create trigger in membershipIdentity.js.
-  const membershipIds = await Promise.all(membersSnap.docs.map((doc) =>
-    membershipIdentity.ensureMembershipIdentity(eventId, doc.id, doc.data() || {})
-  ));
+  // Pre-migration memberships may not have a generation ID yet. Backfill all
+  // missing IDs in one transaction that refuses to recreate concurrently
+  // removed memberships. New memberships normally already have this field via
+  // the on-create trigger in membershipIdentity.js.
+  const membershipIds = await membershipIdentity.ensureMembershipIdentities(
+    eventId,
+    membersSnap.docs.map((doc) => ({ userId: doc.id, data: doc.data() || {} }))
+  );
 
   return {
-    members: membersSnap.docs.map((doc, index) => {
+    members: membersSnap.docs.map((doc) => {
       const data = doc.data() || {};
       return {
         userId: doc.id,
-        membershipId: membershipIds[index] || null,
+        membershipId: membershipIds.get(doc.id) || null,
         displayName: namesById.get(doc.id) || null,
         role: data.role || "participant",
         sharingEnabled: data.sharingEnabled !== false,
