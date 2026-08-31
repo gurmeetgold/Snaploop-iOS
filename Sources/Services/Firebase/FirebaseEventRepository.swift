@@ -31,15 +31,11 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
             "creatorUserId": event.creatorUserId,
             "name": event.name,
             "category": event.category.rawValue,
-            "startsAtMillis": Self.millis(event.startsAt),
-            "endsAtMillis": Self.millis(event.endsAt),
-            "startsAtOffsetMinutes": Self.offsetMinutes(for: event.startsAt),
-            "endsAtOffsetMinutes": Self.offsetMinutes(for: event.endsAt),
-            "nowOffsetMinutes": Self.offsetMinutes(for: Date()),
             "status": event.status.rawValue,
             "createdAtMillis": Self.millis(event.createdAt),
             "updatedAtMillis": Self.millis(event.updatedAt)
         ]
+        Self.datePayload(for: event).forEach { payload[$0.key] = $0.value }
         payload["coverImagePath"] = event.coverImagePath ?? NSNull()
         payload["locationName"] = event.locationName ?? NSNull()
 
@@ -92,15 +88,16 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
 
     public func updateEventDates(id: String, startsAt: Date, endsAt: Date) async throws {
         guard endsAt >= startsAt else { throw AppError.invalidEventDates }
+        let timeZone = TimeZone.current
         _ = try await call(
             "updateEventManaged",
             data: [
                 "eventId": id,
                 "startsAtMillis": Self.millis(startsAt),
                 "endsAtMillis": Self.millis(endsAt),
-                "startsAtOffsetMinutes": Self.offsetMinutes(for: startsAt),
-                "endsAtOffsetMinutes": Self.offsetMinutes(for: endsAt),
-                "nowOffsetMinutes": Self.offsetMinutes(for: Date())
+                "startsAtOffsetMinutes": Self.offsetMinutes(for: startsAt, in: timeZone),
+                "endsAtOffsetMinutes": Self.offsetMinutes(for: endsAt, in: timeZone),
+                "nowOffsetMinutes": Self.offsetMinutes(for: Date(), in: timeZone)
             ]
         )
     }
@@ -251,8 +248,7 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
             sharingEnabled: data["sharingEnabled"] as? Bool ?? true,
             lastSyncAt: dateFromMillis(data["lastSyncAtMillis"]),
             faceTemplateVersion:
-                (data["faceTemplateVersion"] as? NSNumber)?.intValue
-                ?? data["faceTemplateVersion"] as? Int
+                intValue(data["faceTemplateVersion"])
                 ?? 1
         )
     }
@@ -294,6 +290,10 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
             locationName: nullableString(event["locationName"]),
             startsAt: startsAt,
             endsAt: endsAt,
+            photoWindowVersion: intValue(event["photoWindowVersion"]),
+            photoWindowTimeZoneId: normalizedOptionalString(event["photoWindowTimeZoneId"]),
+            photoWindowStartDayNumber: intValue(event["photoWindowStartDayNumber"]),
+            photoWindowEndDayNumber: intValue(event["photoWindowEndDayNumber"]),
             status: status,
             createdAt: createdAt,
             updatedAt: updatedAt
@@ -330,6 +330,10 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
             locationName: data["locationName"] as? String,
             startsAt: startsAt,
             endsAt: endsAt,
+            photoWindowVersion: intValue(data["photoWindowVersion"]),
+            photoWindowTimeZoneId: normalizedOptionalString(data["photoWindowTimeZoneId"]),
+            photoWindowStartDayNumber: intValue(data["photoWindowStartDayNumber"]),
+            photoWindowEndDayNumber: intValue(data["photoWindowEndDayNumber"]),
             status: status,
             createdAt: createdAt,
             updatedAt: updatedAt
@@ -393,8 +397,7 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
             faceEmbedding: FaceEmbedding(normalized: vector),
             faceTemplates: templates,
             faceProfileVersion:
-                (data["faceProfileVersion"] as? NSNumber)?.intValue
-                ?? data["faceProfileVersion"] as? Int
+                intValue(data["faceProfileVersion"])
                 ?? 1,
             joinedAt: joinedAt
         )
@@ -411,6 +414,7 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
         if let n = value as? NSNumber { millis = n.doubleValue }
         else if let d = value as? Double { millis = d }
         else if let i = value as? Int { millis = Double(i) }
+        else if let i = value as? Int64 { millis = Double(i) }
         else { millis = nil }
         guard let millis else { return nil }
         return Date(timeIntervalSince1970: millis / 1000.0)
@@ -427,12 +431,37 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
         return raw
     }
 
-    private static func millis(_ date: Date) -> Double {
-        date.timeIntervalSince1970 * 1000.0
+    private static func intValue(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let value = value as? Int { return value }
+        if let value = value as? Int64 { return Int(value) }
+        return nil
     }
 
-    private static func offsetMinutes(for date: Date) -> Int {
-        TimeZone.current.secondsFromGMT(for: date) / 60
+    private static func datePayload(for event: Event) -> [String: Any] {
+        let timeZone = event.photoWindowTimeZone ?? .current
+        var payload: [String: Any] = [
+            "startsAtMillis": millis(event.startsAt),
+            "endsAtMillis": millis(event.endsAt),
+            "startsAtOffsetMinutes": offsetMinutes(for: event.startsAt, in: timeZone),
+            "endsAtOffsetMinutes": offsetMinutes(for: event.endsAt, in: timeZone),
+            "nowOffsetMinutes": offsetMinutes(for: Date(), in: timeZone)
+        ]
+        if event.photoWindowVersion == Event.canonicalPhotoWindowVersion,
+           let timeZoneId = event.photoWindowTimeZoneId,
+           !timeZoneId.isEmpty {
+            payload["photoWindowVersion"] = Event.canonicalPhotoWindowVersion
+            payload["photoWindowTimeZoneId"] = timeZoneId
+        }
+        return payload
+    }
+
+    private static func millis(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000.0).rounded())
+    }
+
+    private static func offsetMinutes(for date: Date, in timeZone: TimeZone) -> Int {
+        timeZone.secondsFromGMT(for: date) / 60
     }
 
     // MARK: - Error mapping
