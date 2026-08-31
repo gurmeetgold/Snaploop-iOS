@@ -1,5 +1,6 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
@@ -10,21 +11,33 @@ function phoneKey(phone) {
   return String(phone || "").replace(/\D/g, "");
 }
 
-// Event invitations stay usable through the same 15-day post-Event photo
-// recovery window as code/link joining. This lets someone who forgot to join
-// during the gathering still join later and receive photos of themselves.
+// Event invitations stay usable through the same 15-civil-day post-Event photo
+// recovery window as code/link joining. Query one day wider than the canonical
+// threshold, then make the authoritative decision from the Event document. This
+// keeps DST from expiring an invite an hour early/late while retaining bounded
+// collection-group work for legacy records.
 exports.expirePendingInvites = onSchedule("every 60 minutes", async () => {
-  const now = Timestamp.now();
-  const cutoff = Timestamp.fromMillis(Date.now() - PHOTO_WINDOW_DAYS * DAY_MS);
+  const nowMillis = Date.now();
+  const now = Timestamp.fromMillis(nowMillis);
+  const coarseCutoff = Timestamp.fromMillis(nowMillis - 14 * DAY_MS);
   const snap = await db.collectionGroup("pendingInvites")
     .where("status", "==", "invited")
-    .where("endsAt", "<", cutoff)
+    .where("endsAt", "<", coarseCutoff)
     .limit(200)
     .get();
 
   for (const doc of snap.docs) {
     const data = doc.data() || {};
     const eventId = data.eventId || doc.id;
+    const eventSnap = await db.doc(`events/${eventId}`).get();
+
+    // Missing Events can never become joinable again. Existing Events use the
+    // shared v1 civil-day helper; legacy records preserve the old elapsed-time
+    // behavior because they do not carry a trustworthy Event timezone.
+    const shouldExpire = !eventSnap.exists
+      || !isWithinEventGraceWindow(eventSnap.data() || {}, nowMillis, PHOTO_WINDOW_DAYS);
+    if (!shouldExpire) continue;
+
     const batch = db.batch();
     batch.set(doc.ref, { status: "expired", updatedAt: now }, { merge: true });
     if (data.phoneNumber) {
