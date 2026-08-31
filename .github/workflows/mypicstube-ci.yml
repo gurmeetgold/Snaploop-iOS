@@ -33,6 +33,9 @@ jobs:
             node --check "$file"
           done
 
+      - name: Verify Event calendar-day semantics
+        run: node --test tests/backend/event-date-semantics.test.mjs
+
       - name: Verify client to callable contract
         run: node --test tests/backend/callable-contract.test.mjs
 
@@ -46,7 +49,7 @@ jobs:
           firebase emulators:exec \
             --project demo-mypicsroom-security \
             --only auth,firestore,storage,functions \
-            "node --test tests/backend/security-rules.test.mjs && node --test tests/backend/functions-integration.test.mjs && node --test tests/backend/membership-identity.test.mjs"
+            "node --test tests/backend/security-rules.test.mjs && node --test tests/backend/functions-integration.test.mjs && node --test tests/backend/membership-identity.test.mjs && node --test tests/backend/event-date-edit-compatibility.test.mjs"
 
   build-test:
     runs-on: macos-15
