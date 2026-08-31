@@ -2,147 +2,189 @@ import XCTest
 @testable import SnapLoop
 
 final class EventLifecycleTests: XCTestCase {
-
     private let day: TimeInterval = 86_400
     private var config = RemoteConfigValues.default
-
-    private func event(start: Date, end: Date) -> Event {
-        Event(id: "e", joinCode: "ABC234", creatorUserId: "u", name: "Party",
-              startsAt: start, endsAt: end, createdAt: start)
+    private var utcCalendar: Calendar {
+        EventLifecycle.calendar(timeZone: TimeZone(secondsFromGMT: 0)!)
     }
 
-    private func lifecycleStatus(at now: Date, start: Date, end: Date) -> EventLifecycle.Status {
-        EventLifecycle.status(for: event(start: start, end: end),
-                              clock: FixedClock(now), config: config)
+    private func date(_ year: Int, _ month: Int, _ day: Int, hour: Int = 12) -> Date {
+        utcCalendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour))!
     }
 
-    func testUpcomingBeforeStart() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let s = lifecycleStatus(at: start.addingTimeInterval(-1), start: start, end: start + 5 * day)
-        XCTAssertEqual(s, .upcoming)
+    private func event(startDay: Date, endDay: Date) -> Event {
+        let bounds = EventLifecycle.canonicalBounds(
+            startsAt: startDay,
+            endsAt: endDay,
+            calendar: utcCalendar
+        )
+        return Event(
+            id: "e",
+            joinCode: "ABC234",
+            creatorUserId: "u",
+            name: "Party",
+            startsAt: bounds.lowerBound,
+            endsAt: bounds.upperBound,
+            photoWindowVersion: Event.canonicalPhotoWindowVersion,
+            photoWindowTimeZoneId: "GMT",
+            photoWindowStartDayNumber: EventLifecycle.localDayNumber(startDay, calendar: utcCalendar),
+            photoWindowEndDayNumber: EventLifecycle.localDayNumber(endDay, calendar: utcCalendar),
+            createdAt: bounds.lowerBound
+        )
     }
 
-    func testActiveWithinWindowInclusiveOfBoundaries() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = start + 5 * day
-        XCTAssertEqual(lifecycleStatus(at: start, start: start, end: end), .active)
-        XCTAssertEqual(lifecycleStatus(at: start + 2 * day, start: start, end: end), .active)
-        XCTAssertEqual(lifecycleStatus(at: end, start: start, end: end), .active)
+    func testUpcomingBeforeCanonicalStartBoundary() {
+        let e = event(startDay: date(2026, 8, 10), endDay: date(2026, 8, 15))
+        XCTAssertEqual(
+            EventLifecycle.status(for: e, clock: FixedClock(e.dateRange.lowerBound.addingTimeInterval(-0.001)), config: config),
+            .upcoming
+        )
     }
 
-    func testPhotoWindowAfterEndWithinFifteenDays() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = start + 5 * day
-        let s = lifecycleStatus(at: end + 10 * day, start: start, end: end)
-        XCTAssertEqual(s, .grace)
+    func testActiveWithinCanonicalWindowInclusiveOfBoundaries() {
+        let e = event(startDay: date(2026, 8, 10), endDay: date(2026, 8, 15))
+        XCTAssertEqual(EventLifecycle.status(for: e, clock: FixedClock(e.dateRange.lowerBound), config: config), .active)
+        XCTAssertEqual(EventLifecycle.status(for: e, clock: FixedClock(date(2026, 8, 12)), config: config), .active)
+        XCTAssertEqual(EventLifecycle.status(for: e, clock: FixedClock(e.dateRange.upperBound), config: config), .active)
     }
 
-    func testExpiredPastFifteenDayPhotoWindow() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = start + 5 * day
-        let s = lifecycleStatus(at: end + 15 * day + 1, start: start, end: end)
-        XCTAssertEqual(s, .expired)
+    func testGraceWindowStartsAfterLastMillisecondOfSelectedEndDate() {
+        let e = event(startDay: date(2026, 8, 10), endDay: date(2026, 8, 15))
+        XCTAssertEqual(
+            EventLifecycle.status(for: e, clock: FixedClock(e.dateRange.upperBound.addingTimeInterval(0.001)), config: config),
+            .grace
+        )
     }
 
-    func testPhotoWindowEndBoundaryIsInclusive() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = start + 5 * day
-        let graceEnd = end + 15 * day
-        XCTAssertEqual(lifecycleStatus(at: graceEnd, start: start, end: end), .grace)
-        XCTAssertEqual(lifecycleStatus(at: graceEnd + 1, start: start, end: end), .expired)
+    func testGraceEndBoundaryIsInclusive() {
+        let e = event(startDay: date(2026, 8, 10), endDay: date(2026, 8, 15))
+        let graceEnd = EventLifecycle.graceEnd(for: e, config: config)
+        XCTAssertEqual(EventLifecycle.status(for: e, clock: FixedClock(graceEnd), config: config), .grace)
+        XCTAssertEqual(EventLifecycle.status(for: e, clock: FixedClock(graceEnd.addingTimeInterval(0.001)), config: config), .expired)
     }
 
-    func testCanSyncDuringActiveAndPhotoWindowOnly() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = start + 5 * day
-        let e = event(start: start, end: end)
-        XCTAssertFalse(EventLifecycle.canSync(e, clock: FixedClock(start - 1), config: config))
-        XCTAssertTrue(EventLifecycle.canSync(e, clock: FixedClock(start + day), config: config))
-        XCTAssertTrue(EventLifecycle.canSync(e, clock: FixedClock(end + 10 * day), config: config))
-        XCTAssertFalse(EventLifecycle.canSync(e, clock: FixedClock(end + 16 * day), config: config))
+    func testCanSyncOnlyDuringEventAndGraceWindow() {
+        let e = event(startDay: date(2026, 8, 10), endDay: date(2026, 8, 15))
+        let graceEnd = EventLifecycle.graceEnd(for: e, config: config)
+        XCTAssertFalse(EventLifecycle.canSync(e, clock: FixedClock(e.dateRange.lowerBound - 1), config: config))
+        XCTAssertTrue(EventLifecycle.canSync(e, clock: FixedClock(date(2026, 8, 12)), config: config))
+        XCTAssertTrue(EventLifecycle.canSync(e, clock: FixedClock(graceEnd), config: config))
+        XCTAssertFalse(EventLifecycle.canSync(e, clock: FixedClock(graceEnd + 1), config: config))
     }
 
-    func testCanDownloadThroughPhotoWindowButNotAfter() {
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = start + 5 * day
-        let e = event(start: start, end: end)
-        XCTAssertTrue(EventLifecycle.canDownload(e, clock: FixedClock(end + 15 * day), config: config))
-        XCTAssertFalse(EventLifecycle.canDownload(e, clock: FixedClock(end + 15 * day + 1), config: config))
+    func testCanDownloadThroughGraceWindowButNotAfter() {
+        let e = event(startDay: date(2026, 8, 10), endDay: date(2026, 8, 15))
+        let graceEnd = EventLifecycle.graceEnd(for: e, config: config)
+        XCTAssertTrue(EventLifecycle.canDownload(e, clock: FixedClock(graceEnd), config: config))
+        XCTAssertFalse(EventLifecycle.canDownload(e, clock: FixedClock(graceEnd + 1), config: config))
     }
 
     // MARK: Validation
 
-    func testValidateDatesRejectsEndBeforeStart() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        XCTAssertThrowsError(try EventLifecycle.validateDates(
-            startsAt: now,
-            endsAt: now - day,
+    func testValidateDatesAllowsSameCivilDayEvent() {
+        let now = date(2026, 8, 10)
+        XCTAssertNoThrow(try EventLifecycle.validateDates(
+            startsAt: date(2026, 8, 10, hour: 8),
+            endsAt: date(2026, 8, 10, hour: 20),
             now: now,
-            config: config
+            config: config,
+            calendar: utcCalendar
+        ))
+    }
+
+    func testValidateDatesRejectsEndOnPreviousCivilDay() {
+        let now = date(2026, 8, 10)
+        XCTAssertThrowsError(try EventLifecycle.validateDates(
+            startsAt: date(2026, 8, 10),
+            endsAt: date(2026, 8, 9),
+            now: now,
+            config: config,
+            calendar: utcCalendar
         )) { error in
             XCTAssertEqual(error as? AppError, .invalidEventDates)
         }
     }
 
-    func testValidateDatesRejectsOverlongEvent() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let start = now - 7 * day
-        let tooLong = start + TimeInterval(EventLifecycle.mvpMaximumDurationDays + 1) * day
+    func testValidateDatesRejectsSixteenDayDistance() {
+        let now = date(2026, 8, 10)
+        let start = date(2026, 8, 1)
+        let tooLong = utcCalendar.date(byAdding: .day, value: 16, to: start)!
         XCTAssertThrowsError(try EventLifecycle.validateDates(
             startsAt: start,
             endsAt: tooLong,
             now: now,
-            config: config
+            config: config,
+            calendar: utcCalendar
         )) { error in
             XCTAssertEqual(error as? AppError, .eventDurationTooLong(maxDays: EventLifecycle.mvpMaximumDurationDays))
         }
     }
 
-    func testValidateDatesAcceptsInRange() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        let start = now - 2 * day
-        let end = now + 3 * day
+    func testPlusMinusFifteenDayBoundaryIsInclusive() {
+        let now = date(2026, 8, 16)
+        let lower = utcCalendar.date(byAdding: .day, value: -15, to: now)!
+        let upper = utcCalendar.date(byAdding: .day, value: 15, to: now)!
+
         XCTAssertNoThrow(try EventLifecycle.validateDates(
-            startsAt: start,
-            endsAt: end,
+            startsAt: lower,
+            endsAt: now,
             now: now,
-            config: config
+            config: config,
+            calendar: utcCalendar
+        ))
+        XCTAssertNoThrow(try EventLifecycle.validateDates(
+            startsAt: now,
+            endsAt: upper,
+            now: now,
+            config: config,
+            calendar: utcCalendar
         ))
     }
 
-    func testValidateDatesRejectsStartMoreThan15DaysAgo() {
-        let now = Date(timeIntervalSince1970: 2_000_000)
-        let start = now - 16 * day
-        let end = now - 14 * day
+    func testValidateDatesRejectsSixteenDaysBeforeToday() {
+        let now = date(2026, 8, 16)
+        let start = utcCalendar.date(byAdding: .day, value: -16, to: now)!
         XCTAssertThrowsError(try EventLifecycle.validateDates(
             startsAt: start,
-            endsAt: end,
+            endsAt: now,
             now: now,
-            config: config
+            config: config,
+            calendar: utcCalendar
         )) { error in
             XCTAssertEqual(error as? AppError, .eventDatesOutsideAllowedWindow(days: 15))
         }
     }
 
-    func testValidateDatesRejectsEndMoreThan15DaysAhead() {
-        let now = Date(timeIntervalSince1970: 2_000_000)
-        let start = now + 10 * day
-        let end = now + 16 * day
+    func testValidateDatesRejectsSixteenDaysAfterToday() {
+        let now = date(2026, 8, 16)
+        let end = utcCalendar.date(byAdding: .day, value: 16, to: now)!
         XCTAssertThrowsError(try EventLifecycle.validateDates(
-            startsAt: start,
+            startsAt: now,
             endsAt: end,
             now: now,
-            config: config
+            config: config,
+            calendar: utcCalendar
         )) { error in
-            XCTAssertEqual(error as? AppError, .eventDatesOutsideAllowedWindow(days: 15))
+            XCTAssertEqual(error as? AppError, .eventDurationTooLong(maxDays: 15))
         }
     }
 
-    func testDefaultEndDateNeverExceeds15Days() {
+    func testCanonicalEventDateRangeIsAlreadyThePersistedAbsoluteWindow() {
+        let e = event(startDay: date(2026, 8, 10), endDay: date(2026, 8, 12))
+        XCTAssertTrue(e.usesCanonicalPhotoWindow)
+        XCTAssertEqual(e.dateRange.lowerBound, e.startsAt)
+        XCTAssertEqual(e.dateRange.upperBound, e.endsAt)
+        XCTAssertEqual(e.photoWindowCalendar.timeZone.identifier, "GMT")
+    }
+
+    func testDefaultEndDateNeverExceedsFifteenDayDistance() {
         var longConfig = config
         longConfig.defaultEventDurationDays = 30
-        let start = Date(timeIntervalSince1970: 1_000_000)
-        let end = EventLifecycle.defaultEndDate(from: start, config: longConfig)
-        XCTAssertEqual(end.timeIntervalSince(start), 15 * day, accuracy: 0.5)
+        let start = date(2026, 8, 1)
+        let end = EventLifecycle.defaultEndDate(from: start, config: longConfig, calendar: utcCalendar)
+        XCTAssertEqual(
+            utcCalendar.dateComponents([.day], from: start, to: end).day,
+            EventLifecycle.mvpMaximumDurationDays
+        )
     }
 }
