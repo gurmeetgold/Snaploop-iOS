@@ -255,7 +255,14 @@ struct JoinEventView: View {
 
                 PremiumCard {
                     VStack(spacing: 10) {
-                        Label(DateFormatting.range(event.startsAt, event.endsAt), systemImage: "calendar")
+                        Label(
+                            DateFormatting.range(
+                                event.startsAt,
+                                event.endsAt,
+                                timeZone: event.photoWindowTimeZone
+                            ),
+                            systemImage: "calendar"
+                        )
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.ink)
 
