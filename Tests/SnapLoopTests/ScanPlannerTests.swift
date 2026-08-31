@@ -53,6 +53,42 @@ final class ScanPlannerTests: XCTestCase {
         XCTAssertEqual(plan.remaining, 0)
     }
 
+    func testCanonicalWindowIncludesExactEndBoundaryAndExcludesNextMillisecond() {
+        let timeZone = TimeZone(identifier: "America/Toronto")!
+        let calendar = EventLifecycle.calendar(timeZone: timeZone)
+        let selectedStart = calendar.date(from: DateComponents(year: 2026, month: 8, day: 16, hour: 12))!
+        let selectedEnd = calendar.date(from: DateComponents(year: 2026, month: 8, day: 17, hour: 12))!
+        let bounds = EventLifecycle.canonicalBounds(
+            startsAt: selectedStart,
+            endsAt: selectedEnd,
+            calendar: calendar
+        )
+        let event = Event(
+            id: "e1",
+            joinCode: "ABC234",
+            creatorUserId: "u1",
+            name: "Trip",
+            startsAt: bounds.lowerBound,
+            endsAt: bounds.upperBound,
+            photoWindowVersion: Event.canonicalPhotoWindowVersion,
+            photoWindowTimeZoneId: timeZone.identifier,
+            photoWindowStartDayNumber: EventLifecycle.localDayNumber(selectedStart, calendar: calendar),
+            photoWindowEndDayNumber: EventLifecycle.localDayNumber(selectedEnd, calendar: calendar),
+            createdAt: bounds.lowerBound
+        )
+        let assets = [
+            asset("before", bounds.lowerBound.addingTimeInterval(-0.001)),
+            asset("start", bounds.lowerBound),
+            asset("end", bounds.upperBound),
+            asset("after", bounds.upperBound.addingTimeInterval(0.001)),
+        ]
+
+        let plan = ScanPlanner(config: config(batch: 100))
+            .plan(assets: assets, event: event, state: ScanState(eventId: "e1"))
+
+        XCTAssertEqual(plan.toScan.map(\.id), ["start", "end"])
+    }
+
     func testNeverRescansAlreadyScannedAssets() {
         let start = Date(timeIntervalSince1970: 2_000_000)
         let event = makeEvent(start: start, end: start.addingTimeInterval(5 * day))
