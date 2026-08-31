@@ -105,6 +105,11 @@ public struct Event: Identifiable, Equatable, Codable, Sendable {
 public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
     public var id: String { userId }
     public let userId: String
+    /// Server-issued event participation generation. It is deliberately
+    /// separate from userId and faceIdentityId so leave/rejoin can invalidate
+    /// stale matching work without changing account or biometric identity.
+    /// Optional only while pre-migration data is still supported.
+    public var membershipId: String?
     public var displayName: String?
     public var phoneNumber: String?
     public var faceIdentityId: String?
@@ -115,6 +120,7 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
 
     public init(
         userId: String,
+        membershipId: String? = nil,
         displayName: String?,
         phoneNumber: String? = nil,
         faceIdentityId: String? = nil,
@@ -124,6 +130,7 @@ public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
         joinedAt: Date
     ) {
         self.userId = userId
+        self.membershipId = membershipId
         self.displayName = displayName
         self.phoneNumber = phoneNumber
         self.faceIdentityId = faceIdentityId
