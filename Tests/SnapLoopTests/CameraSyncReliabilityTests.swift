@@ -21,6 +21,13 @@ final class CameraSyncReliabilityTests: XCTestCase {
         func embeddingForSelfie(_ imageData: Data) async throws -> FaceEmbedding { FaceEmbedding(normalized: [1, 0, 0]) }
     }
 
+    private final class FixedInstallationIdentity: AccountInstallationIdentityProviding, @unchecked Sendable {
+        let value: String
+        init(_ value: String) { self.value = value }
+        func id(for userId: String) -> String { value }
+        func resetInstallation() {}
+    }
+
     private struct FailingMatchRepository: MatchRepository {
         func upload(match: PhotoMatch, thumbnailJPEG: Data) async throws { throw AppError.network(underlying: "transient") }
         func dismissAppearance(matchId: String, participantUserId: String) async throws {}
@@ -29,7 +36,7 @@ final class CameraSyncReliabilityTests: XCTestCase {
         func signedOriginalURL(match: PhotoMatch, ttlHours: Int) async throws -> URL { throw AppError.originalUnavailable }
     }
 
-    func testFailedUploadRemainsRetryableAndCountsAsRemaining() async throws {
+    func testFailedUploadKeepsCachedCorpusRetryableAndCountsAsRemaining() async throws {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let event = Event(
             id: "e1",
@@ -44,6 +51,7 @@ final class CameraSyncReliabilityTests: XCTestCase {
         let embedding = FaceEmbedding(normalized: [1, 0, 0])
         let participant = EventParticipant(
             userId: "bob",
+            membershipId: "membership-bob",
             displayName: "Bob",
             faceIdentityId: "bob-face",
             faceEmbedding: embedding,
@@ -55,6 +63,7 @@ final class CameraSyncReliabilityTests: XCTestCase {
             joinedAt: now
         )
         let scanStore = InMemoryScanStateStore()
+        let installationId = "fixed-installation"
         let coordinator = CameraSyncCoordinator(
             config: StaticConfigProvider(.default),
             clock: FixedClock(now),
@@ -62,7 +71,8 @@ final class CameraSyncReliabilityTests: XCTestCase {
             faceDetection: AlwaysMatchDetector(),
             thumbnailEncoder: PassthroughThumbnailEncoder(),
             matches: FailingMatchRepository(),
-            scanStateStore: scanStore
+            scanStateStore: scanStore,
+            accountInstallationIdentity: FixedInstallationIdentity(installationId)
         )
 
         let summary = try await coordinator.sync(
@@ -76,26 +86,49 @@ final class CameraSyncReliabilityTests: XCTestCase {
         XCTAssertEqual(summary.remaining, 1)
         XCTAssertFalse(summary.alreadyCaughtUp)
 
-        let rosterIdentity = "bob=bob-face"
-        let key = [
-            event.id,
-            "alice",
-            FaceModelPolicy.scanGeneration,
-            "sharing-v5",
-            "own-off",
-            "default",
-            rosterIdentity,
-        ].joined(separator: "::")
-        XCTAssertFalse(scanStore.load(eventId: key).hasScanned(asset.id))
+        let key = CameraSyncCoordinator.scanStateKey(
+            eventId: event.id,
+            sourceInstallationId: installationId
+        )
+        let state = scanStore.load(eventId: key)
+        XCTAssertEqual(state.corpusCount, 1, "Expensive detection should survive a transient upload failure")
+        XCTAssertFalse(state.recipientCursor(userId: "bob")?.hasEvaluated(asset.id) ?? true)
     }
 
-    func testScanStatePrunesIdentifiersNoLongerVisibleInPhotoKitWindow() {
+    func testScanStatePrunesCorpusAndCursorEntriesNoLongerVisibleInPhotoKitWindow() {
+        let embedding = FaceEmbedding(normalized: [1, 0, 0])
         var state = ScanState(
-            eventId: "e1::alice::generation",
-            scannedAssetIds: ["still-here", "deleted", "limited-access-removed"]
+            eventId: "state",
+            scannedAssetIds: ["still-here", "deleted"],
+            photoCorpus: [
+                "still-here": PhotoCorpusRecord(
+                    assetId: "still-here",
+                    creationDate: Date(timeIntervalSince1970: 1),
+                    faces: [CachedPhotoFace(embedding: embedding, sizeFraction: 0.5)],
+                    processedAt: Date(timeIntervalSince1970: 2)
+                ),
+                "deleted": PhotoCorpusRecord(
+                    assetId: "deleted",
+                    creationDate: Date(timeIntervalSince1970: 1),
+                    faces: [],
+                    processedAt: Date(timeIntervalSince1970: 2)
+                )
+            ]
         )
+        state.reconcileRecipient(
+            userId: "bob",
+            membershipEpoch: "membership",
+            faceIdentityId: "face",
+            faceProfileRevision: "revision"
+        )
+        state.markRecipientEvaluation(userId: "bob", assetId: "still-here", matched: true)
+        state.markRecipientEvaluation(userId: "bob", assetId: "deleted", matched: false)
 
-        state.retainScannedAssetIds(["still-here", "new-unscanned"])
+        state.retainCurrentAssets(["still-here", "new-unprocessed"])
+
         XCTAssertEqual(state.scannedAssetIds, ["still-here"])
+        XCTAssertEqual(Set(state.photoCorpus.keys), ["still-here"])
+        XCTAssertEqual(state.recipientCursor(userId: "bob")?.positiveAssetIds, ["still-here"])
+        XCTAssertTrue(state.recipientCursor(userId: "bob")?.negativeAssetIds.isEmpty == true)
     }
 }
