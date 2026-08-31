@@ -13,29 +13,31 @@ public final class ProtectedFileScanStateStore: ScanStateStore, @unchecked Senda
     private let isReady: Bool
 
     public init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        directory = base
+        let resolvedDirectory = base
             .appendingPathComponent("SnapLoop", isDirectory: true)
             .appendingPathComponent("PhotoCorpus-v1", isDirectory: true)
 
+        self.fileManager = fileManager
+        self.directory = resolvedDirectory
+
         var ready = false
         do {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: resolvedDirectory, withIntermediateDirectories: true)
             var resourceValues = URLResourceValues()
             resourceValues.isExcludedFromBackup = true
-            var mutableDirectory = directory
+            var mutableDirectory = resolvedDirectory
             try mutableDirectory.setResourceValues(resourceValues)
             try fileManager.setAttributes(
                 [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-                ofItemAtPath: directory.path
+                ofItemAtPath: resolvedDirectory.path
             )
             ready = true
         } catch {
             Log.scanner.error("Could not prepare protected local photo-corpus storage")
         }
-        isReady = ready
+        self.isReady = ready
     }
 
     public func load(eventId: String) -> ScanState {
