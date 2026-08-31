@@ -75,10 +75,20 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
         do {
             _ = try await call("publishMatch", data: payload)
         } catch {
-            try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                ref.delete { cleanupError in
-                    if let cleanupError { continuation.resume(throwing: cleanupError) }
-                    else { continuation.resume(returning: ()) }
+            // A Change-4 source-scoped photo is an incrementally updated shared
+            // document. Its thumbnail path can already be serving recipients
+            // from an earlier successful publication. Deleting that object after
+            // a later recipient merge fails would break those existing matches.
+            // Leave the deterministic object in place; a retry overwrites it and
+            // normal retention cleanup can remove a truly orphaned first upload.
+            // Legacy IDs are single-shot replacement publications, so their
+            // failed upload remains safe to clean up eagerly.
+            if !match.isSourceScopedIdentity {
+                try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                    ref.delete { cleanupError in
+                        if let cleanupError { continuation.resume(throwing: cleanupError) }
+                        else { continuation.resume(returning: ()) }
+                    }
                 }
             }
             throw error
