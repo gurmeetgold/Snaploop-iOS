@@ -1,16 +1,16 @@
 import Foundation
 
 /// The result of matching one photo against the event roster: which
-/// participants appear in it, and how confident we are. One `PhotoMatch` is
-/// produced per matched photo per source installation and uploaded (thumbnail +
-/// metadata) — originals stay on the device until downloaded on demand.
+/// participants appear in it, and how confident we are. Source installation and
+/// membership metadata are carried now; source-scoped photo IDs are activated
+/// explicitly with the photo-corpus migration so a release update cannot create
+/// parallel duplicates for every legacy scanned asset.
 public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public let eventId: String
     public let ownerUserId: String        // whose camera/library this came from
-    /// Pseudonymous account+installation source identity. New matches include it
-    /// so the same PhotoKit local identifier on two phones cannot collide. It is
-    /// never an authentication credential. Optional for legacy stored matches.
+    /// Pseudonymous account+installation source identity. It is never an
+    /// authentication credential. Optional for legacy stored matches.
     public let sourceInstallationId: String?
     /// Server-issued generation of the source user's current event membership.
     /// Used by the commit barrier to reject work produced before leave/rejoin.
@@ -35,21 +35,26 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
         appearances: [Appearance],
         capturedAt: Date,
         matchedAt: Date,
-        thumbnailPath: String? = nil
+        thumbnailPath: String? = nil,
+        useSourceScopedIdentity: Bool = false
     ) {
-        let normalizedSource = sourceInstallationId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let normalizedSource, !normalizedSource.isEmpty {
+        let normalizedSource = sourceInstallationId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        self.sourceInstallationId = normalizedSource
+        if useSourceScopedIdentity, let normalizedSource {
             self.id = "\(eventId):\(normalizedSource):\(assetLocalId)"
-            self.sourceInstallationId = normalizedSource
         } else {
-            // Legacy identity retained for decoded/pre-migration matches. New
-            // production scanner work supplies sourceInstallationId.
+            // Preserve the legacy ID during Change 2. The upcoming corpus/cursor
+            // migration turns on the source-scoped identity in one coordinated
+            // step with scanner state, preventing duplicate parallel documents.
             self.id = "\(eventId):\(assetLocalId)"
-            self.sourceInstallationId = nil
         }
         self.eventId = eventId
         self.ownerUserId = ownerUserId
-        self.sourceMembershipId = sourceMembershipId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.sourceMembershipId = sourceMembershipId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
         self.assetLocalId = assetLocalId
         self.appearances = appearances
         self.capturedAt = capturedAt
@@ -86,7 +91,9 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
             dismissedByUser: Bool = false
         ) {
             self.participantUserId = participantUserId
-            self.recipientMembershipId = recipientMembershipId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            self.recipientMembershipId = recipientMembershipId?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
             self.confidence = confidence
             self.faceIdentityId = faceIdentityId
             self.faceProfileRevision = faceProfileRevision
