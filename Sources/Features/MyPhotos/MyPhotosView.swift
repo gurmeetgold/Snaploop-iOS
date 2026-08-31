@@ -922,12 +922,14 @@ struct PhotoDetailView: View {
     }()
 
     private func compactMetadata(for match: PhotoMatch) -> String {
-        "\(prefix6(ownerLabel(match))) · \(prefix6(eventLabel(match))) · \(Self.metadataDateFormatter.string(from: match.capturedAt))"
+        "\(firstWords(ownerLabel(match), limit: 6)) · \(firstWords(eventLabel(match), limit: 6)) · \(Self.metadataDateFormatter.string(from: match.capturedAt))"
     }
 
-    private func prefix6(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return String(trimmed.prefix(6))
+    private func firstWords(_ value: String, limit: Int) -> String {
+        value
+            .split(whereSeparator: { $0.isWhitespace })
+            .prefix(limit)
+            .joined(separator: " ")
     }
 
     private var verticalDismissOffset: CGFloat {
