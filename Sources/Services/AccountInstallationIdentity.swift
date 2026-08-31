@@ -34,6 +34,7 @@ public final class SecureAccountInstallationIdentityStore: AccountInstallationId
     private let keychainService = "com.snaploop.installation.identity"
     private let keychainAccount = "root.v1"
     private var cachedRoot: RootPayload?
+    private var isUsingEphemeralFallback = false
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -57,14 +58,15 @@ public final class SecureAccountInstallationIdentityStore: AccountInstallationId
         lock.lock()
         defer { lock.unlock() }
         cachedRoot = nil
+        isUsingEphemeralFallback = false
         defaults.removeObject(forKey: markerKey)
         SecItemDelete(keychainLookupQuery() as CFDictionary)
     }
 
     private func loadOrCreateRootLocked() -> RootPayload {
         if let cachedRoot,
-           defaults.string(forKey: markerKey) == cachedRoot.marker,
-           cachedRoot.secret.count >= 32 {
+           cachedRoot.secret.count >= 32,
+           (isUsingEphemeralFallback || defaults.string(forKey: markerKey) == cachedRoot.marker) {
             return cachedRoot
         }
 
@@ -74,6 +76,7 @@ public final class SecureAccountInstallationIdentityStore: AccountInstallationId
            stored.marker == preferenceMarker,
            stored.secret.count >= 32 {
             cachedRoot = stored
+            isUsingEphemeralFallback = false
             return stored
         }
 
@@ -83,11 +86,13 @@ public final class SecureAccountInstallationIdentityStore: AccountInstallationId
         let created = RootPayload(marker: UUID().uuidString.lowercased(), secret: randomSecret())
         if writeKeychainPayload(created) {
             defaults.set(created.marker, forKey: markerKey)
+            isUsingEphemeralFallback = false
         } else {
-            // Fail closed with respect to persistence: keep a process-local root
-            // rather than writing a marker that could falsely look durable on
-            // the next launch. Source identity is never an authorization factor.
+            // Fail closed with respect to persistence: keep one process-local
+            // root rather than writing a marker that could falsely look durable
+            // on the next launch. Source identity is never an authorization factor.
             defaults.removeObject(forKey: markerKey)
+            isUsingEphemeralFallback = true
         }
         cachedRoot = created
         return created
@@ -139,7 +144,7 @@ public final class SecureAccountInstallationIdentityStore: AccountInstallationId
     }
 }
 
-/// Deterministic-in-process implementation for tests and development previews.
+/// Stable-in-process implementation for tests and development previews.
 public final class InMemoryAccountInstallationIdentityStore: AccountInstallationIdentityProviding, @unchecked Sendable {
     private let lock = NSLock()
     private var root = UUID().uuidString
