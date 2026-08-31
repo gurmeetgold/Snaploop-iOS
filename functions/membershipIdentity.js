@@ -11,9 +11,9 @@ function normalizedMembershipId(value) {
 }
 
 /**
- * Ensures one opaque membership-generation ID exists for the current
- * events/{eventId}/members/{userId} document. The document path intentionally
- * remains user-keyed for backward compatibility; membershipId distinguishes a
+ * Ensures opaque membership-generation IDs exist for the current
+ * events/{eventId}/members/{userId} documents. The document paths intentionally
+ * remain user-keyed for backward compatibility; membershipId distinguishes a
  * later leave/rejoin from the previous participation.
  *
  * The member document is the single authoritative copy. We deliberately avoid
@@ -25,28 +25,57 @@ function normalizedMembershipId(value) {
  * Authorization must still be based on Firebase Auth plus the current server
  * membership document.
  */
-async function ensureMembershipIdentity(eventId, userId, knownMemberData = null) {
-  const known = normalizedMembershipId(knownMemberData && knownMemberData.membershipId);
-  if (known) return known;
+async function ensureMembershipIdentities(eventId, members) {
+  const result = new Map();
+  const missingUserIds = [];
 
-  const memberRef = db.doc(`events/${eventId}/members/${userId}`);
-  return db.runTransaction(async (tx) => {
-    const memberSnap = await tx.get(memberRef);
+  for (const member of members) {
+    const userId = typeof member?.userId === "string" ? member.userId.trim() : "";
+    if (!userId) continue;
+    const known = normalizedMembershipId(member.data && member.data.membershipId);
+    if (known) result.set(userId, known);
+    else missingUserIds.push(userId);
+  }
 
-    // A leave/removal may race this migration/trigger. Never recreate membership
-    // after the authoritative member document is gone.
-    if (!memberSnap.exists) return null;
+  if (missingUserIds.length === 0) return result;
 
-    const current = normalizedMembershipId((memberSnap.data() || {}).membershipId);
-    if (current) return current;
+  const generated = await db.runTransaction(async (tx) => {
+    const refs = missingUserIds.map((userId) => db.doc(`events/${eventId}/members/${userId}`));
+    const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+    const values = new Map();
 
-    const membershipId = randomUUID();
-    tx.update(memberRef, { membershipId });
-    return membershipId;
+    for (let index = 0; index < snaps.length; index += 1) {
+      const snap = snaps[index];
+      const userId = missingUserIds[index];
+
+      // A leave/removal may race this migration. Never recreate membership
+      // after the authoritative member document is gone.
+      if (!snap.exists) continue;
+
+      const current = normalizedMembershipId((snap.data() || {}).membershipId);
+      if (current) {
+        values.set(userId, current);
+        continue;
+      }
+
+      const membershipId = randomUUID();
+      tx.update(refs[index], { membershipId });
+      values.set(userId, membershipId);
+    }
+    return values;
   });
+
+  for (const [userId, membershipId] of generated) result.set(userId, membershipId);
+  return result;
+}
+
+async function ensureMembershipIdentity(eventId, userId, knownMemberData = null) {
+  const values = await ensureMembershipIdentities(eventId, [{ userId, data: knownMemberData || {} }]);
+  return values.get(userId) || null;
 }
 
 exports.ensureMembershipIdentity = ensureMembershipIdentity;
+exports.ensureMembershipIdentities = ensureMembershipIdentities;
 exports.normalizedMembershipId = normalizedMembershipId;
 
 // New memberships receive a random generation immediately after their trusted
