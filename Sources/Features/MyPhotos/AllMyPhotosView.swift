@@ -31,11 +31,39 @@ private enum CachedGalleryMatches {
 }
 
 enum PhotoMatchDeduplication {
+    private static func migrationEquivalenceKey(_ match: PhotoMatch) -> String {
+        let capturedMillis = Int64((match.capturedAt.timeIntervalSince1970 * 1000).rounded())
+        return "\(match.ownerUserId)|\(match.assetLocalId)|\(capturedMillis)"
+    }
+
+    private static func logicalSourceKey(_ match: PhotoMatch) -> String {
+        let sourceScope = match.sourceInstallationId ?? "legacy"
+        return "\(match.ownerUserId)|\(sourceScope)|\(match.assetLocalId)"
+    }
+
     static func unique(_ matches: [PhotoMatch]) -> [PhotoMatch] {
+        // A one-time Change-4 rebuild can leave one legacy row beside its modern
+        // source-scoped equivalent. Prefer the modern row for that exact
+        // owner/asset/capture tuple, while never collapsing two real modern
+        // source installations belonging to the same account.
+        let modernEquivalents = Set(
+            matches
+                .filter { $0.sourceInstallationId != nil }
+                .map(migrationEquivalenceKey)
+        )
+
         var seen = Set<String>()
         return matches.filter { match in
-            seen.insert("\(match.ownerUserId)|\(match.assetLocalId)").inserted
+            if match.sourceInstallationId == nil,
+               modernEquivalents.contains(migrationEquivalenceKey(match)) {
+                return false
+            }
+            return seen.insert(logicalSourceKey(match)).inserted
         }
+    }
+
+    static func isSameLogicalSourcePhoto(_ lhs: PhotoMatch, _ rhs: PhotoMatch) -> Bool {
+        logicalSourceKey(lhs) == logicalSourceKey(rhs)
     }
 }
 
@@ -206,7 +234,7 @@ final class AllMyPhotosModel: ObservableObject {
 
     func markNotMe(_ match: PhotoMatch) async {
         guard let env, let userId = session?.user?.id else { return }
-        photos.removeAll { $0.ownerUserId == match.ownerUserId && $0.assetLocalId == match.assetLocalId }
+        photos.removeAll { PhotoMatchDeduplication.isSameLogicalSourcePhoto($0, match) }
         if let identity = session?.faceProfile?.stableFaceIdentityId, !identity.isEmpty {
             CachedGalleryMatches.save(photos, userId: userId, faceIdentityId: identity)
         }
