@@ -2,6 +2,47 @@ import BackgroundTasks
 import Combine
 import Foundation
 
+/// Pure identity helpers for automatic-sync persistence and roster change
+/// detection. Kept separate from BGTask/AppEnvironment concerns so account
+/// isolation and leave/rejoin semantics can be regression tested directly.
+///
+/// No phone number, Firebase UID, face embedding, template ID or auth token is
+/// written into the UserDefaults key. `sourceInstallationId` is the random,
+/// account-scoped identifier produced by AccountInstallationIdentityProviding.
+enum AutomaticSyncIdentityScope {
+    static func storageKey(prefix: String, sourceInstallationId: String, eventId: String) -> String? {
+        let source = sourceInstallationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return nil }
+        return prefix + source + "." + eventId
+    }
+
+    static func participantEpoch(_ participant: EventParticipant) -> String {
+        if let membershipId = participant.membershipId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !membershipId.isEmpty {
+            return membershipId
+        }
+        // Backward-compatible fallback for legacy members that have not yet been
+        // assigned a membershipId. joinedAt changes on leave/rejoin, so it is a
+        // safer epoch than stable face identity alone during the migration.
+        return "legacy-\(participant.joinedAt.timeIntervalSince1970)"
+    }
+
+    static func scanTriggerFingerprint(event: Event, participants: [EventParticipant]) -> String {
+        let roster = participants
+            .map {
+                "\($0.userId)=\(participantEpoch($0))=\($0.stableFaceIdentityId)@\($0.faceProfileRevision)"
+            }
+            .sorted()
+            .joined(separator: ";")
+        return [
+            String(event.updatedAt.timeIntervalSince1970),
+            String(event.startsAt.timeIntervalSince1970),
+            String(event.endsAt.timeIntervalSince1970),
+            roster,
+        ].joined(separator: "::")
+    }
+}
+
 /// Resource-conscious, best-effort automatic photo discovery for Events whose
 /// photo window is still open.
 ///
@@ -134,6 +175,13 @@ final class AutomaticEventSync {
         else { return false }
 
         let userId = executionContext.userId
+        let sourceInstallationId = environment.accountInstallationIdentity.id(for: userId)
+        guard !sourceInstallationId.isEmpty else {
+            // Failing closed here is safer than falling back to a Firebase UID in
+            // shared local persistence, which could couple two account sessions.
+            Log.scanner.error("Automatic scan skipped because source installation identity is unavailable")
+            return false
+        }
 
         do {
             let now = Date()
@@ -159,18 +207,31 @@ final class AutomaticEventSync {
                     hasEligibleSharingEvent = true
 
                     // Load the roster before applying the cooldown. A new/rejoined
-                    // member changes the fingerprint and should trigger a fresh
-                    // matching pass the next time this iPhone is active, rather
-                    // than waiting up to an hour.
+                    // member or a Face Setup revision changes the fingerprint and
+                    // should trigger matching on the next foreground opportunity.
                     let participants = try await EventFaceProfileClient.list(eventId: event.id)
                     try Task.checkCancellation()
                     guard session.isCurrent(executionContext) else { return false }
 
-                    let fingerprint = scanTriggerFingerprint(event: event, participants: participants)
-                    let triggerChanged = storedFingerprint(for: event.id) != fingerprint
+                    let fingerprint = AutomaticSyncIdentityScope.scanTriggerFingerprint(
+                        event: event,
+                        participants: participants
+                    )
+                    let triggerChanged = storedFingerprint(
+                        for: event.id,
+                        sourceInstallationId: sourceInstallationId
+                    ) != fingerprint
 
-                    guard triggerChanged || automaticCooldownElapsed(for: event.id, now: now) else { continue }
-                    markAutomaticAttempt(for: event.id, at: now)
+                    guard triggerChanged || automaticCooldownElapsed(
+                        for: event.id,
+                        sourceInstallationId: sourceInstallationId,
+                        now: now
+                    ) else { continue }
+                    markAutomaticAttempt(
+                        for: event.id,
+                        sourceInstallationId: sourceInstallationId,
+                        at: now
+                    )
 
                     // Exactly one coordinator batch per automatic pass. The
                     // coordinator itself applies the device-safety batch cap.
@@ -182,7 +243,11 @@ final class AutomaticEventSync {
                         preferenceRevision: preferences.revisionToken
                     )
                     guard session.isCurrent(executionContext) else { return false }
-                    saveFingerprint(fingerprint, for: event.id)
+                    saveFingerprint(
+                        fingerprint,
+                        for: event.id,
+                        sourceInstallationId: sourceInstallationId
+                    )
                 } catch is CancellationError {
                     return hasEligibleSharingEvent && session.isCurrent(executionContext)
                 } catch {
@@ -199,37 +264,49 @@ final class AutomaticEventSync {
         }
     }
 
-    private func scanTriggerFingerprint(event: Event, participants: [EventParticipant]) -> String {
-        let roster = participants
-            .map {
-                "\($0.userId)=\($0.stableFaceIdentityId)@\($0.joinedAt.timeIntervalSince1970)"
-            }
-            .sorted()
-            .joined(separator: ";")
-        return [
-            String(event.updatedAt.timeIntervalSince1970),
-            String(event.startsAt.timeIntervalSince1970),
-            String(event.endsAt.timeIntervalSince1970),
-            roster,
-        ].joined(separator: "::")
+    private func storedFingerprint(for eventId: String, sourceInstallationId: String) -> String? {
+        guard let key = AutomaticSyncIdentityScope.storageKey(
+            prefix: lastFingerprintKeyPrefix,
+            sourceInstallationId: sourceInstallationId,
+            eventId: eventId
+        ) else { return nil }
+        return defaults.string(forKey: key)
     }
 
-    private func storedFingerprint(for eventId: String) -> String? {
-        defaults.string(forKey: lastFingerprintKeyPrefix + eventId)
+    private func saveFingerprint(_ fingerprint: String, for eventId: String, sourceInstallationId: String) {
+        guard let key = AutomaticSyncIdentityScope.storageKey(
+            prefix: lastFingerprintKeyPrefix,
+            sourceInstallationId: sourceInstallationId,
+            eventId: eventId
+        ) else { return }
+        defaults.set(fingerprint, forKey: key)
     }
 
-    private func saveFingerprint(_ fingerprint: String, for eventId: String) {
-        defaults.set(fingerprint, forKey: lastFingerprintKeyPrefix + eventId)
-    }
-
-    private func automaticCooldownElapsed(for eventId: String, now: Date) -> Bool {
-        let key = lastRunKeyPrefix + eventId
+    private func automaticCooldownElapsed(
+        for eventId: String,
+        sourceInstallationId: String,
+        now: Date
+    ) -> Bool {
+        guard let key = AutomaticSyncIdentityScope.storageKey(
+            prefix: lastRunKeyPrefix,
+            sourceInstallationId: sourceInstallationId,
+            eventId: eventId
+        ) else { return true }
         let last = defaults.double(forKey: key)
         guard last > 0 else { return true }
         return now.timeIntervalSince1970 - last >= automaticCooldown
     }
 
-    private func markAutomaticAttempt(for eventId: String, at date: Date) {
-        defaults.set(date.timeIntervalSince1970, forKey: lastRunKeyPrefix + eventId)
+    private func markAutomaticAttempt(
+        for eventId: String,
+        sourceInstallationId: String,
+        at date: Date
+    ) {
+        guard let key = AutomaticSyncIdentityScope.storageKey(
+            prefix: lastRunKeyPrefix,
+            sourceInstallationId: sourceInstallationId,
+            eventId: eventId
+        ) else { return }
+        defaults.set(date.timeIntervalSince1970, forKey: key)
     }
 }
