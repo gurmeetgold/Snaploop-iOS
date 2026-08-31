@@ -1,5 +1,7 @@
 const { onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
+const { normalizedMembershipId } = require("./membershipIdentity");
+const { removeRecipientMatchMetadata } = require("./change4MatchMetadata");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
@@ -15,67 +17,96 @@ async function commitOperations(operations) {
   }
 }
 
+function mapMembershipId(data, mapName, userId) {
+  const map = data && data[mapName] && typeof data[mapName] === "object"
+    ? data[mapName]
+    : {};
+  return normalizedMembershipId(map[userId]);
+}
+
+async function deleteOldThumbnailObjects(eventId, userId, paths) {
+  const expectedPrefix = `events/${eventId}/photos/${userId}/`;
+  const safe = [...new Set(paths)].filter((path) =>
+    typeof path === "string" && path.startsWith(expectedPrefix)
+  );
+  if (!safe.length) return;
+
+  const bucket = admin.storage().bucket();
+  const results = await Promise.allSettled(safe.map((path) => bucket.file(path).delete()));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    // Metadata is authoritative and already revoked. Never delete the whole user
+    // prefix here: a fast rejoin may already have valid new-generation objects in
+    // the same prefix.
+    console.error("some removed-member thumbnails could not be deleted", {
+      eventId,
+      userId,
+      failedCount: failures.length,
+    });
+  }
+}
+
 async function scrubRemovedMember(eventId, userId) {
-  const [matchedSnap, sourceSnap] = await Promise.all([
+  // The delete trigger can run after the same account has already rejoined. Read
+  // the current member document first and preserve only data explicitly bound to
+  // that new membership generation.
+  const currentMemberSnap = await db.doc(`events/${eventId}/members/${userId}`).get();
+  const currentMembershipId = currentMemberSnap.exists
+    ? normalizedMembershipId((currentMemberSnap.data() || {}).membershipId)
+    : null;
+
+  const [matchedSnap, dismissedSnap, sourceSnap] = await Promise.all([
     db.collection(`events/${eventId}/photos`)
       .where("matchedUserIds", "array-contains", userId)
+      .get(),
+    db.collection(`events/${eventId}/photos`)
+      .where("dismissedUserIds", "array-contains", userId)
       .get(),
     db.collection(`events/${eventId}/photos`)
       .where("sourceUserId", "==", userId)
       .get(),
   ]);
 
-  const sourceIds = new Set(sourceSnap.docs.map((doc) => doc.id));
+  const sourceById = new Map(sourceSnap.docs.map((doc) => [doc.id, doc]));
+  const recipientById = new Map();
+  for (const doc of [...matchedSnap.docs, ...dismissedSnap.docs]) recipientById.set(doc.id, doc);
+
   const operations = [];
-  for (const doc of matchedSnap.docs) {
-    if (sourceIds.has(doc.id)) continue;
+  const objectPathsToDelete = [];
+
+  for (const doc of recipientById.values()) {
+    if (sourceById.has(doc.id)) continue;
     const data = doc.data() || {};
-    const matchedFaceIdentityIds = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
-      ? { ...data.matchedFaceIdentityIds }
-      : {};
-    const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
-      ? { ...data.matchedProfileRevisions }
-      : {};
-    const matchedMembershipIds = data.matchedMembershipIds && typeof data.matchedMembershipIds === "object"
-      ? { ...data.matchedMembershipIds }
-      : {};
-    delete matchedFaceIdentityIds[userId];
-    delete matchedProfileRevisions[userId];
-    delete matchedMembershipIds[userId];
+    const activeMembershipId = mapMembershipId(data, "matchedMembershipIds", userId);
+    const dismissalMembershipId = mapMembershipId(data, "dismissedMembershipIds", userId);
+    const belongsToCurrentGeneration = !!currentMembershipId
+      && (activeMembershipId === currentMembershipId || dismissalMembershipId === currentMembershipId);
+    if (belongsToCurrentGeneration) continue;
 
     operations.push({
       type: "update",
       ref: doc.ref,
       data: {
-        appearances: Array.isArray(data.appearances)
-          ? data.appearances.filter((appearance) => appearance.participantUserId !== userId)
-          : [],
-        matchedUserIds: Array.isArray(data.matchedUserIds)
-          ? data.matchedUserIds.filter((uid) => uid !== userId)
-          : [],
-        // Change 4 binds photo visibility to stable face identity, exact Face
-        // Setup revision and membership generation. Removal must scrub all three
-        // maps as well as the visible appearance row; otherwise biometric-derived
-        // metadata for someone who left the Event would remain orphaned.
-        matchedFaceIdentityIds,
-        matchedProfileRevisions,
-        matchedMembershipIds,
+        ...removeRecipientMatchMetadata(data, userId, { removeDismissal: true }),
         updatedAt: Timestamp.now(),
       },
     });
   }
-  for (const doc of sourceSnap.docs) {
-    operations.push({ type: "delete", ref: doc.ref });
-  }
-  await commitOperations(operations);
 
-  try {
-    await admin.storage().bucket().deleteFiles({ prefix: `events/${eventId}/photos/${userId}/` });
-  } catch (error) {
-    // The deleted membership already revokes Storage Rules access. Object
-    // cleanup is idempotent and can be retried by a later administrative job.
-    console.error("removed-member thumbnail cleanup failed", { eventId, userId, error });
+  for (const doc of sourceSnap.docs) {
+    const data = doc.data() || {};
+    const sourceMembershipId = normalizedMembershipId(data.sourceMembershipId);
+    if (currentMembershipId && sourceMembershipId === currentMembershipId) {
+      // This photo was published after the user rejoined. A delayed cleanup from
+      // the old membership must not delete it.
+      continue;
+    }
+    operations.push({ type: "delete", ref: doc.ref });
+    if (typeof data.thumbnailPath === "string") objectPathsToDelete.push(data.thumbnailPath);
   }
+
+  if (operations.length) await commitOperations(operations);
+  await deleteOldThumbnailObjects(eventId, userId, objectPathsToDelete);
 }
 
 exports.cleanupRemovedMemberPhotoData = onDocumentDeleted(
