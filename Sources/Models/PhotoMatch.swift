@@ -2,9 +2,8 @@ import Foundation
 
 /// The result of matching one photo against the event roster: which
 /// participants appear in it, and how confident we are. Source installation and
-/// membership metadata are carried now; source-scoped photo IDs are activated
-/// explicitly with the photo-corpus migration so a release update cannot create
-/// parallel duplicates for every legacy scanned asset.
+/// membership metadata make the same PhotoKit local identifier safe across
+/// multiple devices signed into the same account.
 public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public let eventId: String
@@ -46,15 +45,13 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
         if let explicitId = explicitId?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty {
-            // Trusted repository decoding preserves the server-issued identity,
-            // including future source-scoped IDs. New local matches omit this.
+            // Trusted repository decoding preserves the server-issued identity.
             self.id = explicitId
         } else if useSourceScopedIdentity, let normalizedSource {
             self.id = "\(eventId):\(normalizedSource):\(assetLocalId)"
         } else {
-            // Preserve the legacy ID during Change 2. The upcoming corpus/cursor
-            // migration turns on the source-scoped identity in one coordinated
-            // step with scanner state, preventing duplicate parallel documents.
+            // Legacy constructors remain source-compatible for already persisted
+            // data and older tests. Change-4 scanner work opts in explicitly.
             self.id = "\(eventId):\(assetLocalId)"
         }
         self.eventId = eventId
@@ -67,6 +64,13 @@ public struct PhotoMatch: Identifiable, Equatable, Codable, Sendable {
         self.capturedAt = capturedAt
         self.matchedAt = matchedAt
         self.thumbnailPath = thumbnailPath
+    }
+
+    /// True only for the Change-4 identity contract. Repositories use this to
+    /// request idempotent appearance merging instead of legacy full replacement.
+    public var isSourceScopedIdentity: Bool {
+        guard let sourceInstallationId else { return false }
+        return id == "\(eventId):\(sourceInstallationId):\(assetLocalId)"
     }
 
     /// One participant's presence in a photo.
