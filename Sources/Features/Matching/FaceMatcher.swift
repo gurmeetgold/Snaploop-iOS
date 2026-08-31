@@ -44,6 +44,26 @@ public enum FaceTemplateMatchPolicy {
 
 /// Precision-first v5 identity matcher.
 public struct FaceMatcher {
+    /// Aggregate-only diagnostics for a single image. These counters intentionally
+    /// contain no user IDs, template IDs, embeddings, image identifiers, scores,
+    /// names or phone numbers, so scanner troubleshooting cannot turn into a
+    /// biometric/identity log. They are safe to emit to local unified logging.
+    public struct Diagnostics: Equatable, Sendable {
+        public let detectedFaceCount: Int
+        public let sizeRejectedFaceCount: Int
+        public let eligibleFaceCount: Int
+        public let acceptedFaceCount: Int
+        public let belowThresholdFaceCount: Int
+        public let ambiguityRejectedFaceCount: Int
+        public let rosterCount: Int
+        public let matchableParticipantCount: Int
+    }
+
+    public struct AppearanceResult: Equatable, Sendable {
+        public let appearances: [PhotoMatch.Appearance]
+        public let diagnostics: Diagnostics
+    }
+
     public struct ParticipantScore: Equatable, Sendable {
         public let participantUserId: String
         public let faceIdentityId: String
@@ -57,27 +77,76 @@ public struct FaceMatcher {
         public var isAccepted: Bool { hasTemplateSupport || isStrongSingle }
     }
 
+    private enum Assignment {
+        case accepted(ParticipantScore)
+        case belowThreshold
+        case ambiguous
+    }
+
     public let config: RemoteConfigValues
     public init(config: RemoteConfigValues) { self.config = config }
 
+    /// Compatibility surface used by existing callers. Matching behavior is
+    /// unchanged; the diagnostic-returning overload below powers safe scanner
+    /// observability without requiring identity-bearing logs.
     public func appearances(in faces: [DetectedFace], participants: [EventParticipant]) -> [PhotoMatch.Appearance] {
-        guard !faces.isEmpty, !participants.isEmpty else { return [] }
+        appearancesWithDiagnostics(in: faces, participants: participants).appearances
+    }
+
+    public func appearancesWithDiagnostics(
+        in faces: [DetectedFace],
+        participants: [EventParticipant]
+    ) -> AppearanceResult {
+        let matchableParticipantCount = participants.filter(isMatchable).count
+        guard !faces.isEmpty, !participants.isEmpty else {
+            return AppearanceResult(
+                appearances: [],
+                diagnostics: Diagnostics(
+                    detectedFaceCount: faces.count,
+                    sizeRejectedFaceCount: 0,
+                    eligibleFaceCount: faces.count,
+                    acceptedFaceCount: 0,
+                    belowThresholdFaceCount: faces.isEmpty ? 0 : faces.count,
+                    ambiguityRejectedFaceCount: 0,
+                    rosterCount: participants.count,
+                    matchableParticipantCount: matchableParticipantCount
+                )
+            )
+        }
+
         var bestByParticipant: [String: (confidence: Double, identityId: String, revision: String)] = [:]
+        var sizeRejectedFaceCount = 0
+        var eligibleFaceCount = 0
+        var acceptedFaceCount = 0
+        var belowThresholdFaceCount = 0
+        var ambiguityRejectedFaceCount = 0
 
         for face in faces {
-            guard face.sizeFraction >= config.minFaceSizeFraction else { continue }
-            guard let winner = assign(face: face, to: participants) else { continue }
-            let existing = bestByParticipant[winner.participantUserId]
-            if existing == nil || winner.decisionScore > existing!.confidence {
-                bestByParticipant[winner.participantUserId] = (
-                    winner.decisionScore,
-                    winner.faceIdentityId,
-                    winner.faceProfileRevision
-                )
+            guard face.sizeFraction >= config.minFaceSizeFraction else {
+                sizeRejectedFaceCount += 1
+                continue
+            }
+            eligibleFaceCount += 1
+
+            switch assignment(face: face, to: participants) {
+            case .accepted(let winner):
+                acceptedFaceCount += 1
+                let existing = bestByParticipant[winner.participantUserId]
+                if existing == nil || winner.decisionScore > existing!.confidence {
+                    bestByParticipant[winner.participantUserId] = (
+                        winner.decisionScore,
+                        winner.faceIdentityId,
+                        winner.faceProfileRevision
+                    )
+                }
+            case .belowThreshold:
+                belowThresholdFaceCount += 1
+            case .ambiguous:
+                ambiguityRejectedFaceCount += 1
             }
         }
 
-        return bestByParticipant.map {
+        let appearances = bestByParticipant.map {
             PhotoMatch.Appearance(
                 participantUserId: $0.key,
                 confidence: $0.value.confidence,
@@ -85,12 +154,30 @@ public struct FaceMatcher {
                 faceProfileRevision: $0.value.revision
             )
         }.sorted { $0.confidence > $1.confidence }
+
+        return AppearanceResult(
+            appearances: appearances,
+            diagnostics: Diagnostics(
+                detectedFaceCount: faces.count,
+                sizeRejectedFaceCount: sizeRejectedFaceCount,
+                eligibleFaceCount: eligibleFaceCount,
+                acceptedFaceCount: acceptedFaceCount,
+                belowThresholdFaceCount: belowThresholdFaceCount,
+                ambiguityRejectedFaceCount: ambiguityRejectedFaceCount,
+                rosterCount: participants.count,
+                matchableParticipantCount: matchableParticipantCount
+            )
+        )
+    }
+
+    private func isMatchable(_ participant: EventParticipant) -> Bool {
+        participant.faceProfileVersion == FaceModelPolicy.currentVersion
+            && !participant.stableFaceIdentityId.isEmpty
+            && !participant.faceProfileRevision.isEmpty
     }
 
     private func participantScore(face: DetectedFace, participant: EventParticipant) -> ParticipantScore? {
-        guard participant.faceProfileVersion == FaceModelPolicy.currentVersion else { return nil }
-        guard !participant.stableFaceIdentityId.isEmpty else { return nil }
-        guard !participant.faceProfileRevision.isEmpty else { return nil }
+        guard isMatchable(participant) else { return nil }
 
         let scores = participant.effectiveEmbeddings.compactMap {
             face.embedding.cosineSimilarity(to: $0)
@@ -112,14 +199,16 @@ public struct FaceMatcher {
         )
     }
 
-    private func assign(face: DetectedFace, to participants: [EventParticipant]) -> ParticipantScore? {
+    private func assignment(face: DetectedFace, to participants: [EventParticipant]) -> Assignment {
         let ranked = participants.compactMap { participantScore(face: face, participant: $0) }
             .sorted { $0.decisionScore > $1.decisionScore }
-        guard let winner = ranked.first, winner.isAccepted else { return nil }
+        guard let winner = ranked.first, winner.isAccepted else { return .belowThreshold }
 
         if ranked.count > 1 {
-            guard winner.decisionScore - ranked[1].decisionScore >= config.matchAmbiguityMargin else { return nil }
+            guard winner.decisionScore - ranked[1].decisionScore >= config.matchAmbiguityMargin else {
+                return .ambiguous
+            }
         }
-        return winner
+        return .accepted(winner)
     }
 }
