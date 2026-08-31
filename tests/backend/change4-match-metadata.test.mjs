@@ -9,6 +9,7 @@ const {
   normalizedDismissedUserIds,
   prepareIncrementalMatchState,
   recipientDismissalApplies,
+  removeActiveAppearance,
   removeRecipientMatchMetadata,
   upsertActiveAppearance,
 } = require("../../functions/change4MatchMetadata.js");
@@ -94,6 +95,25 @@ test("legacy dismissed appearance migrates to an unbound fail-closed tombstone",
   const state = prepareIncrementalMatchState(legacy);
   assert.equal(recipientDismissalApplies(state, "member", "membership-new"), true);
   assert.equal(state.appearanceByUser.has("member"), false);
+});
+
+test("ambiguity revalidation can revoke an active recipient without deleting dismissal state", () => {
+  const state = prepareIncrementalMatchState({
+    ...activePhoto(),
+    dismissedUserIds: ["other"],
+    dismissedMembershipIds: { other: "membership-other" },
+  });
+
+  removeActiveAppearance(state, "member");
+  const result = finalizeIncrementalMatchState(state);
+
+  assert.deepEqual(result.appearances, []);
+  assert.deepEqual(result.matchedUserIds, []);
+  assert.deepEqual(result.matchedFaceIdentityIds, {});
+  assert.deepEqual(result.matchedProfileRevisions, {});
+  assert.deepEqual(result.matchedMembershipIds, {});
+  assert.deepEqual(result.dismissedUserIds, ["other"]);
+  assert.deepEqual(result.dismissedMembershipIds, { other: "membership-other" });
 });
 
 test("finalization prunes orphaned identity, revision and membership maps", () => {
