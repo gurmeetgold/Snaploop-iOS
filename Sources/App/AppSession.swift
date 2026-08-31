@@ -41,6 +41,19 @@ private enum SetupDeferralStore {
     }
 }
 
+/// Immutable token captured by long-running work. Future scan/upload workers use
+/// it to prove they still belong to the authenticated session that started them.
+/// It contains no auth token or secret.
+public struct SessionExecutionContext: Equatable, Sendable {
+    public let userId: String
+    public let generation: UUID
+
+    public init(userId: String, generation: UUID) {
+        self.userId = userId
+        self.generation = generation
+    }
+}
+
 /// Observable holder for the signed-in user's session state.
 @MainActor
 public final class AppSession: ObservableObject {
@@ -53,8 +66,15 @@ public final class AppSession: ObservableObject {
     @Published public private(set) var skippedFaceSetup = false
     @Published public var faceSetupNotice: String?
 
+    /// Monotonic-by-replacement local session generation. It rotates whenever
+    /// account identity changes or the authenticated session is cleared. It is
+    /// deliberately independent of Firebase's token contents and is never sent
+    /// as an authentication credential.
+    @Published public private(set) var sessionGeneration: UUID
+
     public init(user: User? = nil, faceProfile: FaceProfile? = nil) {
         self.user = user
+        self.sessionGeneration = UUID()
         if let user, let faceProfile, faceProfile.userId == user.id {
             self.faceProfile = faceProfile
             self.resolvedFaceProfileUserId = user.id
@@ -70,6 +90,15 @@ public final class AppSession: ObservableObject {
 
     public var isRegistered: Bool { user != nil }
 
+    public var authenticatedExecutionContext: SessionExecutionContext? {
+        guard let userId = user?.id else { return nil }
+        return SessionExecutionContext(userId: userId, generation: sessionGeneration)
+    }
+
+    public func isCurrent(_ context: SessionExecutionContext) -> Bool {
+        user?.id == context.userId && sessionGeneration == context.generation
+    }
+
     public var hasFaceProfile: Bool {
         guard let user, let faceProfile else { return false }
         return faceProfile.userId == user.id
@@ -83,6 +112,14 @@ public final class AppSession: ObservableObject {
     }
 
     public func beginAuthenticatedSession(user: User, faceProfile: FaceProfile?, faceProfileResolved: Bool = false) {
+        // A profile refresh for the same authenticated account is not a new
+        // execution generation. A different account is. Explicit sign-out also
+        // rotates in clearAuthenticatedSession(), even if that same account signs
+        // back in later.
+        if self.user?.id != user.id {
+            sessionGeneration = UUID()
+        }
+
         activeEvent = nil
         self.user = user
         self.faceProfile = (faceProfile?.userId == user.id) ? faceProfile : nil
@@ -143,6 +180,9 @@ public final class AppSession: ObservableObject {
     }
 
     public func clearAuthenticatedSession(preservePendingRoute: Bool = false) {
+        // Rotate first so any task that still has references to this session sees
+        // an invalid context before account-specific observable state is cleared.
+        sessionGeneration = UUID()
         user = nil
         faceProfile = nil
         resolvedFaceProfileUserId = nil
