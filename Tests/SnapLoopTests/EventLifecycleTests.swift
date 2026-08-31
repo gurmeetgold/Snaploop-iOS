@@ -2,7 +2,6 @@ import XCTest
 @testable import SnapLoop
 
 final class EventLifecycleTests: XCTestCase {
-    private let day: TimeInterval = 86_400
     private var config = RemoteConfigValues.default
     private var utcCalendar: Calendar {
         EventLifecycle.calendar(timeZone: TimeZone(secondsFromGMT: 0)!)
@@ -141,12 +140,13 @@ final class EventLifecycleTests: XCTestCase {
         ))
     }
 
-    func testValidateDatesRejectsSixteenDaysBeforeToday() {
+    func testValidateDatesRejectsSixteenDaysBeforeTodayIndependentlyOfDuration() {
         let now = date(2026, 8, 16)
         let start = utcCalendar.date(byAdding: .day, value: -16, to: now)!
+        let end = utcCalendar.date(byAdding: .day, value: 2, to: start)!
         XCTAssertThrowsError(try EventLifecycle.validateDates(
             startsAt: start,
-            endsAt: now,
+            endsAt: end,
             now: now,
             config: config,
             calendar: utcCalendar
@@ -155,17 +155,18 @@ final class EventLifecycleTests: XCTestCase {
         }
     }
 
-    func testValidateDatesRejectsSixteenDaysAfterToday() {
+    func testValidateDatesRejectsSixteenDaysAfterTodayIndependentlyOfDuration() {
         let now = date(2026, 8, 16)
+        let start = utcCalendar.date(byAdding: .day, value: 14, to: now)!
         let end = utcCalendar.date(byAdding: .day, value: 16, to: now)!
         XCTAssertThrowsError(try EventLifecycle.validateDates(
-            startsAt: now,
+            startsAt: start,
             endsAt: end,
             now: now,
             config: config,
             calendar: utcCalendar
         )) { error in
-            XCTAssertEqual(error as? AppError, .eventDurationTooLong(maxDays: 15))
+            XCTAssertEqual(error as? AppError, .eventDatesOutsideAllowedWindow(days: 15))
         }
     }
 
