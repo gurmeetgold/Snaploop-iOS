@@ -52,10 +52,6 @@
       background:linear-gradient(110deg,var(--orange),var(--coral),var(--pink),var(--magenta),var(--violet),var(--blue));
       color:#fff; box-shadow:0 12px 28px rgba(255,0,112,.20);
     }
-    a.decline {
-      display:block; text-decoration:none; padding:12px 18px; margin-top:8px;
-      font-size:15px; font-weight:750; color:#B42318;
-    }
     #error {
       color:#B42318; background:#FFF3F2; border-radius:14px; padding:11px 12px;
       font-size:14px; margin-top:14px; display:none;
@@ -72,23 +68,21 @@
     <p id="conversation">Opening your invitation…</p>
     <p id="privacy">Join this Event to get your photos found on other participating members’ phones. SnapLoop checks only this Event’s selected date range. Face matching happens on-device.</p>
     <a id="join" class="button" href="#">Join Event</a>
-    <a id="decline" class="decline" href="#">Decline</a>
     <p id="error">We couldn't load the Event details. You can still open this invitation in SnapLoop.</p>
-    <p id="hint">If SnapLoop is installed, tap Join Event to accept this invitation in the app.</p>
+    <p id="hint">If SnapLoop is installed, tap Join Event to open this invitation in the app.</p>
   </main>
 <script>
 (() => {
   const match = window.location.pathname.match(/^\/(e|c)\/([^/]+)/);
   const join = document.getElementById("join");
-  const decline = document.getElementById("decline");
   const eventName = document.getElementById("eventName");
   const conversation = document.getElementById("conversation");
   const error = document.getElementById("error");
+  const hint = document.getElementById("hint");
 
   if (!match) {
-    join.href = "snaploop://";
-    decline.style.display = "none";
-    conversation.textContent = "Open SnapLoop to continue.";
+    join.style.display = "none";
+    conversation.textContent = "Open a valid SnapLoop Event invitation to continue.";
     return;
   }
 
@@ -98,12 +92,7 @@
   const baseURL = kind === "e"
     ? `snaploop://e/${value}`
     : `snaploop://c/${value}`;
-  join.href = `${baseURL}?action=accept`;
-  if (kind === "e") {
-    decline.href = `${baseURL}?action=decline`;
-  } else {
-    decline.style.display = "none";
-  }
+  const acceptURL = `${baseURL}?action=accept`;
 
   const formatDate = (millis) => {
     if (!millis) return null;
@@ -130,13 +119,23 @@
       error.style.display = "block";
     });
 
-  join.addEventListener("click", () => {
+  join.addEventListener("click", (event) => {
+    event.preventDefault();
     join.textContent = "Opening SnapLoop…";
-    setTimeout(() => { join.textContent = "Join Event"; }, 1600);
-  });
-  decline.addEventListener("click", () => {
-    decline.textContent = "Opening SnapLoop…";
-    setTimeout(() => { decline.textContent = "Decline"; }, 1600);
+
+    // Open the installed app without navigating Safari itself to an unhandled
+    // custom scheme. If SnapLoop is not installed, Safari simply stays on this
+    // page instead of showing an invalid-address error.
+    const frame = document.createElement("iframe");
+    frame.style.display = "none";
+    frame.src = acceptURL;
+    document.body.appendChild(frame);
+
+    setTimeout(() => {
+      frame.remove();
+      join.textContent = "Join Event";
+      hint.textContent = "If SnapLoop did not open, install SnapLoop first, then reopen this invitation.";
+    }, 1400);
   });
 })();
 </script>
