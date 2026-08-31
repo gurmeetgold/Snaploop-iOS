@@ -68,7 +68,22 @@ final class InMemoryEventRepository: EventRepository, @unchecked Sendable {
     func updateEventDates(id: String, startsAt: Date, endsAt: Date) async throws {
         lock.lock(); defer { lock.unlock() }
         guard var e = events[id] else { throw AppError.eventNotFound }
-        e.startsAt = startsAt; e.endsAt = endsAt; e.updatedAt = Date(); events[id] = e
+
+        let timeZone = e.photoWindowTimeZone ?? .current
+        let calendar = EventLifecycle.calendar(timeZone: timeZone)
+        let bounds = EventLifecycle.canonicalBounds(
+            startsAt: startsAt,
+            endsAt: endsAt,
+            calendar: calendar
+        )
+        e.startsAt = bounds.lowerBound
+        e.endsAt = bounds.upperBound
+        e.photoWindowVersion = Event.canonicalPhotoWindowVersion
+        e.photoWindowTimeZoneId = timeZone.identifier
+        e.photoWindowStartDayNumber = EventLifecycle.localDayNumber(startsAt, calendar: calendar)
+        e.photoWindowEndDayNumber = EventLifecycle.localDayNumber(endsAt, calendar: calendar)
+        e.updatedAt = Date()
+        events[id] = e
     }
     func endEvent(id: String) async throws { try setStatus(id: id, status: .endedByOrganizer) }
     func reopenEvent(id: String) async throws { try setStatus(id: id, status: .active) }
