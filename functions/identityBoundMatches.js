@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
+const { normalizedMembershipId } = require("./membershipIdentity");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
@@ -12,6 +13,7 @@ const FACE_PROFILE_VERSION = 5;
 const CONSENT_POLICY_VERSION = 5;
 const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
 const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";
+const SOURCE_INSTALLATION_ID_PATTERN = /^[0-9a-f]{64}$/i;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -21,6 +23,12 @@ function requireAuth(request) {
 function requireString(value, name) {
   if (typeof value !== "string" || value.trim().length === 0) throw new HttpsError("invalid-argument", `${name} is required.`);
   return value.trim();
+}
+
+function optionalString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function requireMillis(value, name) {
@@ -77,18 +85,28 @@ async function requireCurrentIdentity(uid) {
   return profileIdentity(profile);
 }
 
-function appearanceAllowsViewer(data, uid, currentIdentity) {
+function appearanceAllowsViewer(data, uid, currentIdentity, currentMembershipId) {
   const identityMap = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
     ? data.matchedFaceIdentityIds
     : {};
   if (identityMap[uid] !== currentIdentity) return false;
 
+  // New matches are bound to the exact uninterrupted Event participation. Old
+  // documents without this map remain readable under the legacy identity rule
+  // during migration; they do not gain a fabricated membership generation.
+  const membershipMap = data.matchedMembershipIds && typeof data.matchedMembershipIds === "object"
+    ? data.matchedMembershipIds
+    : {};
+  const boundMembershipId = normalizedMembershipId(membershipMap[uid]);
+  if (boundMembershipId && boundMembershipId !== currentMembershipId) return false;
+
   const appearances = Array.isArray(data.appearances) ? data.appearances : [];
-  return appearances.some((appearance) =>
-    appearance && appearance.participantUserId === uid
-      && appearance.faceIdentityId === currentIdentity
-      && appearance.dismissedByUser !== true
-  );
+  return appearances.some((appearance) => {
+    if (!appearance || appearance.participantUserId !== uid || appearance.faceIdentityId !== currentIdentity) return false;
+    const appearanceMembershipId = normalizedMembershipId(appearance.recipientMembershipId);
+    if (appearanceMembershipId && appearanceMembershipId !== currentMembershipId) return false;
+    return appearance.dismissedByUser !== true;
+  });
 }
 
 async function commitUpdates(items) {
@@ -123,11 +141,22 @@ async function scrubUserFromAllEventMatches(uid) {
       const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
         ? { ...data.matchedProfileRevisions }
         : {};
+      const matchedMembershipIds = data.matchedMembershipIds && typeof data.matchedMembershipIds === "object"
+        ? { ...data.matchedMembershipIds }
+        : {};
       delete matchedFaceIdentityIds[uid];
       delete matchedProfileRevisions[uid];
+      delete matchedMembershipIds[uid];
       return {
         ref: doc.ref,
-        data: { appearances, matchedUserIds, matchedFaceIdentityIds, matchedProfileRevisions, updatedAt: Timestamp.now() },
+        data: {
+          appearances,
+          matchedUserIds,
+          matchedFaceIdentityIds,
+          matchedProfileRevisions,
+          matchedMembershipIds,
+          updatedAt: Timestamp.now(),
+        },
       };
     });
 
@@ -146,91 +175,195 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
   const eventId = requireString(data.eventId, "eventId");
   const assetLocalId = requireString(data.assetLocalId, "assetLocalId");
   const matchId = requireString(data.id, "id");
-  if (matchId !== `${eventId}:${assetLocalId}`) throw new HttpsError("invalid-argument", "Photo identity is invalid.");
+  const sourceInstallationId = optionalString(data.sourceInstallationId);
+  const suppliedSourceMembershipId = optionalString(data.sourceMembershipId);
+  const modernSourceContext = sourceInstallationId !== null;
 
-  const sourceMember = await requireMember(eventId, uid);
-  if (sourceMember.sharingEnabled === false) throw new HttpsError("failed-precondition", "Photo sharing is turned off for this event.");
+  if (sourceInstallationId && !SOURCE_INSTALLATION_ID_PATTERN.test(sourceInstallationId)) {
+    throw new HttpsError("invalid-argument", "Source installation identity is invalid.");
+  }
+  if (modernSourceContext && !suppliedSourceMembershipId) {
+    throw new HttpsError("failed-precondition", "Refresh this Event before sharing photos.");
+  }
 
-  const eventSnap = await db.doc(`events/${eventId}`).get();
-  if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
-  const event = eventSnap.data() || {};
-  if (event.status !== "active") throw new HttpsError("failed-precondition", "This event has ended.");
+  // Change 2 carries source identity metadata but deliberately allows the legacy
+  // photo ID until the corpus/cursor migration. Future source-scoped IDs are
+  // already accepted so activation does not require another backend contract.
+  const legacyMatchId = `${eventId}:${assetLocalId}`;
+  const sourceScopedMatchId = sourceInstallationId
+    ? `${eventId}:${sourceInstallationId}:${assetLocalId}`
+    : null;
+  if (matchId !== legacyMatchId && matchId !== sourceScopedMatchId) {
+    throw new HttpsError("invalid-argument", "Photo identity is invalid.");
+  }
 
   const capturedAtMillis = requireMillis(data.capturedAtMillis, "capturedAt");
   const matchedAtMillis = requireMillis(data.matchedAtMillis, "matchedAt");
-  if (matchedAtMillis > Date.now() + MAX_CLOCK_SKEW_MS) throw new HttpsError("invalid-argument", "Match time is invalid.");
-  if (event.startsAt instanceof Timestamp && capturedAtMillis < event.startsAt.toMillis()) throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
-  if (event.endsAt instanceof Timestamp && capturedAtMillis > event.endsAt.toMillis()) throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
+  if (matchedAtMillis > Date.now() + MAX_CLOCK_SKEW_MS) {
+    throw new HttpsError("invalid-argument", "Match time is invalid.");
+  }
 
-  if (!Array.isArray(data.appearances) || data.appearances.length > MAX_APPEARANCES) throw new HttpsError("invalid-argument", "Appearances are invalid.");
+  if (!Array.isArray(data.appearances) || data.appearances.length > MAX_APPEARANCES) {
+    throw new HttpsError("invalid-argument", "Appearances are invalid.");
+  }
 
   const seen = new Set();
-  const appearances = [];
-  const matchedFaceIdentityIds = {};
-  const matchedProfileRevisions = {};
-
-  for (const raw of data.appearances) {
+  const requestedAppearances = data.appearances.map((raw) => {
     const participantUserId = requireString(raw && raw.participantUserId, "participantUserId");
     const confidence = Number(raw && raw.confidence);
     const suppliedIdentity = requireString(raw && raw.faceIdentityId, "faceIdentityId");
     const suppliedRevision = requireString(raw && raw.faceProfileRevision, "faceProfileRevision");
-    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw new HttpsError("invalid-argument", "Appearance confidence is invalid.");
-    if (seen.has(participantUserId)) throw new HttpsError("invalid-argument", "Duplicate participant appearance.");
-    seen.add(participantUserId);
-
-    const [memberSnap, profileSnap] = await Promise.all([
-      db.doc(`events/${eventId}/members/${participantUserId}`).get(),
-      db.doc(`users/${participantUserId}/faceProfile/current`).get(),
-    ]);
-    if (!memberSnap.exists) throw new HttpsError("invalid-argument", "A matched person is not a member of this event.");
-    const profile = profileSnap.exists ? profileSnap.data() || {} : null;
-    if (!profileIsCurrent(profile)) throw new HttpsError("failed-precondition", "A matched person's Face Setup is no longer active. Refresh the Event and scan again.");
-
-    const currentIdentity = profileIdentity(profile);
-    const currentRevision = profileRevision(profile);
-    if (suppliedIdentity !== currentIdentity || suppliedRevision !== currentRevision) {
-      throw new HttpsError("failed-precondition", "A Face Setup changed while this photo was being matched. Refresh the Event and scan again.");
+    const suppliedMembershipId = optionalString(raw && raw.recipientMembershipId);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+      throw new HttpsError("invalid-argument", "Appearance confidence is invalid.");
     }
-
-    appearances.push({
+    if (seen.has(participantUserId)) {
+      throw new HttpsError("invalid-argument", "Duplicate participant appearance.");
+    }
+    if (modernSourceContext && !suppliedMembershipId) {
+      throw new HttpsError("failed-precondition", "An Event member changed while this photo was being matched. Refresh the Event and scan again.");
+    }
+    seen.add(participantUserId);
+    return {
       participantUserId,
       confidence,
-      faceIdentityId: currentIdentity,
-      faceProfileRevision: currentRevision,
-      dismissedByUser: false,
-    });
-    matchedFaceIdentityIds[participantUserId] = currentIdentity;
-    matchedProfileRevisions[participantUserId] = currentRevision;
-  }
+      suppliedIdentity,
+      suppliedRevision,
+      suppliedMembershipId,
+    };
+  });
 
   const docId = photoDocumentId(matchId);
   const thumbnailPath = requireString(data.thumbnailPath, "thumbnailPath");
-  if (thumbnailPath !== expectedThumbnailPath(eventId, uid, docId)) throw new HttpsError("invalid-argument", "Thumbnail path is invalid.");
+  if (thumbnailPath !== expectedThumbnailPath(eventId, uid, docId)) {
+    throw new HttpsError("invalid-argument", "Thumbnail path is invalid.");
+  }
 
   try {
     const [metadata] = await admin.storage().bucket().file(thumbnailPath).getMetadata();
     const size = Number(metadata.size || 0);
-    if (metadata.contentType !== "image/jpeg" || !Number.isFinite(size) || size <= 0 || size > MAX_THUMBNAIL_BYTES) throw new Error("invalid thumbnail metadata");
+    if (metadata.contentType !== "image/jpeg" || !Number.isFinite(size) || size <= 0 || size > MAX_THUMBNAIL_BYTES) {
+      throw new Error("invalid thumbnail metadata");
+    }
   } catch (error) {
-    console.error("thumbnail verification failed", { eventId, uid, thumbnailPath, error });
+    console.error("thumbnail verification failed", { eventId, uid, error });
     throw new HttpsError("failed-precondition", "Thumbnail upload could not be verified.");
   }
 
-  await db.doc(`events/${eventId}/photos/${docId}`).set({
-    id: matchId,
-    eventId,
-    sourceUserId: uid,
-    assetLocalId,
-    appearances,
-    matchedUserIds: appearances.map((appearance) => appearance.participantUserId),
-    matchedFaceIdentityIds,
-    matchedProfileRevisions,
-    capturedAt: Timestamp.fromMillis(capturedAtMillis),
-    matchedAt: Timestamp.fromMillis(matchedAtMillis),
-    thumbnailPath,
-    createdAt: Timestamp.now(),
-    updatedAt: Timestamp.now(),
-  }, { merge: false });
+  const photoRef = db.doc(`events/${eventId}/photos/${docId}`);
+  await db.runTransaction(async (tx) => {
+    // This is the actual commit barrier. Membership, sharing, Event lifecycle and
+    // Face Setup are re-read transactionally after thumbnail verification so a
+    // leave/rejoin or Face Setup update cannot race a stale match into storage.
+    const eventRef = db.doc(`events/${eventId}`);
+    const sourceMemberRef = db.doc(`events/${eventId}/members/${uid}`);
+    const [eventSnap, sourceMemberSnap] = await Promise.all([
+      tx.get(eventRef),
+      tx.get(sourceMemberRef),
+    ]);
+
+    if (!eventSnap.exists) throw new HttpsError("not-found", "This event does not exist.");
+    if (!sourceMemberSnap.exists) throw new HttpsError("permission-denied", "Join this event first.");
+    const event = eventSnap.data() || {};
+    const sourceMember = sourceMemberSnap.data() || {};
+    if (event.status !== "active") throw new HttpsError("failed-precondition", "This event has ended.");
+    if (sourceMember.sharingEnabled === false) {
+      throw new HttpsError("failed-precondition", "Photo sharing is turned off for this event.");
+    }
+
+    // Change 3 will replace these raw bounds with the canonical full-day photo
+    // window. Keep the existing narrower rule unchanged during this identity-only
+    // migration rather than silently widening privacy scope here.
+    if (event.startsAt instanceof Timestamp && capturedAtMillis < event.startsAt.toMillis()) {
+      throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
+    }
+    if (event.endsAt instanceof Timestamp && capturedAtMillis > event.endsAt.toMillis()) {
+      throw new HttpsError("invalid-argument", "Photo is outside the event date range.");
+    }
+
+    const currentSourceMembershipId = normalizedMembershipId(sourceMember.membershipId);
+    if (modernSourceContext) {
+      if (!currentSourceMembershipId || suppliedSourceMembershipId !== currentSourceMembershipId) {
+        throw new HttpsError("failed-precondition", "Your Event membership changed while photos were being scanned. Refresh the Event and scan again.");
+      }
+    }
+
+    const appearances = [];
+    const matchedFaceIdentityIds = {};
+    const matchedProfileRevisions = {};
+    const matchedMembershipIds = {};
+
+    for (const requested of requestedAppearances) {
+      const memberRef = db.doc(`events/${eventId}/members/${requested.participantUserId}`);
+      const profileRef = db.doc(`users/${requested.participantUserId}/faceProfile/current`);
+      const [memberSnap, profileSnap] = await Promise.all([
+        tx.get(memberRef),
+        tx.get(profileRef),
+      ]);
+
+      if (!memberSnap.exists) {
+        throw new HttpsError("failed-precondition", "An Event member changed while this photo was being matched. Refresh the Event and scan again.");
+      }
+      const member = memberSnap.data() || {};
+      const currentMembershipId = normalizedMembershipId(member.membershipId);
+      if (requested.suppliedMembershipId) {
+        if (!currentMembershipId || requested.suppliedMembershipId !== currentMembershipId) {
+          throw new HttpsError("failed-precondition", "An Event member changed while this photo was being matched. Refresh the Event and scan again.");
+        }
+      } else if (modernSourceContext) {
+        // Defensive duplicate of the parse-time requirement at the actual commit
+        // barrier. Never downgrade a modern match to legacy authorization.
+        throw new HttpsError("failed-precondition", "Refresh this Event before sharing photos.");
+      }
+
+      const profile = profileSnap.exists ? profileSnap.data() || {} : null;
+      if (!profileIsCurrent(profile)) {
+        throw new HttpsError("failed-precondition", "A matched person's Face Setup is no longer active. Refresh the Event and scan again.");
+      }
+
+      const currentIdentity = profileIdentity(profile);
+      const currentRevision = profileRevision(profile);
+      if (requested.suppliedIdentity !== currentIdentity || requested.suppliedRevision !== currentRevision) {
+        throw new HttpsError("failed-precondition", "A Face Setup changed while this photo was being matched. Refresh the Event and scan again.");
+      }
+
+      const appearance = {
+        participantUserId: requested.participantUserId,
+        confidence: requested.confidence,
+        faceIdentityId: currentIdentity,
+        faceProfileRevision: currentRevision,
+        dismissedByUser: false,
+      };
+      if (requested.suppliedMembershipId) {
+        appearance.recipientMembershipId = requested.suppliedMembershipId;
+        matchedMembershipIds[requested.participantUserId] = requested.suppliedMembershipId;
+      }
+      appearances.push(appearance);
+      matchedFaceIdentityIds[requested.participantUserId] = currentIdentity;
+      matchedProfileRevisions[requested.participantUserId] = currentRevision;
+    }
+
+    const document = {
+      id: matchId,
+      eventId,
+      sourceUserId: uid,
+      assetLocalId,
+      appearances,
+      matchedUserIds: appearances.map((appearance) => appearance.participantUserId),
+      matchedFaceIdentityIds,
+      matchedProfileRevisions,
+      matchedMembershipIds,
+      capturedAt: Timestamp.fromMillis(capturedAtMillis),
+      matchedAt: Timestamp.fromMillis(matchedAtMillis),
+      thumbnailPath,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    };
+    if (sourceInstallationId) document.sourceInstallationId = sourceInstallationId;
+    if (modernSourceContext) document.sourceMembershipId = suppliedSourceMembershipId;
+
+    tx.set(photoRef, document, { merge: false });
+  });
 
   return { eventId, photoId: docId };
 });
@@ -238,7 +371,8 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
 exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
   const uid = requireAuth(request);
   const eventId = requireString((request.data || {}).eventId, "eventId");
-  await requireMember(eventId, uid);
+  const member = await requireMember(eventId, uid);
+  const currentMembershipId = normalizedMembershipId(member.membershipId);
 
   const profileSnap = await db.doc(`users/${uid}/faceProfile/current`).get();
   const profile = profileSnap.exists ? profileSnap.data() || {} : null;
@@ -252,14 +386,19 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
   const result = [];
   for (const doc of snap.docs) {
     const data = doc.data() || {};
-    if (!appearanceAllowsViewer(data, uid, currentIdentity)) continue;
+    if (!appearanceAllowsViewer(data, uid, currentIdentity, currentMembershipId)) continue;
 
     result.push({
       id: data.id || "",
       eventId: data.eventId || eventId,
       sourceUserId: data.sourceUserId || "",
+      sourceInstallationId: typeof data.sourceInstallationId === "string" ? data.sourceInstallationId : null,
+      sourceMembershipId: typeof data.sourceMembershipId === "string" ? data.sourceMembershipId : null,
       assetLocalId: data.assetLocalId || "",
       appearances: Array.isArray(data.appearances) ? data.appearances : [],
+      matchedMembershipIds: data.matchedMembershipIds && typeof data.matchedMembershipIds === "object"
+        ? data.matchedMembershipIds
+        : {},
       capturedAtMillis: data.capturedAt instanceof Timestamp ? data.capturedAt.toMillis() : null,
       matchedAtMillis: data.matchedAt instanceof Timestamp ? data.matchedAt.toMillis() : null,
       thumbnailPath: typeof data.thumbnailPath === "string" ? data.thumbnailPath : null,
@@ -272,21 +411,23 @@ exports.listMyMatchedPhotosIdentityBound = onCall(async (request) => {
 
 // Secure fallback for clients whose direct Firebase Storage read fails after the
 // match itself has already passed identity authorization. The callable repeats
-// the same membership + stable-identity checks, then returns only that one
-// optimized JPEG preview. Candidate faces and originals are never exposed.
+// the same membership-generation + stable-identity checks, then returns only
+// that one optimized JPEG preview. Candidate faces and originals are never
+// exposed.
 exports.getMatchedThumbnailIdentityBound = onCall(async (request) => {
   const uid = requireAuth(request);
   const data = request.data || {};
   const eventId = requireString(data.eventId, "eventId");
   const photoId = requireString(data.photoId, "photoId");
-  await requireMember(eventId, uid);
+  const member = await requireMember(eventId, uid);
+  const currentMembershipId = normalizedMembershipId(member.membershipId);
   const currentIdentity = await requireCurrentIdentity(uid);
 
   const photoSnap = await db.doc(`events/${eventId}/photos/${photoId}`).get();
   if (!photoSnap.exists) throw new HttpsError("not-found", "This matched photo is no longer available.");
   const photo = photoSnap.data() || {};
-  if (!appearanceAllowsViewer(photo, uid, currentIdentity)) {
-    throw new HttpsError("permission-denied", "This photo is not available to your current Face Setup.");
+  if (!appearanceAllowsViewer(photo, uid, currentIdentity, currentMembershipId)) {
+    throw new HttpsError("permission-denied", "This photo is not available to your current Event participation and Face Setup.");
   }
 
   const sourceUserId = requireString(photo.sourceUserId, "sourceUserId");
@@ -302,7 +443,7 @@ exports.getMatchedThumbnailIdentityBound = onCall(async (request) => {
     }
     return { contentType: "image/jpeg", base64: buffer.toString("base64") };
   } catch (error) {
-    console.error("authorized thumbnail fallback failed", { eventId, photoId, uid, thumbnailPath, error });
+    console.error("authorized thumbnail fallback failed", { eventId, uid, error });
     throw new HttpsError("unavailable", "This photo preview could not be loaded right now.");
   }
 });
@@ -318,11 +459,11 @@ exports.scrubMatchesOnFaceProfileChange = onDocumentWritten("users/{userId}/face
 
   if (beforeIdentity && beforeIdentity !== afterIdentity) {
     const scrubbedPhotos = await scrubUserFromAllEventMatches(uid);
-    console.log("Face identity changed; old face-derived matches scrubbed", { uid, scrubbedPhotos });
+    console.log("Face identity changed; old face-derived matches scrubbed", { scrubbedPhotos });
     return;
   }
 
   if (beforeIdentity && beforeIdentity === afterIdentity && beforeRevision !== afterRevision) {
-    console.log("Face Setup refreshed for the same identity; existing positive matches preserved", { uid });
+    console.log("Face Setup refreshed for the same identity; existing positive matches preserved");
   }
 });
