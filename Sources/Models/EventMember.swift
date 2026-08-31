@@ -8,6 +8,10 @@ public struct EventMember: Identifiable, Equatable, Codable, Sendable {
     public var id: String { userId }
 
     public let userId: String
+    /// Opaque server-issued participation generation. A leave followed by a
+    /// rejoin receives a different value even though the Firestore member path
+    /// remains keyed by userId. Optional only for pre-migration cached/test data.
+    public let membershipId: String?
     public var displayName: String?
     public var role: Role
     public let joinedAt: Date
@@ -17,6 +21,7 @@ public struct EventMember: Identifiable, Equatable, Codable, Sendable {
 
     public init(
         userId: String,
+        membershipId: String? = nil,
         displayName: String? = nil,
         role: Role,
         joinedAt: Date,
@@ -25,6 +30,7 @@ public struct EventMember: Identifiable, Equatable, Codable, Sendable {
         faceTemplateVersion: Int
     ) {
         self.userId = userId
+        self.membershipId = membershipId
         self.displayName = displayName
         self.role = role
         self.joinedAt = joinedAt
