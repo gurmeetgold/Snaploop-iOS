@@ -69,7 +69,8 @@ public final class AppEnvironment: ObservableObject {
             faceDetection: faceDetection,
             thumbnailEncoder: thumbnailEncoder,
             matches: matches,
-            scanStateStore: scanStateStore
+            scanStateStore: scanStateStore,
+            accountInstallationIdentity: accountInstallationIdentity
         )
     }
 
