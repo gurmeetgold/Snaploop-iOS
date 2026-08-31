@@ -1,6 +1,7 @@
 const { randomUUID } = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { normalizedMembershipId } = require("./membershipIdentity");
 const {
   dismissRecipientMatchMetadata,
   normalizedDismissedUserIds,
@@ -113,12 +114,24 @@ exports.dismissAppearanceIdentityBound = onCall(async (request) => {
     throw new HttpsError("permission-denied", "You can only dismiss your own appearance.");
   }
 
-  const memberSnap = await db.doc(`events/${eventId}/members/${uid}`).get();
+  const memberRef = db.doc(`events/${eventId}/members/${uid}`);
+  const memberSnap = await memberRef.get();
   if (!memberSnap.exists) throw new HttpsError("permission-denied", "Join this Event first.");
+  const dismissalMembershipId = normalizedMembershipId((memberSnap.data() || {}).membershipId);
 
   const photoRef = db.doc(`events/${eventId}/photos/${photoDocumentId(matchId)}`);
   await db.runTransaction(async (tx) => {
-    const snap = await tx.get(photoRef);
+    // Re-read membership in the same transaction as the photo update so a
+    // leave/rejoin cannot bind a dismissal to the wrong participation.
+    const [freshMemberSnap, snap] = await Promise.all([
+      tx.get(memberRef),
+      tx.get(photoRef),
+    ]);
+    if (!freshMemberSnap.exists) throw new HttpsError("permission-denied", "Join this Event first.");
+    const freshMembershipId = normalizedMembershipId((freshMemberSnap.data() || {}).membershipId);
+    if (dismissalMembershipId && freshMembershipId !== dismissalMembershipId) {
+      throw new HttpsError("failed-precondition", "Your Event membership changed. Refresh and try again.");
+    }
     if (!snap.exists) throw new HttpsError("not-found", "That photo no longer exists.");
     const photo = snap.data() || {};
     if (photo.eventId !== eventId || photo.id !== matchId) {
@@ -133,7 +146,7 @@ exports.dismissAppearanceIdentityBound = onCall(async (request) => {
       throw new HttpsError("permission-denied", "You can only dismiss a photo matched to you.");
     }
 
-    const cleaned = dismissRecipientMatchMetadata(photo, uid);
+    const cleaned = dismissRecipientMatchMetadata(photo, uid, freshMembershipId);
     tx.update(photoRef, {
       ...cleaned,
       updatedAt: Timestamp.now(),
