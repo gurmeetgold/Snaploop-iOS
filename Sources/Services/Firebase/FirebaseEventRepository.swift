@@ -244,6 +244,7 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
 
         return EventMember(
             userId: userId,
+            membershipId: normalizedOptionalString(data["membershipId"]),
             displayName: nullableString(data["displayName"]),
             role: role,
             joinedAt: joinedAt,
@@ -386,6 +387,7 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
 
         return EventParticipant(
             userId: userId,
+            membershipId: normalizedOptionalString(data["membershipId"]),
             displayName: data["displayName"] as? String,
             phoneNumber: nil,
             faceEmbedding: FaceEmbedding(normalized: vector),
@@ -417,6 +419,12 @@ public final class FirebaseEventRepository: EventRepository, @unchecked Sendable
     private static func nullableString(_ value: Any?) -> String? {
         if value is NSNull { return nil }
         return value as? String
+    }
+
+    private static func normalizedOptionalString(_ value: Any?) -> String? {
+        guard let raw = nullableString(value)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else { return nil }
+        return raw
     }
 
     private static func millis(_ date: Date) -> Double {
