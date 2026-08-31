@@ -95,6 +95,19 @@ function upsertActiveAppearance(state, {
   return true;
 }
 
+/// Removes only the currently active authorization for one recipient from a
+/// prepared incremental state. Explicit dismissal tombstones are deliberately
+/// preserved. This powers ambiguity/template re-evaluation where an old positive
+/// is no longer valid, without accidentally undoing a recipient's "Not Me" choice.
+function removeActiveAppearance(state, userId) {
+  const normalized = normalizedUserId(userId);
+  if (!normalized) throw new TypeError("userId is required");
+  state.appearanceByUser.delete(normalized);
+  delete state.matchedFaceIdentityIds[normalized];
+  delete state.matchedProfileRevisions[normalized];
+  delete state.matchedMembershipIds[normalized];
+}
+
 function finalizeIncrementalMatchState(state) {
   const activeUserIds = [...state.appearanceByUser.keys()]
     .filter((userId) => !state.dismissedUserIds.has(userId))
@@ -135,14 +148,11 @@ function dismissRecipientMatchMetadata(data, userId, membershipId = null) {
   const normalized = normalizedUserId(userId);
   if (!normalized) throw new TypeError("userId is required");
   const state = prepareIncrementalMatchState(data);
-  state.appearanceByUser.delete(normalized);
+  removeActiveAppearance(state, normalized);
   state.dismissedUserIds.add(normalized);
   const normalizedMembership = normalizedMembershipId(membershipId);
   if (normalizedMembership) state.dismissedMembershipIds[normalized] = normalizedMembership;
   else delete state.dismissedMembershipIds[normalized];
-  delete state.matchedFaceIdentityIds[normalized];
-  delete state.matchedProfileRevisions[normalized];
-  delete state.matchedMembershipIds[normalized];
   return finalizeIncrementalMatchState(state);
 }
 
@@ -150,14 +160,11 @@ function removeRecipientMatchMetadata(data, userId, { removeDismissal = false } 
   const normalized = normalizedUserId(userId);
   if (!normalized) throw new TypeError("userId is required");
   const state = prepareIncrementalMatchState(data);
-  state.appearanceByUser.delete(normalized);
+  removeActiveAppearance(state, normalized);
   if (removeDismissal) {
     state.dismissedUserIds.delete(normalized);
     delete state.dismissedMembershipIds[normalized];
   }
-  delete state.matchedFaceIdentityIds[normalized];
-  delete state.matchedProfileRevisions[normalized];
-  delete state.matchedMembershipIds[normalized];
   return finalizeIncrementalMatchState(state);
 }
 
@@ -167,6 +174,7 @@ module.exports = {
   normalizedDismissedUserIds,
   prepareIncrementalMatchState,
   recipientDismissalApplies,
+  removeActiveAppearance,
   removeRecipientMatchMetadata,
   upsertActiveAppearance,
 };
