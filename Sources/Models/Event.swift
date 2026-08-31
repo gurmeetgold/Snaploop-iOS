@@ -89,7 +89,17 @@ public struct Event: Identifiable, Equatable, Codable, Sendable {
         self.updatedAt = updatedAt ?? createdAt
     }
 
-    public var dateRange: ClosedRange<Date> { startsAt...endsAt }
+    /// Event dates are selected as calendar days in the UI, so scanning must
+    /// include the entire first and last selected day regardless of the hidden
+    /// time component retained by a date-only DatePicker.
+    public var dateRange: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let lower = calendar.startOfDay(for: startsAt)
+        let endStart = calendar.startOfDay(for: endsAt)
+        let upper = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: endStart)
+            ?? endsAt
+        return lower...max(lower, upper)
+    }
 }
 
 public struct EventParticipant: Identifiable, Equatable, Codable, Sendable {
