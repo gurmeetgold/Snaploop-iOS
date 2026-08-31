@@ -263,6 +263,13 @@ exports.listEventFaceProfiles = onCall(async (request) => {
     eventId,
     members.docs.map((member) => ({ userId: member.id, data: member.data() || {} }))
   );
+  const callerMembershipId = membershipIds.get(uid);
+  if (!callerMembershipId) {
+    // The caller left while the roster was being assembled. Do not return a
+    // manifest that could later publish work under an unknown membership epoch.
+    throw new HttpsError("permission-denied", "Join this Event first.");
+  }
+
   const result = [];
   const now = Timestamp.now();
   const nextExpiry = Timestamp.fromMillis(now.toMillis() + BIOMETRIC_INACTIVITY_MS);
@@ -313,5 +320,5 @@ exports.listEventFaceProfiles = onCall(async (request) => {
     }
   }
 
-  return { eventId, participants: result };
+  return { eventId, callerMembershipId, participants: result };
 });
