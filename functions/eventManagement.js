@@ -1,13 +1,16 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const { randomUUID } = require("crypto");
 const admin = require("firebase-admin");
+const {
+  DAY_MS,
+  PHOTO_WINDOW_VERSION,
+  validateEventDatePayload,
+} = require("./eventDateSemantics");
 
 const db = admin.firestore();
 const Timestamp = admin.firestore.Timestamp;
+const FieldValue = admin.firestore.FieldValue;
 const MAX_PARTICIPANTS = 250;
-const MAX_EVENT_DAYS = 15;
-const DATE_WINDOW_DAYS = 15;
-const DAY_MS = 24 * 60 * 60 * 1000;
 // Keep the Event open for late joins and photo recovery after it ends. This is
 // deliberately the same 15-day product window used by the launch MVP.
 const GRACE_PERIOD_DAYS = 15;
@@ -32,54 +35,7 @@ function requireString(value, name) {
 function requireMillis(value, name) {
   const n = Number(value);
   if (!Number.isFinite(n)) throw new HttpsError("invalid-argument", `${name} is invalid.`);
-  return n;
-}
-
-function optionalOffsetMinutes(value) {
-  if (value === undefined || value === null) return 0;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < -14 * 60 || n > 14 * 60) {
-    throw new HttpsError("invalid-argument", "Timezone offset is invalid.");
-  }
-  return Math.trunc(n);
-}
-
-function localDayNumber(millis, offsetMinutes) {
-  return Math.floor((millis + offsetMinutes * 60 * 1000) / DAY_MS);
-}
-
-function validateEventDates(startsAtMillis, endsAtMillis, offsets = {}) {
-  if (endsAtMillis <= startsAtMillis) {
-    throw new HttpsError("invalid-argument", "Event end date must be after the start date.");
-  }
-
-  const startOffset = optionalOffsetMinutes(offsets.startsAtOffsetMinutes);
-  const endOffset = optionalOffsetMinutes(offsets.endsAtOffsetMinutes);
-  const nowOffset = optionalOffsetMinutes(offsets.nowOffsetMinutes);
-
-  // Compare wall-clock local times rather than raw elapsed seconds. A 15-day
-  // event that crosses a daylight-saving boundary is still exactly 15 calendar
-  // days even though its UTC elapsed duration can be 359 or 361 hours.
-  const localDuration = (endsAtMillis + endOffset * 60 * 1000)
-    - (startsAtMillis + startOffset * 60 * 1000);
-  if (localDuration > MAX_EVENT_DAYS * DAY_MS) {
-    throw new HttpsError("invalid-argument", `Events can run for up to ${MAX_EVENT_DAYS} days.`);
-  }
-
-  const today = localDayNumber(Date.now(), nowOffset);
-  const startDay = localDayNumber(startsAtMillis, startOffset);
-  const endDay = localDayNumber(endsAtMillis, endOffset);
-  if (
-    startDay < today - DATE_WINDOW_DAYS ||
-    startDay > today + DATE_WINDOW_DAYS ||
-    endDay < today - DATE_WINDOW_DAYS ||
-    endDay > today + DATE_WINDOW_DAYS
-  ) {
-    throw new HttpsError(
-      "invalid-argument",
-      `Event dates must be within ${DATE_WINDOW_DAYS} days before today and ${DATE_WINDOW_DAYS} days after today.`
-    );
-  }
+  return Math.round(n);
 }
 
 function validateEventName(value) {
@@ -215,9 +171,7 @@ exports.createEventMVP = onCall(async (request) => {
   if (creatorUserId !== uid) throw new HttpsError("permission-denied", "Creator identity does not match the signed-in user.");
   if (data.status !== "active") throw new HttpsError("invalid-argument", "New events must start active.");
 
-  const startsAtMillis = requireMillis(data.startsAtMillis, "startsAt");
-  const endsAtMillis = requireMillis(data.endsAtMillis, "endsAt");
-  validateEventDates(startsAtMillis, endsAtMillis, data);
+  const window = validateEventDatePayload(data);
   const createdAtMillis = requireMillis(data.createdAtMillis, "createdAt");
   const updatedAtMillis = requireMillis(data.updatedAtMillis, "updatedAt");
   const { user, profile } = await loadIdentity(uid);
@@ -235,12 +189,22 @@ exports.createEventMVP = onCall(async (request) => {
       throw new HttpsError("already-exists", "Event identity collision. Please create the event again.");
     }
     const joinedAt = Timestamp.now();
+    const persistedWindow = window.photoWindowVersion === PHOTO_WINDOW_VERSION
+      ? {
+          photoWindowVersion: PHOTO_WINDOW_VERSION,
+          photoWindowTimeZoneId: window.photoWindowTimeZoneId,
+          photoWindowStartDayNumber: window.startDay,
+          photoWindowEndDayNumber: window.endDay,
+        }
+      : {};
+
     tx.create(eventRef, {
       id, joinCode, inviteToken, creatorUserId: uid, name, category,
       coverImagePath: typeof data.coverImagePath === "string" ? data.coverImagePath : null,
       locationName: normalizeLocation(data.locationName),
-      startsAt: Timestamp.fromMillis(startsAtMillis),
-      endsAt: Timestamp.fromMillis(endsAtMillis),
+      startsAt: Timestamp.fromMillis(window.startsAtMillis),
+      endsAt: Timestamp.fromMillis(window.endsAtMillis),
+      ...persistedWindow,
       status: "active",
       createdAt: Timestamp.fromMillis(createdAtMillis),
       updatedAt: Timestamp.fromMillis(updatedAtMillis),
@@ -288,6 +252,9 @@ exports.joinEventManaged = onCall(async (request) => {
   return { eventId, joined };
 });
 
+// Retained for direct module compatibility. bootstrap.js routes the production
+// updateEventManaged alias to tripManager.updateTripManaged, which enforces the
+// same canonical date contract and notification behavior.
 exports.updateEventManaged = onCall(async (request) => {
   const uid = requireAuth(request);
   const data = request.data || {};
@@ -325,12 +292,12 @@ exports.updateEventManaged = onCall(async (request) => {
     const nextChanges = [];
 
     if (typeof data.name === "string") {
-      const name = validateEventName(data.name);
-      if (name !== current.name) { update.name = name; nextChanges.push("name"); }
+      const nextName = validateEventName(data.name);
+      if (nextName !== current.name) { update.name = nextName; nextChanges.push("name"); }
     }
     if (typeof data.category === "string") {
-      const category = validateCategory(data.category);
-      if (category !== current.category) { update.category = category; nextChanges.push("details"); }
+      const nextCategory = validateCategory(data.category);
+      if (nextCategory !== current.category) { update.category = nextCategory; nextChanges.push("details"); }
     }
     if (Object.prototype.hasOwnProperty.call(data, "locationName")) {
       const locationName = normalizeLocation(data.locationName);
@@ -344,10 +311,21 @@ exports.updateEventManaged = onCall(async (request) => {
     if (data.startsAtMillis !== undefined || data.endsAtMillis !== undefined) {
       const starts = data.startsAtMillis !== undefined ? requireMillis(data.startsAtMillis, "startsAt") : current.startsAt.toMillis();
       const ends = data.endsAtMillis !== undefined ? requireMillis(data.endsAtMillis, "endsAt") : current.endsAt.toMillis();
-      validateEventDates(starts, ends, data);
       if (starts !== current.startsAt.toMillis() || ends !== current.endsAt.toMillis()) {
-        update.startsAt = Timestamp.fromMillis(starts);
-        update.endsAt = Timestamp.fromMillis(ends);
+        const validated = validateEventDatePayload({ ...data, startsAtMillis: starts, endsAtMillis: ends });
+        update.startsAt = Timestamp.fromMillis(validated.startsAtMillis);
+        update.endsAt = Timestamp.fromMillis(validated.endsAtMillis);
+        if (validated.photoWindowVersion === PHOTO_WINDOW_VERSION) {
+          update.photoWindowVersion = PHOTO_WINDOW_VERSION;
+          update.photoWindowTimeZoneId = validated.photoWindowTimeZoneId;
+          update.photoWindowStartDayNumber = validated.startDay;
+          update.photoWindowEndDayNumber = validated.endDay;
+        } else if (Number(current.photoWindowVersion || 0) === PHOTO_WINDOW_VERSION) {
+          update.photoWindowVersion = FieldValue.delete();
+          update.photoWindowTimeZoneId = FieldValue.delete();
+          update.photoWindowStartDayNumber = FieldValue.delete();
+          update.photoWindowEndDayNumber = FieldValue.delete();
+        }
         nextChanges.push("dates");
       }
     }
