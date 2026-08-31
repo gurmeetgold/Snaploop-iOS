@@ -58,7 +58,10 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             "appearances": appearances,
             "capturedAtMillis": Int64(match.capturedAt.timeIntervalSince1970 * 1000),
             "matchedAtMillis": Int64(match.matchedAt.timeIntervalSince1970 * 1000),
-            "thumbnailPath": path
+            "thumbnailPath": path,
+            // Only Change-4 source-scoped photo IDs request additive recipient
+            // merge semantics. Legacy installed clients retain full replacement.
+            "mergeAppearances": match.isSourceScopedIdentity
         ]
         if let sourceInstallationId = match.sourceInstallationId,
            !sourceInstallationId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
