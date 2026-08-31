@@ -39,6 +39,9 @@ jobs:
       - name: Verify client to callable contract
         run: node --test tests/backend/callable-contract.test.mjs
 
+      - name: Verify Change 4 incremental match invariants
+        run: node --test tests/backend/change4-match-metadata.test.mjs
+
       - name: Install Firebase emulator test tools
         run: |
           npm install --global firebase-tools
