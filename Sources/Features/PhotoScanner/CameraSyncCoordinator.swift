@@ -40,6 +40,37 @@ public struct CameraSyncCoordinator {
         public var hasMore: Bool { remaining > 0 }
     }
 
+    /// Aggregated counters are intentionally identity-free. Do not add event IDs,
+    /// user IDs, asset IDs, template IDs, embeddings, names, phone numbers or
+    /// similarity scores here. These values are emitted only to local unified
+    /// logging to diagnose why a scan produced fewer matches than expected.
+    private struct PassDiagnostics {
+        var detectedFaces = 0
+        var sizeRejectedFaces = 0
+        var eligibleFaces = 0
+        var acceptedFaces = 0
+        var belowThresholdFaces = 0
+        var ambiguityRejectedFaces = 0
+        var ownAppearancesFiltered = 0
+
+        mutating func record(_ result: ProcessResult) {
+            let d = result.faceDiagnostics
+            detectedFaces += d.detectedFaceCount
+            sizeRejectedFaces += d.sizeRejectedFaceCount
+            eligibleFaces += d.eligibleFaceCount
+            acceptedFaces += d.acceptedFaceCount
+            belowThresholdFaces += d.belowThresholdFaceCount
+            ambiguityRejectedFaces += d.ambiguityRejectedFaceCount
+            ownAppearancesFiltered += result.ownAppearancesFiltered
+        }
+    }
+
+    private struct ProcessResult {
+        let matched: Bool
+        let ownAppearancesFiltered: Int
+        let faceDiagnostics: FaceMatcher.Diagnostics
+    }
+
     public func sync(
         event: Event,
         participants: [EventParticipant],
@@ -69,6 +100,10 @@ public struct CameraSyncCoordinator {
         // refresh therefore keeps prior positive matches and does not trigger a
         // wasteful full rescan. Deleting Face Setup and enrolling a new identity
         // changes the stable ID and creates a fresh scan namespace.
+        //
+        // NOTE: Change 1 intentionally leaves this legacy behavior untouched so
+        // diagnostics can reproduce the current lifecycle gaps before the state
+        // model is replaced by the photo-corpus + recipient-cursor architecture.
         let rosterIdentityRevision = participants
             .map { "\($0.userId)=\($0.stableFaceIdentityId)" }
             .sorted()
@@ -91,10 +126,22 @@ public struct CameraSyncCoordinator {
         let toScan = Array(planned.toScan.prefix(safetyCap))
         let deferredBySafetyCap = max(0, planned.toScan.count - toScan.count)
         let remainingAfterPass = planned.remaining + deferredBySafetyCap
+        let matchableParticipantCount = participants.filter {
+            $0.faceProfileVersion == FaceModelPolicy.currentVersion
+                && !$0.stableFaceIdentityId.isEmpty
+                && !$0.faceProfileRevision.isEmpty
+        }.count
+
+        Log.scanner.notice(
+            "Scan diagnostics begin assets=\(assets.count, privacy: .public) remembered=\(state.scannedCount, privacy: .public) planned=\(planned.toScan.count, privacy: .public) roster=\(participants.count, privacy: .public) matchable=\(matchableParticipantCount, privacy: .public) includeOwn=\(includeOwnMatches, privacy: .public)"
+        )
 
         if toScan.isEmpty {
             state.lastSyncedAt = clock.now()
             scanStateStore.save(state)
+            Log.scanner.notice(
+                "Scan diagnostics caught-up assets=\(assets.count, privacy: .public) remembered=\(state.scannedCount, privacy: .public) remaining=\(remainingAfterPass, privacy: .public)"
+            )
             return Summary(scanned: 0, matchedPhotos: 0, remaining: remainingAfterPass, alreadyCaughtUp: remainingAfterPass == 0)
         }
 
@@ -103,13 +150,14 @@ public struct CameraSyncCoordinator {
         var matchedCount = 0
         var processedIds: [String] = []
         var failedCount = 0
+        var passDiagnostics = PassDiagnostics()
 
         for asset in toScan {
             try Task.checkCancellation()
             try Self.checkDeviceSafety()
 
             do {
-                let matched = try await process(
+                let result = try await process(
                     asset: asset,
                     event: event,
                     participants: participants,
@@ -118,7 +166,8 @@ public struct CameraSyncCoordinator {
                     matcher: matcher,
                     values: values
                 )
-                if matched { matchedCount += 1 }
+                passDiagnostics.record(result)
+                if result.matched { matchedCount += 1 }
                 processedIds.append(asset.id)
             } catch is CancellationError {
                 state.markScanned(processedIds)
@@ -132,7 +181,9 @@ public struct CameraSyncCoordinator {
                 throw error
             } catch {
                 failedCount += 1
-                Log.scanner.error("Skipping asset during scan: \(String(describing: error), privacy: .public)")
+                Log.scanner.error(
+                    "Scan asset skipped category=\(Self.diagnosticErrorCategory(error), privacy: .public)"
+                )
             }
 
             let completedThisPass = processedIds.count + failedCount
@@ -152,6 +203,10 @@ public struct CameraSyncCoordinator {
         state.lastSyncedAt = clock.now()
         scanStateStore.save(state)
 
+        Log.scanner.notice(
+            "Scan diagnostics end checked=\(processedIds.count, privacy: .public) matchedPhotos=\(matchedCount, privacy: .public) failed=\(failedCount, privacy: .public) faces=\(passDiagnostics.detectedFaces, privacy: .public) sizeRejected=\(passDiagnostics.sizeRejectedFaces, privacy: .public) eligibleFaces=\(passDiagnostics.eligibleFaces, privacy: .public) acceptedFaces=\(passDiagnostics.acceptedFaces, privacy: .public) belowThreshold=\(passDiagnostics.belowThresholdFaces, privacy: .public) ambiguous=\(passDiagnostics.ambiguityRejectedFaces, privacy: .public) ownFiltered=\(passDiagnostics.ownAppearancesFiltered, privacy: .public) remaining=\(totalRemaining, privacy: .public)"
+        )
+
         return Summary(scanned: processedIds.count, matchedPhotos: matchedCount,
                        remaining: totalRemaining, alreadyCaughtUp: totalRemaining == 0)
     }
@@ -164,7 +219,7 @@ public struct CameraSyncCoordinator {
         includeOwnMatches: Bool,
         matcher: FaceMatcher,
         values: RemoteConfigValues
-    ) async throws -> Bool {
+    ) async throws -> ProcessResult {
         try Task.checkCancellation()
 
         let working = try await photoLibrary.imageData(
@@ -173,16 +228,26 @@ public struct CameraSyncCoordinator {
         )
         try Task.checkCancellation()
 
-        var appearances: [PhotoMatch.Appearance]
-        do {
-            let transientCandidateFaces = try await faceDetection.detectFaces(in: working)
-            appearances = matcher.appearances(in: transientCandidateFaces, participants: participants)
-        }
+        let transientCandidateFaces = try await faceDetection.detectFaces(in: working)
+        let matchResult = matcher.appearancesWithDiagnostics(
+            in: transientCandidateFaces,
+            participants: participants
+        )
+        var appearances = matchResult.appearances
+        let beforeOwnFilter = appearances.count
 
         if !includeOwnMatches {
             appearances.removeAll { $0.participantUserId == currentUserId }
         }
-        guard !appearances.isEmpty else { return false }
+        let ownAppearancesFiltered = max(0, beforeOwnFilter - appearances.count)
+
+        guard !appearances.isEmpty else {
+            return ProcessResult(
+                matched: false,
+                ownAppearancesFiltered: ownAppearancesFiltered,
+                faceDiagnostics: matchResult.diagnostics
+            )
+        }
 
         try Task.checkCancellation()
         let thumbnail = try thumbnailEncoder.encodeJPEG(
@@ -199,7 +264,11 @@ public struct CameraSyncCoordinator {
             matchedAt: clock.now()
         )
         try await matches.upload(match: match, thumbnailJPEG: thumbnail)
-        return true
+        return ProcessResult(
+            matched: true,
+            ownAppearancesFiltered: ownAppearancesFiltered,
+            faceDiagnostics: matchResult.diagnostics
+        )
     }
 
     private static func currentSafetyBatchCap() -> Int {
@@ -218,6 +287,38 @@ public struct CameraSyncCoordinator {
         case .critical: throw AppError.deviceTooWarm
         case .nominal, .fair, .serious: return
         @unknown default: return
+        }
+    }
+
+    /// Keep diagnostic logs useful without ever serializing error payloads that
+    /// may contain backend messages, paths, identifiers or other user data.
+    private static func diagnosticErrorCategory(_ error: Error) -> String {
+        guard let appError = error as? AppError else { return "non_app_error" }
+        switch appError {
+        case .photoLibraryAccessDenied:
+            return "photo_library_access"
+        case .thumbnailEncodingFailed, .originalUnavailable:
+            return "photo_io"
+        case .faceEmbeddingFailed, .faceRecognitionNotReady, .noFaceDetectedInSelfie, .multipleFacesInSelfie:
+            return "face_pipeline"
+        case .faceIdentityMismatch:
+            return "face_identity"
+        case .deviceTooWarm:
+            return "thermal"
+        case .syncCancelled:
+            return "cancelled"
+        case .eventNotFound, .eventExpired, .notAMember:
+            return "event_state"
+        case .network:
+            return "network"
+        case .backend:
+            return "backend"
+        case .decoding:
+            return "decoding"
+        case .notAuthenticated:
+            return "auth"
+        default:
+            return "app_error"
         }
     }
 }
