@@ -170,10 +170,14 @@ final class AutomaticEventSync {
             let environment,
             let session,
             let executionContext = session.authenticatedExecutionContext,
-            session.faceProfile != nil,
             !ProcessInfo.processInfo.isLowPowerModeEnabled
         else { return false }
 
+        // A source user's own Face Setup is intentionally not a prerequisite for
+        // contributing photos. Event membership + per-device sharing preference
+        // authorize source behavior; the current biometric roster independently
+        // decides who can receive matches. This also lets automatic sharing keep
+        // working if the source deletes/refreshes their own Face Setup mid-Event.
         let userId = executionContext.userId
         let sourceInstallationId = environment.accountInstallationIdentity.id(for: userId)
         guard !sourceInstallationId.isEmpty else {
