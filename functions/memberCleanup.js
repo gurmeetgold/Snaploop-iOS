@@ -30,6 +30,19 @@ async function scrubRemovedMember(eventId, userId) {
   for (const doc of matchedSnap.docs) {
     if (sourceIds.has(doc.id)) continue;
     const data = doc.data() || {};
+    const matchedFaceIdentityIds = data.matchedFaceIdentityIds && typeof data.matchedFaceIdentityIds === "object"
+      ? { ...data.matchedFaceIdentityIds }
+      : {};
+    const matchedProfileRevisions = data.matchedProfileRevisions && typeof data.matchedProfileRevisions === "object"
+      ? { ...data.matchedProfileRevisions }
+      : {};
+    const matchedMembershipIds = data.matchedMembershipIds && typeof data.matchedMembershipIds === "object"
+      ? { ...data.matchedMembershipIds }
+      : {};
+    delete matchedFaceIdentityIds[userId];
+    delete matchedProfileRevisions[userId];
+    delete matchedMembershipIds[userId];
+
     operations.push({
       type: "update",
       ref: doc.ref,
@@ -40,6 +53,13 @@ async function scrubRemovedMember(eventId, userId) {
         matchedUserIds: Array.isArray(data.matchedUserIds)
           ? data.matchedUserIds.filter((uid) => uid !== userId)
           : [],
+        // Change 4 binds photo visibility to stable face identity, exact Face
+        // Setup revision and membership generation. Removal must scrub all three
+        // maps as well as the visible appearance row; otherwise biometric-derived
+        // metadata for someone who left the Event would remain orphaned.
+        matchedFaceIdentityIds,
+        matchedProfileRevisions,
+        matchedMembershipIds,
         updatedAt: Timestamp.now(),
       },
     });
