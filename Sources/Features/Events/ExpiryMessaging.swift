@@ -17,20 +17,21 @@ public enum ExpiryMessaging {
     ) -> Message {
         let status = EventLifecycle.status(for: event, clock: clock, config: config)
         let graceEnd = EventLifecycle.graceEnd(for: event, config: config)
+        let timeZone = event.photoWindowTimeZone
 
         switch status {
         case .upcoming:
             return Message(
-                headline: "Starts \(DateFormatting.longDate(event.startsAt))",
+                headline: "Starts \(DateFormatting.longDate(event.startsAt, timeZone: timeZone))",
                 detail: "Once it begins, sync your camera to start finding your photos.")
         case .active:
             return Message(
                 headline: "Happening now",
-                detail: "Live until \(DateFormatting.longDate(event.endsAt)). Sync anytime to catch new photos of you.")
+                detail: "Live until \(DateFormatting.longDate(event.endsAt, timeZone: timeZone)). Sync anytime to catch new photos of you.")
         case .grace:
             return Message(
                 headline: "This event has wrapped up",
-                detail: "You can still sync and download originals until \(DateFormatting.longDate(graceEnd)). After that, only thumbnails remain — so save anything you want to keep.")
+                detail: "You can still sync and download originals until \(DateFormatting.longDate(graceEnd, timeZone: timeZone)). After that, only thumbnails remain — so save anything you want to keep.")
         case .expired:
             return Message(
                 headline: "This event has ended",
