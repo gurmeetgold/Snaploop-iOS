@@ -38,15 +38,20 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
                   !$0.faceProfileRevision.isEmpty else {
                 throw AppError.decoding("match appearance missing face identity metadata")
             }
-            return [
+            var row: [String: Any] = [
                 "participantUserId": $0.participantUserId,
                 "confidence": $0.confidence,
                 "faceIdentityId": identityId,
                 "faceProfileRevision": $0.faceProfileRevision
             ]
+            if let membershipId = $0.recipientMembershipId,
+               !membershipId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                row["recipientMembershipId"] = membershipId
+            }
+            return row
         }
 
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "id": match.id,
             "eventId": match.eventId,
             "assetLocalId": match.assetLocalId,
@@ -55,6 +60,14 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             "matchedAtMillis": Int64(match.matchedAt.timeIntervalSince1970 * 1000),
             "thumbnailPath": path
         ]
+        if let sourceInstallationId = match.sourceInstallationId,
+           !sourceInstallationId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["sourceInstallationId"] = sourceInstallationId
+        }
+        if let sourceMembershipId = match.sourceMembershipId,
+           !sourceMembershipId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["sourceMembershipId"] = sourceMembershipId
+        }
 
         do {
             _ = try await call("publishMatch", data: payload)
@@ -135,14 +148,18 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             throw AppError.decoding("matched photo is missing required fields")
         }
 
+        let matchedMembershipIds = data["matchedMembershipIds"] as? [String: String] ?? [:]
         let appearances = (data["appearances"] as? [[String: Any]] ?? []).compactMap { item -> PhotoMatch.Appearance? in
             guard let userId = item["participantUserId"] as? String,
                   let identityId = item["faceIdentityId"] as? String,
                   !identityId.isEmpty else { return nil }
             let confidence = numeric(item["confidence"]) ?? 0
             let dismissed = item["dismissedByUser"] as? Bool ?? false
+            let membershipId = normalizedOptionalString(item["recipientMembershipId"])
+                ?? normalizedOptionalString(matchedMembershipIds[userId])
             return PhotoMatch.Appearance(
                 participantUserId: userId,
+                recipientMembershipId: membershipId,
                 confidence: confidence,
                 faceIdentityId: identityId,
                 faceProfileRevision: item["faceProfileRevision"] as? String ?? "",
@@ -150,17 +167,24 @@ public final class FirebaseMatchRepository: MatchRepository, @unchecked Sendable
             )
         }
 
-        let match = PhotoMatch(
+        return PhotoMatch(
+            id: matchId,
             eventId: eventId,
             ownerUserId: sourceUserId,
+            sourceInstallationId: normalizedOptionalString(data["sourceInstallationId"]),
+            sourceMembershipId: normalizedOptionalString(data["sourceMembershipId"]),
             assetLocalId: assetLocalId,
             appearances: appearances,
             capturedAt: Date(timeIntervalSince1970: capturedAtMillis / 1000),
             matchedAt: Date(timeIntervalSince1970: matchedAtMillis / 1000),
             thumbnailPath: data["thumbnailPath"] as? String
         )
-        guard match.id == matchId else { throw AppError.decoding("matched photo id mismatch") }
-        return match
+    }
+
+    private static func normalizedOptionalString(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func numeric(_ value: Any?) -> Double? {
