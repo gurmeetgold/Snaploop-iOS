@@ -2,7 +2,7 @@ import XCTest
 @testable import SnapLoop
 
 final class PhotoCorpusScanStateTests: XCTestCase {
-    func testSameIdentityRevisionRefreshKeepsPositivesAndClearsNegatives() {
+    func testSameIdentityRevisionRefreshMarksHitsAndMissesStaleWithoutForgettingPriorPositive() {
         var cursor = RecipientMatchCursor(
             userId: "member",
             membershipEpoch: "membership-1",
@@ -19,18 +19,23 @@ final class PhotoCorpusScanStateTests: XCTestCase {
         )
 
         XCTAssertEqual(cursor.positiveAssetIds, ["positive"])
-        XCTAssertTrue(cursor.negativeAssetIds.isEmpty)
+        XCTAssertEqual(cursor.negativeAssetIds, ["negative"])
+        XCTAssertEqual(cursor.staleAssetIds, ["positive", "negative"])
+        XCTAssertTrue(cursor.wasMatched("positive"))
+        XCTAssertFalse(cursor.hasEvaluated("positive"))
+        XCTAssertFalse(cursor.hasEvaluated("negative"))
         XCTAssertEqual(cursor.faceProfileRevision, "revision-2")
     }
 
-    func testMembershipGenerationChangeClearsPositiveAndNegativeHistory() {
+    func testMembershipGenerationChangeClearsPositiveNegativeAndStaleHistory() {
         var cursor = RecipientMatchCursor(
             userId: "member",
             membershipEpoch: "membership-1",
             faceIdentityId: "face-1",
             faceProfileRevision: "revision-1",
             positiveAssetIds: ["positive"],
-            negativeAssetIds: ["negative"]
+            negativeAssetIds: ["negative"],
+            staleAssetIds: ["positive"]
         )
 
         cursor.reconcile(
@@ -41,17 +46,19 @@ final class PhotoCorpusScanStateTests: XCTestCase {
 
         XCTAssertTrue(cursor.positiveAssetIds.isEmpty)
         XCTAssertTrue(cursor.negativeAssetIds.isEmpty)
+        XCTAssertTrue(cursor.staleAssetIds.isEmpty)
         XCTAssertEqual(cursor.membershipEpoch, "membership-2")
     }
 
-    func testNewFaceIdentityClearsPositiveAndNegativeHistory() {
+    func testNewFaceIdentityClearsPositiveNegativeAndStaleHistory() {
         var cursor = RecipientMatchCursor(
             userId: "member",
             membershipEpoch: "membership-1",
             faceIdentityId: "face-1",
             faceProfileRevision: "revision-1",
             positiveAssetIds: ["positive"],
-            negativeAssetIds: ["negative"]
+            negativeAssetIds: ["negative"],
+            staleAssetIds: ["negative"]
         )
 
         cursor.reconcile(
@@ -62,7 +69,34 @@ final class PhotoCorpusScanStateTests: XCTestCase {
 
         XCTAssertTrue(cursor.positiveAssetIds.isEmpty)
         XCTAssertTrue(cursor.negativeAssetIds.isEmpty)
+        XCTAssertTrue(cursor.staleAssetIds.isEmpty)
         XCTAssertEqual(cursor.faceIdentityId, "face-2")
+    }
+
+    func testRosterAmbiguityChangeMarksAllRecipientOutcomesStale() {
+        var state = ScanState(eventId: "state")
+        state.reconcileRecipient(
+            userId: "member",
+            membershipEpoch: "membership",
+            faceIdentityId: "face",
+            faceProfileRevision: "revision"
+        )
+        state.markRecipientEvaluation(userId: "member", assetId: "positive", matched: true)
+        state.markRecipientEvaluation(userId: "member", assetId: "negative", matched: false)
+
+        state.markAllRecipientEvaluationsStale()
+
+        let cursor = state.recipientCursor(userId: "member")
+        XCTAssertEqual(cursor?.staleAssetIds, ["positive", "negative"])
+        XCTAssertTrue(cursor?.wasMatched("positive") == true)
+        XCTAssertEqual(
+            state.pendingRecipientUserIds(for: "positive", among: ["member"]),
+            ["member"]
+        )
+        XCTAssertEqual(
+            state.pendingRecipientUserIds(for: "negative", among: ["member"]),
+            ["member"]
+        )
     }
 
     func testSharingGenerationReplayClearsOnlyPositiveHistory() {
@@ -98,6 +132,29 @@ final class PhotoCorpusScanStateTests: XCTestCase {
         XCTAssertNil(decoded.sourceSharingRevision)
     }
 
+    func testSchemaThreeRecipientCursorDecodesWithoutStaleField() throws {
+        let data = Data(#"{
+          "eventId":"schema-3",
+          "schemaVersion":3,
+          "recipientCursors":{
+            "member":{
+              "userId":"member",
+              "membershipEpoch":"membership",
+              "faceIdentityId":"face",
+              "faceProfileRevision":"revision",
+              "positiveAssetIds":["positive"],
+              "negativeAssetIds":["negative"]
+            }
+          }
+        }"#.utf8)
+
+        let decoded = try JSONDecoder().decode(ScanState.self, from: data)
+        let cursor = try XCTUnwrap(decoded.recipientCursor(userId: "member"))
+        XCTAssertEqual(cursor.positiveAssetIds, ["positive"])
+        XCTAssertEqual(cursor.negativeAssetIds, ["negative"])
+        XCTAssertTrue(cursor.staleAssetIds.isEmpty)
+    }
+
     func testCorpusStateRoundTripsWithCachedFacesAndRecipientCursors() throws {
         let embedding = FaceEmbedding(normalized: [1, 0, 0])
         var state = ScanState(eventId: "event::install::generation")
@@ -114,6 +171,7 @@ final class PhotoCorpusScanStateTests: XCTestCase {
             faceProfileRevision: "revision"
         )
         state.markRecipientEvaluation(userId: "member", assetId: "asset", matched: true)
+        state.markAllRecipientEvaluationsStale()
         state.sourceMembershipEpoch = "source-membership"
         state.sourceSharingRevision = "id:sharing-generation"
 
@@ -125,6 +183,7 @@ final class PhotoCorpusScanStateTests: XCTestCase {
         XCTAssertEqual(decoded, state)
         XCTAssertEqual(decoded.sourceSharingRevision, "id:sharing-generation")
         XCTAssertEqual(decoded.corpusRecord(for: "asset")?.faces.first?.embedding, embedding)
-        XCTAssertTrue(decoded.recipientCursor(userId: "member")?.hasEvaluated("asset") == true)
+        XCTAssertFalse(decoded.recipientCursor(userId: "member")?.hasEvaluated("asset") == true)
+        XCTAssertTrue(decoded.recipientCursor(userId: "member")?.wasMatched("asset") == true)
     }
 }
