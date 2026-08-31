@@ -51,6 +51,39 @@ final class EventPhotoWindowTests: XCTestCase {
         )
     }
 
+    func testLegacyEventCodableRoundTripKeepsMissingCanonicalMetadataCompatible() throws {
+        let cal = calendar("UTC")
+        let start = date(2025, 1, 10, hour: 15, calendar: cal)
+        let legacy = Event(
+            id: "legacy",
+            joinCode: "ABC234",
+            creatorUserId: "creator",
+            name: "Legacy",
+            startsAt: start,
+            endsAt: date(2025, 1, 12, hour: 9, calendar: cal),
+            createdAt: start
+        )
+
+        let encoded = try JSONEncoder().encode(legacy)
+        let decoded = try JSONDecoder().decode(Event.self, from: encoded)
+
+        XCTAssertEqual(decoded, legacy)
+        XCTAssertNil(decoded.photoWindowVersion)
+        XCTAssertNil(decoded.photoWindowTimeZoneId)
+        XCTAssertFalse(decoded.usesCanonicalPhotoWindow)
+    }
+
+    func testTimezoneAwareDateFormattingUsesEventTimezoneRatherThanViewerTimezone() {
+        let instant = Date(timeIntervalSince1970: 1_787_000_400) // near a civil-day boundary
+        let toronto = TimeZone(identifier: "America/Toronto")!
+        let tokyo = TimeZone(identifier: "Asia/Tokyo")!
+
+        XCTAssertNotEqual(
+            DateFormatting.day(instant, timeZone: toronto),
+            DateFormatting.day(instant, timeZone: tokyo)
+        )
+    }
+
     func testRenameOnlyLegacyEventOutsideCurrentWindowPreservesDatesExactly() throws {
         let cal = calendar("UTC")
         let oldStart = date(2025, 1, 10, hour: 15, calendar: cal)
@@ -104,6 +137,32 @@ final class EventPhotoWindowTests: XCTestCase {
         XCTAssertEqual(edited.photoWindowTimeZoneId, "America/Toronto")
         XCTAssertEqual(edited.startsAt, cal.startOfDay(for: newStart))
         XCTAssertEqual(edited.photoWindowEndDayNumber! - edited.photoWindowStartDayNumber!, 2)
+    }
+
+    func testInMemoryRepositoryDateEditPersistsCanonicalMetadata() async throws {
+        let cal = calendar("UTC")
+        let oldStart = date(2026, 8, 15, hour: 15, calendar: cal)
+        let legacy = Event(
+            id: "legacy",
+            joinCode: "ABC234",
+            creatorUserId: "creator",
+            name: "Event",
+            startsAt: oldStart,
+            endsAt: date(2026, 8, 16, hour: 9, calendar: cal),
+            createdAt: oldStart
+        )
+        let repository = InMemoryEventRepository()
+        try await repository.createEvent(legacy)
+
+        let newStart = date(2026, 8, 17, hour: 14, calendar: cal)
+        let newEnd = date(2026, 8, 19, hour: 7, calendar: cal)
+        try await repository.updateEventDates(id: legacy.id, startsAt: newStart, endsAt: newEnd)
+        let stored = try await repository.fetchEvent(id: legacy.id)
+
+        XCTAssertTrue(stored.usesCanonicalPhotoWindow)
+        XCTAssertEqual(stored.photoWindowTimeZoneId, TimeZone.current.identifier)
+        XCTAssertEqual(stored.dateRange.lowerBound, stored.startsAt)
+        XCTAssertEqual(stored.dateRange.upperBound, stored.endsAt)
     }
 
     func testCanonicalPhotoWindowRevisionChangesOnlyWhenCivilWindowChanges() throws {
