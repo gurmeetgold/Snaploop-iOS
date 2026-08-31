@@ -37,6 +37,15 @@ final class AutomaticEventSync {
         // check decides whether there is an Event worth scanning.
     }
 
+    /// Called when the authenticated session is being cleared or replaced. Task
+    /// cancellation is immediate; session-generation checks below are the second
+    /// line of defense for work already between suspension points.
+    func cancelForSessionChange() {
+        activeRun?.cancel()
+        activeRun = nil
+        cancelBackgroundProcessing()
+    }
+
     func runWhenAppBecomesActive() {
         guard activeRun == nil else { return }
         guard !ProcessInfo.processInfo.isLowPowerModeEnabled else {
@@ -110,17 +119,21 @@ final class AutomaticEventSync {
             AppEnvironment.useLiveServices,
             let environment,
             let session,
-            let userId = session.user?.id,
+            let executionContext = session.authenticatedExecutionContext,
             session.faceProfile != nil,
             !ProcessInfo.processInfo.isLowPowerModeEnabled
         else { return false }
 
+        let userId = executionContext.userId
+
         do {
             let now = Date()
-            let eligibleEvents = try await environment.events.events(forUserId: userId)
-                .filter { event in
-                    EventLifecycle.canSync(event, clock: environment.clock, config: environment.config.current)
-                }
+            let loadedEvents = try await environment.events.events(forUserId: userId)
+            guard session.isCurrent(executionContext) else { return false }
+
+            let eligibleEvents = loadedEvents.filter { event in
+                EventLifecycle.canSync(event, clock: environment.clock, config: environment.config.current)
+            }
 
             guard !eligibleEvents.isEmpty else { return false }
 
@@ -128,8 +141,11 @@ final class AutomaticEventSync {
 
             for event in eligibleEvents {
                 try Task.checkCancellation()
+                guard session.isCurrent(executionContext) else { return false }
+
                 do {
                     let preferences = try await MemberPhotoPreferencesClient.load(eventId: event.id)
+                    guard session.isCurrent(executionContext) else { return false }
                     guard preferences.sharingEnabled else { continue }
                     hasEligibleSharingEvent = true
 
@@ -139,6 +155,8 @@ final class AutomaticEventSync {
                     // than waiting up to an hour.
                     let participants = try await EventFaceProfileClient.list(eventId: event.id)
                     try Task.checkCancellation()
+                    guard session.isCurrent(executionContext) else { return false }
+
                     let fingerprint = scanTriggerFingerprint(event: event, participants: participants)
                     let triggerChanged = storedFingerprint(for: event.id) != fingerprint
 
@@ -154,9 +172,10 @@ final class AutomaticEventSync {
                         includeOwnMatches: preferences.includeOwnMatches,
                         preferenceRevision: preferences.revisionToken
                     )
+                    guard session.isCurrent(executionContext) else { return false }
                     saveFingerprint(fingerprint, for: event.id)
                 } catch is CancellationError {
-                    return hasEligibleSharingEvent
+                    return hasEligibleSharingEvent && session.isCurrent(executionContext)
                 } catch {
                     // Automatic discovery must never block the app. Manual
                     // "Scan Event Photos" remains available for visible recovery.
@@ -164,7 +183,7 @@ final class AutomaticEventSync {
                 }
             }
 
-            return hasEligibleSharingEvent
+            return hasEligibleSharingEvent && session.isCurrent(executionContext)
         } catch {
             Log.scanner.error("Automatic Event scan could not load Events: \(String(describing: error), privacy: .public)")
             return false
