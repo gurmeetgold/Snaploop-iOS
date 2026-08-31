@@ -4,8 +4,8 @@ const { normalizedMembershipId } = require("./membershipIdentity");
 const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 const {
   finalizeIncrementalMatchState,
-  isRecipientDismissed,
   prepareIncrementalMatchState,
+  recipientDismissalApplies,
   upsertActiveAppearance,
 } = require("./change4MatchMetadata");
 
@@ -234,10 +234,14 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
     const state = prepareIncrementalMatchState(mergeBase);
 
     for (const requested of requestedAppearances) {
-      // "Not Me" is an explicit recipient action. It survives automatic scans,
-      // roster changes, template refreshes and sharing OFF→ON. Only membership
-      // removal/account cleanup removes this minimal tombstone.
-      if (isRecipientDismissed(state, requested.participantUserId)) continue;
+      // Dismissals created by modern clients are bound to a membership
+      // generation. A later participation may be evaluated again; a dismissal
+      // from the current participation can never be resurrected by this source.
+      if (recipientDismissalApplies(
+        state,
+        requested.participantUserId,
+        requested.suppliedMembershipId
+      )) continue;
 
       const memberRef = db.doc(`events/${eventId}/members/${requested.participantUserId}`);
       const profileRef = db.doc(`users/${requested.participantUserId}/faceProfile/current`);
@@ -308,6 +312,7 @@ exports.publishMatchIdentityBound = onCall(async (request) => {
       matchedProfileRevisions: finalized.matchedProfileRevisions,
       matchedMembershipIds: finalized.matchedMembershipIds,
       dismissedUserIds: finalized.dismissedUserIds,
+      dismissedMembershipIds: finalized.dismissedMembershipIds,
       capturedAt: Timestamp.fromMillis(capturedAtMillis),
       matchedAt: Timestamp.fromMillis(matchedAtMillis),
       thumbnailPath,
