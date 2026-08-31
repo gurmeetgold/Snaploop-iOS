@@ -66,6 +66,7 @@ public struct FaceMatcher {
 
     public struct ParticipantScore: Equatable, Sendable {
         public let participantUserId: String
+        public let recipientMembershipId: String?
         public let faceIdentityId: String
         public let faceProfileRevision: String
         public let bestTemplate: Double
@@ -114,7 +115,12 @@ public struct FaceMatcher {
             )
         }
 
-        var bestByParticipant: [String: (confidence: Double, identityId: String, revision: String)] = [:]
+        var bestByParticipant: [String: (
+            confidence: Double,
+            membershipId: String?,
+            identityId: String,
+            revision: String
+        )] = [:]
         var sizeRejectedFaceCount = 0
         var eligibleFaceCount = 0
         var acceptedFaceCount = 0
@@ -135,6 +141,7 @@ public struct FaceMatcher {
                 if existing == nil || winner.decisionScore > existing!.confidence {
                     bestByParticipant[winner.participantUserId] = (
                         winner.decisionScore,
+                        winner.recipientMembershipId,
                         winner.faceIdentityId,
                         winner.faceProfileRevision
                     )
@@ -149,6 +156,7 @@ public struct FaceMatcher {
         let appearances = bestByParticipant.map {
             PhotoMatch.Appearance(
                 participantUserId: $0.key,
+                recipientMembershipId: $0.value.membershipId,
                 confidence: $0.value.confidence,
                 faceIdentityId: $0.value.identityId,
                 faceProfileRevision: $0.value.revision
@@ -189,6 +197,7 @@ public struct FaceMatcher {
 
         return ParticipantScore(
             participantUserId: participant.userId,
+            recipientMembershipId: participant.membershipId,
             faceIdentityId: participant.stableFaceIdentityId,
             faceProfileRevision: participant.faceProfileRevision,
             bestTemplate: evaluation.bestTemplate,
