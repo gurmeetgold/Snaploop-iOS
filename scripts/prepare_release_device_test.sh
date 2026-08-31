@@ -20,6 +20,8 @@ node --check functions/tripManager.js
 node --check functions/invitePreview.js
 node --check functions/inviteExpiry.js
 node --check functions/identityBoundMatches.js
+node --check functions/memberDirectory.js
+node --check functions/membershipIdentity.js
 
 echo "[4/4] Deploy release-test backend changes to getsnaploop"
 firebase deploy --project getsnaploop --only \
@@ -29,7 +31,9 @@ functions:updateEventManaged,\
 functions:manageEventMember,\
 functions:inviteByPhone,\
 functions:resolveInvitePreview,\
-functions:expirePendingInvites
+functions:expirePendingInvites,\
+functions:listEventMembers,\
+functions:assignMembershipIdentityOnCreate
 
 echo "Opening Xcode. SnapLoop Run is configured as Release. Select your physical iPhone and press Run."
 open SnapLoop.xcodeproj
