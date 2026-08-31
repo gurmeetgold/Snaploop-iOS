@@ -97,6 +97,16 @@ test("same civil-day Event is valid and covers a complete day", () => {
   assert.equal(result.startDay, result.endDay);
 });
 
+test("legacy compatibility still rejects reversed timestamps within one civil day", () => {
+  assert.throws(() => validateEventDatePayload({
+    startsAtMillis: millis("2026-08-16T20:00:00.000Z"),
+    endsAtMillis: millis("2026-08-16T08:00:00.000Z"),
+    startsAtOffsetMinutes: 0,
+    endsAtOffsetMinutes: 0,
+    nowOffsetMinutes: 0,
+  }, { nowMillis: millis("2026-08-16T12:00:00.000Z") }));
+});
+
 test("plus/minus fifteen-day today boundary is inclusive", () => {
   const nowMillis = millis("2026-08-16T12:00:00.000Z");
 
