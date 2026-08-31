@@ -22,6 +22,10 @@ const faceIdentityMigration = require("./faceIdentityMigration");
 const memberDirectory = require("./memberDirectory");
 const memberPreferences = require("./memberPreferences");
 const identityBoundMatches = require("./identityBoundMatches");
+const change4MatchPublishing = require("./change4MatchPublishing");
+const change4MemberActions = require("./change4MemberActions");
+const change4FaceProfileCleanup = require("./change4FaceProfileCleanup");
+const change4BiometricExpiry = require("./change4BiometricExpiry");
 const faceErasure = require("./faceErasure");
 const invitePreview = require("./invitePreview");
 
@@ -67,12 +71,12 @@ exports.listMyMatchedPhotos = identityBoundMatches.listMyMatchedPhotosIdentityBo
 exports.getMatchedThumbnail = identityBoundMatches.getMatchedThumbnailIdentityBound;
 exports.scrubParticipantBiometrics = privacy.scrubParticipantBiometrics;
 exports.scrubLegacyParticipantBiometrics = privacy.scrubLegacyParticipantBiometrics;
-exports.purgeExpiredBiometricProfiles = privacy.purgeExpiredBiometricProfiles;
-exports.scrubMatchesOnFaceProfileChange = identityBoundMatches.scrubMatchesOnFaceProfileChange;
+exports.purgeExpiredBiometricProfiles = change4BiometricExpiry.purgeExpiredBiometricProfiles;
+exports.scrubMatchesOnFaceProfileChange = change4FaceProfileCleanup.scrubMatchesOnFaceProfileChange;
 
-exports.setSharing = security.setSharingManaged;
-exports.publishMatch = identityBoundMatches.publishMatchIdentityBound;
-exports.dismissAppearance = security.dismissAppearanceTrusted;
+exports.setSharing = change4MemberActions.setSharingIdentityBound;
+exports.publishMatch = change4MatchPublishing.publishMatchIdentityBound;
+exports.dismissAppearance = change4MemberActions.dismissAppearanceIdentityBound;
 
 exports.purgeDeletedTripPreviews = privacy.purgeDeletedTripPreviews;
 exports.purgeExpiredTripPreviews = privacy.purgeExpiredTripPreviews;
