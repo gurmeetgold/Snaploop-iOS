@@ -96,6 +96,12 @@ public struct CameraSyncCoordinator {
             && !participant.faceProfileRevision.isEmpty
     }
 
+    private static func normalizedMembershipId(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// FaceMatcher's ambiguity margin compares identities against one another, so
     /// a change to any matchable roster row can change an old *negative* decision
     /// for another recipient. This revision conservatively reopens negatives while
@@ -119,6 +125,7 @@ public struct CameraSyncCoordinator {
         event: Event,
         participants: [EventParticipant],
         currentUserId: String,
+        sourceMembershipId explicitSourceMembershipId: String? = nil,
         includeOwnMatches: Bool = false,
         preferenceRevision: String = "default",
         onProgress: (@Sendable (SyncProgress) -> Void)? = nil
@@ -147,9 +154,15 @@ public struct CameraSyncCoordinator {
         let sourceInstallationId = accountInstallationIdentity.id(for: currentUserId)
         guard !sourceInstallationId.isEmpty else { throw AppError.notAuthenticated }
 
+        // Source membership is authorization state, not biometric state. The
+        // trusted face-roster manifest now supplies it independently so a member
+        // can continue contributing photos even if their own Face Setup is not a
+        // matchable recipient row. Keep participant fallback for rollout/tests.
         let sourceParticipant = participants.first(where: { $0.userId == currentUserId })
-        let sourceMembershipId = sourceParticipant?.membershipId
-        let sourceMembershipEpoch = sourceParticipant.map(AutomaticSyncIdentityScope.participantEpoch)
+        let sourceMembershipId = Self.normalizedMembershipId(explicitSourceMembershipId)
+            ?? Self.normalizedMembershipId(sourceParticipant?.membershipId)
+        let sourceMembershipEpoch = sourceMembershipId
+            ?? sourceParticipant.map(AutomaticSyncIdentityScope.participantEpoch)
 
         try Task.checkCancellation()
         let fetchedAssets = try await photoLibrary.assets(in: event.dateRange)
@@ -268,6 +281,11 @@ public struct CameraSyncCoordinator {
                     state.cache(cached)
                     corpusRecord = cached
                     passDiagnostics.newlyProcessedAssets += 1
+
+                    // Persist the expensive on-device extraction before any
+                    // network publication. A cancellation, background expiry or
+                    // transient upload failure can then retry from cached faces.
+                    scanStateStore.save(state)
                 } else {
                     passDiagnostics.cachedRematchAssets += 1
                 }
