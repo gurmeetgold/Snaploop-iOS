@@ -1,11 +1,17 @@
+import FirebaseAuth
 import FirebaseFunctions
 import Foundation
+
+struct EventFaceProfileManifest: Sendable {
+    let participants: [EventParticipant]
+    let sourceMembershipId: String?
+}
 
 /// Retrieves the minimum biometric matching set through a trusted callable.
 /// Firestore participant roster documents no longer expose face embeddings.
 enum EventFaceProfileClient {
     @MainActor
-    static func list(eventId: String) async throws -> [EventParticipant] {
+    static func manifest(eventId: String) async throws -> EventFaceProfileManifest {
         let raw: Any = try await withCheckedThrowingContinuation { continuation in
             Functions.functions().httpsCallable("listEventFaceProfiles").call([
                 "eventId": eventId
@@ -24,23 +30,39 @@ enum EventFaceProfileClient {
         }
 
         // Current backends return membershipId in the same trusted roster row as
-        // the biometric descriptor. That avoids a race where a leave/rejoin can
-        // happen between two independent callable reads. Keep one compatibility
-        // fallback for an older deployed backend during rollout, but never let
-        // fallback data override a generation supplied with the face roster.
+        // the biometric descriptor and also return the caller's authoritative
+        // membership generation independently of whether the caller currently
+        // has an active Face Setup. That distinction matters because sharing
+        // photos and being a match recipient are separate concerns.
         let requiresLegacyMembershipLookup = rows.contains {
             normalizedMembershipId($0["membershipId"]) == nil
         }
-        let legacyMembershipIds = requiresLegacyMembershipLookup
+        let backendSourceMembershipId = normalizedMembershipId(wrapper["callerMembershipId"])
+        let currentUserId = Auth.auth().currentUser?.uid
+        let needsSourceFallback = backendSourceMembershipId == nil && currentUserId != nil
+        let legacyMembershipIds = (requiresLegacyMembershipLookup || needsSourceFallback)
             ? ((try? await loadMembershipIds(eventId: eventId)) ?? [:])
             : [:]
 
-        return try rows.map { row in
+        let participants = try rows.map { row in
             let userId = row["userId"] as? String
             let membershipId = normalizedMembershipId(row["membershipId"])
                 ?? userId.flatMap { legacyMembershipIds[$0] }
             return try Self.decode(row, membershipId: membershipId)
         }
+        let sourceMembershipId = backendSourceMembershipId
+            ?? currentUserId.flatMap { legacyMembershipIds[$0] }
+
+        return EventFaceProfileManifest(
+            participants: participants,
+            sourceMembershipId: sourceMembershipId
+        )
+    }
+
+    /// Compatibility surface for callers that only need recipient descriptors.
+    @MainActor
+    static func list(eventId: String) async throws -> [EventParticipant] {
+        try await manifest(eventId: eventId).participants
     }
 
     @MainActor
