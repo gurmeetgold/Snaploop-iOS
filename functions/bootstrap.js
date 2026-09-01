@@ -1,4 +1,15 @@
 // Single export surface for production callables.
+//
+// firebase-admin v13 no longer exposes Firestore value classes on the legacy
+// admin.firestore namespace. A number of long-lived modules in this codebase
+// still read Timestamp/FieldValue/FieldPath from that namespace. Install one
+// explicit compatibility bridge before loading any implementation module so the
+// production runtime is deterministic while those modules are migrated to the
+// modular firebase-admin/firestore imports over time.
+const admin = require("firebase-admin");
+const { Timestamp, FieldValue, FieldPath } = require("firebase-admin/firestore");
+Object.assign(admin.firestore, { Timestamp, FieldValue, FieldPath });
+
 // Requiring index.js first initializes firebase-admin exactly once; legacy
 // implementation modules are then used only for the specific handlers that
 // remain authoritative. Security-sensitive aliases are overridden explicitly
