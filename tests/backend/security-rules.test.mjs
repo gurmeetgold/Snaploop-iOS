@@ -45,6 +45,7 @@ async function seedEvent({ photo = true } = {}) {
     await setDoc(doc(db, "events/event-1"), baseEvent);
     await setDoc(doc(db, "events/event-1/members/alice"), {
       userId: "alice",
+      membershipId: "membership-alice",
       role: "organizer",
       sharingEnabled: true,
       joinedAt: new Date("2026-08-18T00:00:00Z"),
@@ -52,19 +53,42 @@ async function seedEvent({ photo = true } = {}) {
     });
     await setDoc(doc(db, "events/event-1/members/bob"), {
       userId: "bob",
+      membershipId: "membership-bob",
       role: "participant",
       sharingEnabled: true,
       joinedAt: new Date("2026-08-18T00:00:00Z"),
       faceTemplateVersion: 5,
     });
+
+    // Change 4 preview authorization is bound to the viewer's stable biometric
+    // identity and exact uninterrupted Event membership generation. Keep this
+    // fixture representative of current production photo metadata rather than
+    // the pre-hardening legacy shape.
+    await setDoc(doc(db, "users/alice/faceProfile/current"), {
+      userId: "alice",
+      faceIdentityId: "face-alice",
+      version: 5,
+      updatedAt: new Date("2026-08-18T00:00:00Z"),
+    });
+
     if (photo) {
       await setDoc(doc(db, "events/event-1/photos/photo-1"), {
         id: "event-1:asset-1",
         eventId: "event-1",
         sourceUserId: "bob",
         assetLocalId: "asset-1",
-        appearances: [{ participantUserId: "alice", confidence: 0.91, dismissedByUser: false }],
+        appearances: [{
+          participantUserId: "alice",
+          confidence: 0.91,
+          faceIdentityId: "face-alice",
+          faceProfileRevision: "revision-alice",
+          recipientMembershipId: "membership-alice",
+          dismissedByUser: false,
+        }],
         matchedUserIds: ["alice"],
+        matchedFaceIdentityIds: { alice: "face-alice" },
+        matchedProfileRevisions: { alice: "revision-alice" },
+        matchedMembershipIds: { alice: "membership-alice" },
         capturedAt: new Date("2026-08-19T00:00:00Z"),
         matchedAt: new Date("2026-08-19T00:01:00Z"),
         thumbnailPath: "events/event-1/photos/bob/photo-1/thumbnail.jpg",
@@ -134,33 +158,49 @@ test("outsiders cannot enumerate event data or roster", async () => {
   await assertFails(getDoc(doc(outsider, "events/event-1/photos/photo-1")));
 });
 
-test("self face profile enrollment is allowed but direct biometric deletion is denied", async () => {
-  const alice = env.authenticatedContext("alice").firestore();
-  const bob = env.authenticatedContext("bob").firestore();
+test("face profile data is self-readable but all direct client mutations are denied", async () => {
   const profile = {
     userId: "alice",
-    embedding: [0.1, 0.2],
-    templates: [],
+    faceIdentityId: "face-alice",
     version: 5,
     updatedAt: new Date(),
   };
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "users/alice/faceProfile/current"), profile);
+  });
 
-  await assertSucceeds(setDoc(doc(alice, "users/alice/faceProfile/current"), profile));
-  await assertFails(setDoc(doc(bob, "users/alice/faceProfile/current"), profile));
-  await assertFails(deleteDoc(doc(alice, "users/alice/faceProfile/current")));
+  const alice = env.authenticatedContext("alice").firestore();
+  const bob = env.authenticatedContext("bob").firestore();
+  const profileRef = doc(alice, "users/alice/faceProfile/current");
+
+  await assertSucceeds(getDoc(profileRef));
+  await assertFails(getDoc(doc(bob, "users/alice/faceProfile/current")));
+  await assertFails(setDoc(profileRef, { ...profile, version: 6 }));
+  await assertFails(updateDoc(profileRef, { faceIdentityId: "forged-face" }));
+  await assertFails(deleteDoc(profileRef));
 });
 
-test("biometric consent withdrawal cannot be forged with a direct client write", async () => {
+test("biometric consent is self-readable but cannot be created, changed or withdrawn directly", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), "users/alice/privacy/biometricConsent"), {
+      userId: "alice",
+      policyVersion: 5,
+      acceptedAt: new Date(),
+      withdrawnAt: null,
+    });
+  });
+
   const alice = env.authenticatedContext("alice").firestore();
+  const bob = env.authenticatedContext("bob").firestore();
   const consentRef = doc(alice, "users/alice/privacy/biometricConsent");
 
-  await assertSucceeds(setDoc(consentRef, {
-    userId: "alice",
-    policyVersion: 1,
-    acceptedAt: new Date(),
-    withdrawnAt: null,
-  }));
+  await assertSucceeds(getDoc(consentRef));
+  await assertFails(getDoc(doc(bob, "users/alice/privacy/biometricConsent")));
   await assertFails(updateDoc(consentRef, { withdrawnAt: new Date() }));
+  await assertFails(setDoc(doc(alice, "users/alice/privacy/forgedConsent"), {
+    userId: "alice",
+    policyVersion: 5,
+  }));
 });
 
 test("organizer may only directly end an active event", async () => {
