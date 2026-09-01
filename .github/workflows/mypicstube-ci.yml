@@ -5,7 +5,19 @@ on:
     branches:
       - chatgpt/mvp-stabilization-2
       - chatgpt/principal-release-hardening
+    paths:
+      - 'functions/**'
+      - 'tests/backend/**'
+      - 'firestore.rules'
+      - 'firestore.indexes.json'
+      - 'storage.rules'
+      - 'firebase.json'
+      - '.firebaserc'
   workflow_dispatch:
+
+concurrency:
+  group: snaploop-verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backend-validate:
@@ -61,6 +73,7 @@ jobs:
             "node --test tests/backend/security-rules.test.mjs && node --test tests/backend/functions-integration.test.mjs && node --test tests/backend/change4-publishing-integration.test.mjs && node --test tests/backend/membership-identity.test.mjs && node --test tests/backend/event-date-edit-compatibility.test.mjs"
 
   build-test:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 60
     steps:
