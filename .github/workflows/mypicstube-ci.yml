@@ -42,6 +42,12 @@ jobs:
       - name: Verify Change 4 incremental match invariants
         run: node --test tests/backend/change4-match-metadata.test.mjs
 
+      - name: Use Java 21 for Firebase emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Install Firebase emulator test tools
         run: |
           npm install --global firebase-tools
