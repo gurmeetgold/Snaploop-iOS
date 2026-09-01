@@ -133,7 +133,8 @@ final class PhotoCorpusScanStateTests: XCTestCase {
     }
 
     func testSchemaThreeRecipientCursorDecodesWithoutStaleField() throws {
-        let data = Data(#"{
+        let data = Data(#"""
+        {
           "eventId":"schema-3",
           "schemaVersion":3,
           "recipientCursors":{
@@ -146,7 +147,8 @@ final class PhotoCorpusScanStateTests: XCTestCase {
               "negativeAssetIds":["negative"]
             }
           }
-        }"#.utf8)
+        }
+        """#.utf8)
 
         let decoded = try JSONDecoder().decode(ScanState.self, from: data)
         let cursor = try XCTUnwrap(decoded.recipientCursor(userId: "member"))

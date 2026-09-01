@@ -1,9 +1,8 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp, FieldValue } = require("firebase-admin/firestore");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
-const FieldValue = admin.firestore.FieldValue;
 
 exports.refreshMyFaceProfileManaged = onCall(async (request) => {
   if (!request.auth || !request.auth.uid) {

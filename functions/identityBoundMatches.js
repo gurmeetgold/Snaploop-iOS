@@ -1,11 +1,11 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { normalizedMembershipId } = require("./membershipIdentity");
 const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 const MAX_APPEARANCES = 50;
 const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;

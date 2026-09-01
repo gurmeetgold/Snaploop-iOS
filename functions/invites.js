@@ -1,9 +1,9 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 const PHOTO_WINDOW_DAYS = 15;
 
 function requireAuth(request) {

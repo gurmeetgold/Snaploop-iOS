@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const { randomUUID } = require("crypto");
 const admin = require("firebase-admin");
+const { Timestamp, FieldValue } = require("firebase-admin/firestore");
 const {
   PHOTO_WINDOW_VERSION,
   validateEventDatePayload,
@@ -8,8 +9,6 @@ const {
 } = require("./eventDateSemantics");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
-const FieldValue = admin.firestore.FieldValue;
 const MAX_PARTICIPANTS = 250;
 // Keep the Event open for late joins and photo recovery after it ends. This is
 // deliberately the same 15-day product window used by the launch MVP.

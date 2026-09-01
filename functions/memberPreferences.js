@@ -1,10 +1,10 @@
 const { randomUUID } = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { removeRecipientMatchMetadata } = require("./change4MatchMetadata");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {

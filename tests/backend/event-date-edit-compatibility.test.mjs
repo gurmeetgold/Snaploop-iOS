@@ -66,9 +66,11 @@ async function seedOrganizerEvent(uid, { startsAt, endsAt, name = "Legacy Event"
 }
 
 async function storedEvent() {
-  return env.withSecurityRulesDisabled(async (context) => {
-    return getDoc(doc(context.firestore(), "events/event-dates"));
+  let snapshot;
+  await env.withSecurityRulesDisabled(async (context) => {
+    snapshot = await getDoc(doc(context.firestore(), "events/event-dates"));
   });
+  return snapshot;
 }
 
 before(async () => {

@@ -1,5 +1,6 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { normalizedMembershipId } = require("./membershipIdentity");
 const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 const {
@@ -11,7 +12,6 @@ const {
 } = require("./change4MatchMetadata");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 const MAX_APPEARANCES = 50;
 const MAX_RECIPIENT_REMOVALS = 50;

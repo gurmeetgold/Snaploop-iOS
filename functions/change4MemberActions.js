@@ -1,6 +1,7 @@
 const { randomUUID } = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { normalizedMembershipId } = require("./membershipIdentity");
 const {
   dismissRecipientMatchMetadata,
@@ -8,7 +9,6 @@ const {
 } = require("./change4MatchMetadata");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {

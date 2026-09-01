@@ -1,9 +1,9 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PHOTO_WINDOW_DAYS = 15;
 

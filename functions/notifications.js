@@ -3,10 +3,10 @@ const { onCall, HttpsError } = require("firebase-functions/https");
 const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { isWithinEventGraceWindow } = require("./eventDateSemantics");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 const messaging = admin.messaging();
 const PHOTO_WINDOW_DAYS = 15;
 

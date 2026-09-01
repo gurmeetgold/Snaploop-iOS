@@ -1,9 +1,9 @@
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { removeRecipientMatchMetadata } = require("./change4MatchMetadata");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 function profileIdentity(profile) {
   return profile && typeof profile.faceIdentityId === "string" ? profile.faceIdentityId.trim() : "";

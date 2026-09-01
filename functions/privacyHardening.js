@@ -2,10 +2,9 @@ const { onCall, HttpsError } = require("firebase-functions/https");
 const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const { Timestamp, FieldValue } = require("firebase-admin/firestore");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
-const FieldValue = admin.firestore.FieldValue;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIFTEEN_DAY_CLEANUP_AFTER_MS = (14 * DAY_MS) + (23 * 60 * 60 * 1000);
@@ -498,7 +497,16 @@ exports.scrubParticipantBiometrics = onDocumentWritten("events/{eventId}/partici
   if (!after || !after.exists) return;
   const data = after.data() || {};
   if (!Object.prototype.hasOwnProperty.call(data, "faceEmbedding") && !Object.prototype.hasOwnProperty.call(data, "faceTemplates")) return;
-  await after.ref.update({ faceEmbedding: FieldValue.delete(), faceTemplates: FieldValue.delete() });
+  try {
+    await after.ref.update({ faceEmbedding: FieldValue.delete(), faceTemplates: FieldValue.delete() });
+  } catch (error) {
+    // A participant can be deleted after this write event is captured but before
+    // the scrub update executes. Deletion already guarantees the biometric
+    // fields are gone, so Firestore NOT_FOUND is a successful terminal outcome.
+    // Every other error remains actionable and must fail the invocation.
+    if (error && (error.code === 5 || error.code === "not-found")) return;
+    throw error;
+  }
 });
 
 exports.scrubLegacyParticipantBiometrics = onSchedule("every 24 hours", async () => {

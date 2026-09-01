@@ -1,10 +1,10 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 
 admin.initializeApp();
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 // Keep these aligned with the shipped RemoteConfigValues defaults for MVP.
 const MAX_PARTICIPANTS = 250;

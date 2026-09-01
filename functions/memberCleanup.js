@@ -1,10 +1,10 @@
 const { onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { normalizedMembershipId } = require("./membershipIdentity");
 const { removeRecipientMatchMetadata } = require("./change4MatchMetadata");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 async function commitOperations(operations) {
   for (let offset = 0; offset < operations.length; offset += 400) {

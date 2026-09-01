@@ -1,9 +1,8 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp, FieldValue } = require("firebase-admin/firestore");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
-const FieldValue = admin.firestore.FieldValue;
 
 const MAX_APPEARANCES = 50;
 const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;

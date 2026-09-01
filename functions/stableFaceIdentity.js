@@ -1,10 +1,10 @@
 const { randomUUID } = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 const { ensureMembershipIdentities } = require("./membershipIdentity");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BIOMETRIC_INACTIVITY_MS = 365 * DAY_MS;

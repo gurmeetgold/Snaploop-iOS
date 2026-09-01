@@ -157,7 +157,12 @@ final class CameraSyncCoordinatorTests: XCTestCase {
         let afterRefresh = try await coordinator.sync(event: event, participants: refreshedRoster, currentUserId: "alice")
 
         XCTAssertEqual(first.scanned, 1)
-        XCTAssertEqual(afterRefresh.scanned, 0, "Same-person Face Setup refresh must preserve prior positive matches")
+        XCTAssertEqual(
+            afterRefresh.scanned,
+            1,
+            "Same-person Face Setup refresh must re-evaluate the cached corpus without discarding the prior positive before reconciliation"
+        )
+        XCTAssertEqual(afterRefresh.matchedPhotos, 1)
         XCTAssertTrue(afterRefresh.alreadyCaughtUp)
     }
 

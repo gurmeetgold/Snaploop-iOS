@@ -1,9 +1,9 @@
 const { randomUUID } = require("crypto");
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
+const { Timestamp } = require("firebase-admin/firestore");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
 const CONSENT_POLICY_VERSION = 5;
 const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
 const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";

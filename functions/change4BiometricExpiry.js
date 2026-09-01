@@ -1,9 +1,8 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const { Timestamp, FieldPath } = require("firebase-admin/firestore");
 
 const db = admin.firestore();
-const Timestamp = admin.firestore.Timestamp;
-const FieldPath = admin.firestore.FieldPath;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BIOMETRIC_INACTIVITY_MS = 365 * DAY_MS;
