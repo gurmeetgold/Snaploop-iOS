@@ -125,11 +125,13 @@ final class JoinEventModel: ObservableObject {
         do {
             try await EventInviteClient.decline(eventId: event.id)
 
-            // Clear both local invite surfaces only after the server records the
-            // decline. Otherwise the same route can immediately re-present from
-            // UserDefaults/session state even though the user just declined it.
+            // A decline is terminal for this invitation. Remove every local
+            // presentation surface only after the server has persisted the
+            // account-scoped decision, then tell Home to evict its cached copy.
             PendingInviteStore.clear()
             session?.pendingRoute = nil
+            await PushNotificationClient.removeInviteNotifications(eventId: event.id)
+            NotificationCenter.default.post(name: .snapLoopInviteDeclined, object: event.id)
             phase = .declined
         } catch {
             actionError = (error as NSError).localizedDescription
