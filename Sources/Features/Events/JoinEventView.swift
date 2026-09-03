@@ -94,13 +94,21 @@ final class JoinEventModel: ObservableObject {
 
     func join(event: Event) async {
         guard !isJoining, !isDeclining else { return }
-        guard let env, let user = session?.user, let profile = session?.faceProfile else { return }
+        guard let env, let session, let user = session.user, let profile = session.faceProfile else { return }
         isJoining = true
         actionError = nil
         defer { isJoining = false }
         do {
             let service = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
             try await service.join(event: event, user: user, faceProfile: profile)
+
+            // Joining normally occurs while the app is already active, so there
+            // may be no new scenePhase transition to wake automatic scanning.
+            // Trigger it here so every join path (phone invite, link, QR, code)
+            // gets the same immediate first automatic pass.
+            AutomaticEventSync.shared.configure(environment: env, session: session)
+            AutomaticEventSync.shared.runWhenAppBecomesActive()
+
             phase = .joined(event)
         } catch let error as AppError {
             actionError = error.userMessage
