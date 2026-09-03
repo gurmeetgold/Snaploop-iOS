@@ -277,18 +277,18 @@ struct AllMyPhotosView: View {
         !selectedMatches.isEmpty && selectedMatches.allSatisfy { model.isFavorite($0) }
     }
 
+    private var galleryCountLabel: String {
+        model.photos.count == 1
+            ? "photo of you found across all events"
+            : "photos of you found across all events"
+    }
+
     var body: some View {
         ZStack {
             BrandScreenBackground()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    InsightBanner(value: "\(model.photos.count)", label: "photos found of you", systemImage: "sparkles")
-                        .padding(.horizontal)
-
-                    Text("Across all your Events")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
+                    InsightBanner(value: "\(model.photos.count)", label: galleryCountLabel, systemImage: "sparkles")
                         .padding(.horizontal)
 
                     HStack(spacing: 8) {
