@@ -78,6 +78,14 @@ final class HomeModel: ObservableObject {
         notifications.removeAll { $0.id == notification.id }
         try? await EventNotificationClient.markRead(userId: userId, notificationId: notification.id)
     }
+
+    /// Decline has already been persisted by the backend before this is called.
+    /// Evict Home's copied invitation/update state synchronously so the card does
+    /// not remain visible while the follow-up server refresh is in flight.
+    func invitationDeclined(eventId: String) {
+        pendingInviteRoute = nil
+        notifications.removeAll { $0.eventId == eventId }
+    }
 }
 
 struct HomeView: View {
@@ -153,6 +161,11 @@ struct HomeView: View {
             if phase == .active {
                 Task { await model.reload() }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .snapLoopInviteDeclined)) { notification in
+            guard let eventId = notification.object as? String, !eventId.isEmpty else { return }
+            model.invitationDeclined(eventId: eventId)
+            Task { await model.reload() }
         }
         .refreshable { await model.reload() }
         .sheet(isPresented: $showCreate) {
