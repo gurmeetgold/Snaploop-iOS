@@ -32,6 +32,10 @@ function phoneKey(phone) {
   return phone.replace(/\D/g, "");
 }
 
+function inviteDecisionRef(uid, eventId) {
+  return db.doc(`users/${uid}/inviteDecisions/${eventId}`);
+}
+
 async function requireOrganizer(eventId, uid) {
   const eventRef = db.doc(`events/${eventId}`);
   const eventSnap = await eventRef.get();
@@ -84,6 +88,15 @@ exports.inviteByPhone = onCall(async (request) => {
   if (targetUserId) {
     const pendingRef = db.doc(`users/${targetUserId}/pendingInvites/${eventId}`);
     batch.set(pendingRef, invite, { merge: true });
+
+    // A fresh explicit invite deliberately re-opens a previously declined Event.
+    // Keeping this server-side avoids stale local state making old invites reappear,
+    // while still allowing an organizer to invite the member again later.
+    batch.set(inviteDecisionRef(targetUserId, eventId), {
+      status: "invited",
+      inviteToken: event.inviteToken || null,
+      updatedAt: now,
+    }, { merge: true });
   }
   await batch.commit();
 
@@ -118,6 +131,27 @@ exports.nextPendingInvite = onCall(async (request) => {
   for (const doc of docs) {
     const invite = doc.data();
     const eventId = invite.eventId || doc.id;
+
+    // Decline state is account-scoped and server authoritative. This prevents a
+    // reinstalled app, a second phone, or stale local UserDefaults from surfacing
+    // the same pending invitation again. A new explicit invite resets this state
+    // to "invited" in inviteByPhone above.
+    const decisionSnap = await inviteDecisionRef(uid, eventId).get();
+    if (decisionSnap.exists && decisionSnap.data()?.status === "declined") {
+      const now = Timestamp.now();
+      const batch = db.batch();
+      batch.set(doc.ref, { status: "declined", updatedAt: now }, { merge: true });
+      if (invite.phoneNumber) {
+        batch.set(
+          db.doc(`events/${eventId}/invites/${phoneKey(invite.phoneNumber)}`),
+          { status: "declined", updatedAt: now },
+          { merge: true }
+        );
+      }
+      await batch.commit();
+      continue;
+    }
+
     const memberSnap = await db.doc(`events/${eventId}/members/${uid}`).get();
     if (memberSnap.exists) {
       await doc.ref.set({ status: "joined", updatedAt: Timestamp.now() }, { merge: true });
@@ -194,15 +228,25 @@ exports.declineEventInvite = onCall(async (request) => {
   const eventId = requireString((request.data || {}).eventId, "eventId");
   const pendingRef = db.doc(`users/${uid}/pendingInvites/${eventId}`);
   const pending = await pendingRef.get();
-  if (!pending.exists) return { eventId };
-
-  const data = pending.data();
+  const data = pending.exists ? pending.data() || {} : {};
+  const now = Timestamp.now();
   const batch = db.batch();
-  batch.set(pendingRef, { status: "declined", updatedAt: Timestamp.now() }, { merge: true });
+
+  // Always record the account-level decision, even when the invite arrived via a
+  // generic token/link and there is no pendingInvites document. This makes the
+  // decline durable across sign-out/in, reinstall, and multiple phones.
+  batch.set(inviteDecisionRef(uid, eventId), {
+    status: "declined",
+    updatedAt: now,
+  }, { merge: true });
+
+  if (pending.exists) {
+    batch.set(pendingRef, { status: "declined", updatedAt: now }, { merge: true });
+  }
   if (data.phoneNumber) {
     batch.set(
       db.doc(`events/${eventId}/invites/${phoneKey(data.phoneNumber)}`),
-      { status: "declined", updatedAt: Timestamp.now() },
+      { status: "declined", updatedAt: now },
       { merge: true }
     );
   }
