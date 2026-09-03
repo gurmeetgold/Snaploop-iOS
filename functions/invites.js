@@ -36,6 +36,22 @@ function inviteDecisionRef(uid, eventId) {
   return db.doc(`users/${uid}/inviteDecisions/${eventId}`);
 }
 
+async function removeInviteNotifications(uid, eventId) {
+  // Avoid a composite index solely for decline cleanup. Updates is bounded on the
+  // client already, so scanning a modest recent window and filtering in memory is
+  // sufficient for the MVP and keeps the decline path deterministic.
+  const snap = await db.collection(`users/${uid}/notifications`).limit(200).get();
+  const matching = snap.docs.filter((doc) => {
+    const data = doc.data() || {};
+    return data.type === "event_invite" && data.eventId === eventId;
+  });
+  if (matching.length === 0) return;
+
+  const batch = db.batch();
+  for (const doc of matching) batch.delete(doc.ref);
+  await batch.commit();
+}
+
 async function requireOrganizer(eventId, uid) {
   const eventRef = db.doc(`events/${eventId}`);
   const eventSnap = await eventRef.get();
@@ -149,6 +165,7 @@ exports.nextPendingInvite = onCall(async (request) => {
         );
       }
       await batch.commit();
+      await removeInviteNotifications(uid, eventId);
       continue;
     }
 
@@ -251,5 +268,11 @@ exports.declineEventInvite = onCall(async (request) => {
     );
   }
   await batch.commit();
+
+  // A decline is terminal for this invitation presentation. Remove the existing
+  // invitation activity records so Home/Updates cannot keep resurfacing stale UI.
+  // A later explicit organizer re-invite creates a new notification normally.
+  await removeInviteNotifications(uid, eventId);
+
   return { eventId };
 });
