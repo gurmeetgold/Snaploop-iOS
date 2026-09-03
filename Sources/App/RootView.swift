@@ -82,11 +82,19 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .myPicsRoomInviteReceived)) { notification in
             guard hasCompletedOnboarding else { return }
-            if let route = notification.object as? DeepLinkRoute, session.user != nil {
+
+            // Push delivery is not authoritative invitation state. A delayed iOS
+            // notification can arrive after the user already declined, so never
+            // recreate an authenticated popup directly from its token. Validate
+            // against `nextPendingInvite`, which applies the durable server-side
+            // decline decision before presenting anything again.
+            if session.user != nil {
+                guard session.pendingRoute == nil else { return }
+                Task { await refreshPendingInviteFromServer() }
+            } else if let route = notification.object as? DeepLinkRoute {
+                // Pre-auth capture still needs to survive until sign-in. Once the
+                // user authenticates, normal startup validation takes over.
                 PendingInviteStore.save(route)
-                session.pendingRoute = route
-            } else {
-                Task { await loadPendingInviteIfNeeded() }
             }
         }
         .onOpenURL { url in handleIncomingURL(url) }
@@ -188,6 +196,33 @@ struct RootView: View {
         if let route = DeepLinkRouter.route(for: url) {
             PendingInviteStore.save(route)
             session.pendingRoute = route
+        }
+    }
+
+    /// Force a direct-invite refresh from the server instead of trusting a push
+    /// payload or previously captured UserDefaults route. This is specifically
+    /// used for authenticated push delivery so an old notification cannot reopen
+    /// an invitation whose account-level decision is already `declined`.
+    @MainActor
+    private func refreshPendingInviteFromServer() async {
+        guard session.user != nil else { return }
+        guard AppEnvironment.useLiveServices else {
+            if let stored = PendingInviteStore.load() {
+                session.pendingRoute = stored
+            }
+            return
+        }
+
+        do {
+            let route = try await EventInviteClient.nextPendingRoute()
+            if let route {
+                PendingInviteStore.save(route)
+            } else {
+                PendingInviteStore.clear()
+            }
+            session.pendingRoute = route
+        } catch {
+            Log.events.error("Pending invite validation failed: \(String(describing: error), privacy: .public)")
         }
     }
 
