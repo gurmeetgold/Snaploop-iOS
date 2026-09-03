@@ -61,7 +61,7 @@ final class EditEventModel: ObservableObject {
         do {
             let trimmedLocation = locationName.trimmingCharacters(in: .whitespacesAndNewlines)
             let draft = EventDraft(
-                name: name,
+                name: String(name.prefix(20)),
                 category: category,
                 startsAt: startsAt,
                 endsAt: endsAt,
@@ -133,6 +133,13 @@ struct EditEventView: View {
         _model = StateObject(wrappedValue: EditEventModel(event: event))
     }
 
+    private var eventNameBinding: Binding<String> {
+        Binding(
+            get: { model.name },
+            set: { model.name = String($0.prefix(20)) }
+        )
+    }
+
     private func suggestedEndDate(from start: Date) -> Date {
         model.editingCalendar.date(byAdding: .day, value: 3, to: start)
             ?? start.addingTimeInterval(3 * 86_400)
@@ -167,7 +174,7 @@ struct EditEventView: View {
                     PremiumCard {
                         VStack(alignment: .leading, spacing: 14) {
                             Label("Event name", systemImage: "textformat").font(.subheadline.bold())
-                            TextField("Event name", text: $model.name)
+                            TextField("Event name", text: eventNameBinding)
                                 .textInputAutocapitalization(.words)
                                 .padding(14)
                                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
