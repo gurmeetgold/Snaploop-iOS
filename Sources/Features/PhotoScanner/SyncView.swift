@@ -205,7 +205,7 @@ struct SyncView: View {
                 .frame(width: 92, height: 92)
                 .shadow(color: Theme.hotPink.opacity(0.22), radius: 14, y: 6)
 
-                Text("Scan Photos")
+                Text("Scan Event Photos")
                     .font(.title3.bold())
                     .foregroundStyle(Theme.ink)
 
@@ -226,10 +226,25 @@ struct SyncView: View {
     private var photoAccessNotice: some View {
         switch photoAccessStatus {
         case .limited:
-            // Selected Photos is a valid operating mode. Scan what iOS currently
-            // exposes without repeatedly pushing the system picker at the user.
-            // The user can add photos explicitly from the Photo Access controls.
-            EmptyView()
+            VStack(spacing: 8) {
+                HStack(alignment: .top, spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(Color(red: 1.0, green: 0.9, blue: 0.0))
+                    Text("Limited Access — Only selected photos can be scanned. Select all event photos from your iPhone or allow full photos access.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Button("Select More Photos") { presentLimitedLibraryPicker() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.violet)
+
+                Button("Allow Full Photos Access") { openAppSettings() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.violet)
+            }
         case .denied:
             VStack(spacing: 8) {
                 Text("Photo access is off.")
@@ -260,7 +275,7 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Keep SnapLoop running in the foreground until the scan finishes.")
+                Text("Keep SnapLoop open in the foreground until the scan finishes.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
@@ -357,6 +372,23 @@ struct SyncView: View {
     @MainActor
     private func refreshPhotoAccessStatus() {
         photoAccessStatus = env.photoLibrary.authorizationStatus()
+    }
+
+    @MainActor
+    private func presentLimitedLibraryPicker() {
+        guard photoAccessStatus == .limited,
+              let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+              let rootViewController = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
+            return
+        }
+
+        var presenter = rootViewController
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: presenter)
     }
 
     @MainActor
