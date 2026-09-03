@@ -28,6 +28,8 @@ final class SyncModel: ObservableObject {
     private var env: AppEnvironment?
     private var session: AppSession?
     private var syncTask: Task<Void, Never>?
+    private var resumeAfterBackground = false
+    private var isAppActive = true
 
     func configure(env: AppEnvironment, session: AppSession) {
         self.env = env
@@ -37,14 +39,42 @@ final class SyncModel: ObservableObject {
     deinit { syncTask?.cancel() }
 
     func start(event: Event) {
+        resumeAfterBackground = false
+        begin(event: event)
+    }
+
+    private func begin(event: Event) {
         guard syncTask == nil else { return }
         syncTask = Task { [weak self] in await self?.run(event: event) }
     }
 
-    func cancel() { syncTask?.cancel() }
+    func cancel() {
+        resumeAfterBackground = false
+        syncTask?.cancel()
+    }
+
+    /// iOS does not guarantee foreground-style execution after the app moves to
+    /// the background. Stop the active pass cleanly, but remember that it should
+    /// resume when SnapLoop becomes active again. CameraSyncCoordinator persists
+    /// completed extraction/cursor state before publication, so the restarted pass
+    /// continues pending work instead of starting the Event from zero.
+    func appDidEnterBackground() {
+        isAppActive = false
+        guard syncTask != nil else { return }
+        resumeAfterBackground = true
+        syncTask?.cancel()
+    }
+
+    func appDidBecomeActive(event: Event) {
+        isAppActive = true
+        guard resumeAfterBackground, syncTask == nil else { return }
+        resumeAfterBackground = false
+        begin(event: event)
+    }
 
     func cancelForSafety(message: String) {
         guard syncTask != nil else { return }
+        resumeAfterBackground = false
         syncTask?.cancel()
         state = .failed(message)
     }
@@ -56,7 +86,16 @@ final class SyncModel: ObservableObject {
         }
 
         state = .running(SyncProgress(phase: .preparing))
-        defer { syncTask = nil }
+        defer {
+            syncTask = nil
+
+            // Foreground activation can race with cancellation unwinding. If the
+            // app became active before this Task reached defer, restart here.
+            if isAppActive && resumeAfterBackground {
+                resumeAfterBackground = false
+                begin(event: event)
+            }
+        }
 
         do {
             let preferences: MemberPhotoPreferences
@@ -92,6 +131,10 @@ final class SyncModel: ObservableObject {
                 state = .done(summary)
             }
         } catch is CancellationError {
+            // Background cancellation is an implementation detail, not a user-
+            // visible scan failure. The pass will resume from its checkpoint on
+            // the first foreground opportunity.
+            if resumeAfterBackground { return }
             if case .failed = state { return }
             state = .failed(AppError.syncCancelled.userMessage)
         } catch let error as AppError {
@@ -139,9 +182,10 @@ struct SyncView: View {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .background {
-                model.cancelForSafety(message: "Photo scan stopped because SnapLoop moved to the background. Return to SnapLoop and try again.")
+                model.appDidEnterBackground()
             } else if newPhase == .active {
                 refreshPhotoAccessStatus()
+                model.appDidBecomeActive(event: event)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
@@ -231,7 +275,7 @@ struct SyncView: View {
                     .font(.headline).foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text("You can move to other SnapLoop screens while scanning. Keep SnapLoop open in the foreground until the scan finishes.")
+                Text("Keep SnapLoop running in the foreground until the scan finishes.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
