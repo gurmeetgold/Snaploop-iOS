@@ -13,9 +13,8 @@ final class ProfileNameModel: ObservableObject {
 
     func save(session: AppSession) async -> Bool {
         guard !isSaving else { return false }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = String(name.prefix(20)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { errorMessage = "Enter at least 2 characters."; return false }
-        guard trimmed.count <= 40 else { errorMessage = "Keep your name to 40 characters or fewer."; return false }
         guard var user = session.user else { errorMessage = "Your account session could not be loaded."; return false }
 
         isSaving = true
@@ -52,6 +51,13 @@ struct ProfileNameView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model = ProfileNameModel()
 
+    private var nameBinding: Binding<String> {
+        Binding(
+            get: { model.name },
+            set: { model.name = String($0.prefix(20)) }
+        )
+    }
+
     var body: some View {
         ZStack {
             BrandScreenBackground()
@@ -74,7 +80,7 @@ struct ProfileNameView: View {
                             Label("Display name", systemImage: "person.text.rectangle.fill")
                                 .font(.subheadline.bold())
                                 .foregroundStyle(Theme.ink)
-                            TextField("Your name", text: $model.name)
+                            TextField("Your name", text: nameBinding)
                                 .textInputAutocapitalization(.words)
                                 .autocorrectionDisabled()
                                 .submitLabel(.done)
