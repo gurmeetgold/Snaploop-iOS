@@ -13,7 +13,7 @@ const MAX_PARTICIPANTS = 250;
 // Keep the Event open for late joins and photo recovery after it ends. This is
 // deliberately the same 15-day product window used by the launch MVP.
 const GRACE_PERIOD_DAYS = 15;
-const MAX_EVENT_NAME_LENGTH = 80;
+const MAX_EVENT_NAME_LENGTH = 20;
 const MAX_LOCATION_LENGTH = 120;
 const EVENT_CATEGORIES = new Set([
   "trip", "wedding", "party", "birthday", "conference", "family", "sports", "other",
