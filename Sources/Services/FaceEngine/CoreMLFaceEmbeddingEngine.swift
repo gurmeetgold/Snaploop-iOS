@@ -3,44 +3,6 @@ import CoreML
 import Foundation
 import Vision
 
-/// Protects Vision's completion callback and VNImageRequestHandler.perform error
-/// path from ever resuming the same checked continuation twice.
-private final class VisionContinuationGate<Value>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Value, Error>?
-    private var finished = false
-
-    init(_ continuation: CheckedContinuation<Value, Error>) {
-        self.continuation = continuation
-    }
-
-    func succeed(_ value: Value) {
-        finish(.success(value))
-    }
-
-    func fail(_ error: Error) {
-        finish(.failure(error))
-    }
-
-    private func finish(_ result: Result<Value, Error>) {
-        lock.lock()
-        guard !finished else {
-            lock.unlock()
-            return
-        }
-        finished = true
-        let continuation = continuation
-        self.continuation = nil
-        lock.unlock()
-
-        guard let continuation else { return }
-        switch result {
-        case .success(let value): continuation.resume(returning: value)
-        case .failure(let error): continuation.resume(throwing: error)
-        }
-    }
-}
-
 /// Identity-trained AuraFace v1 embedding engine.
 ///
 /// Expected bundled resource: `SnapLoopFaceEmbedding.mlmodel` (compiled by
@@ -89,46 +51,38 @@ public final class CoreMLFaceEmbeddingEngine: FaceEmbeddingEngine, @unchecked Se
         }
         try Task.checkCancellation()
 
-        let embedding: FaceEmbedding = try await withCheckedThrowingContinuation { continuation in
-            let gate = VisionContinuationGate<FaceEmbedding>(continuation)
-            let request = VNCoreMLRequest(model: visionModel) { request, error in
-                if let error {
-                    Log.matching.error("AuraFace inference failed: \(String(describing: error), privacy: .public)")
-                    gate.fail(AppError.faceEmbeddingFailed)
-                    return
-                }
+        // `VNImageRequestHandler.perform` is synchronous. Using a checked
+        // continuation here is unnecessary and unsafe during app interruption:
+        // Vision may report an error through the request callback and also throw
+        // from `perform`, which is the exact double-resume crash seen on device.
+        // Execute synchronously and inspect results after `perform` returns so
+        // this function has exactly one completion/error path.
+        let request = VNCoreMLRequest(model: visionModel)
+        request.imageCropAndScaleOption = .scaleFill
 
-                guard let observation = request.results?
-                    .compactMap({ $0 as? VNCoreMLFeatureValueObservation })
-                    .first,
-                      let array = observation.featureValue.multiArrayValue,
-                      array.count == 512 else {
-                    gate.fail(AppError.faceEmbeddingFailed)
-                    return
-                }
-
-                let vector = (0..<array.count).map { array[$0].floatValue }
-                guard let embedding = FaceEmbedding(vector) else {
-                    gate.fail(AppError.faceEmbeddingFailed)
-                    return
-                }
-                gate.succeed(embedding)
-            }
-
-            request.imageCropAndScaleOption = .scaleFill
-
-            do {
-                try VNImageRequestHandler(cgImage: image, orientation: .up)
-                    .perform([request])
-            } catch {
-                // Vision can report through the completion callback and throw
-                // from perform during interruption. The gate guarantees one
-                // terminal continuation resume regardless of callback ordering.
-                gate.fail(AppError.faceEmbeddingFailed)
-            }
+        do {
+            try VNImageRequestHandler(cgImage: image, orientation: .up)
+                .perform([request])
+        } catch {
+            Log.matching.error("AuraFace inference failed: \(String(describing: error), privacy: .public)")
+            throw AppError.faceEmbeddingFailed
         }
 
         try Task.checkCancellation()
+
+        guard let observation = request.results?
+            .compactMap({ $0 as? VNCoreMLFeatureValueObservation })
+            .first,
+              let array = observation.featureValue.multiArrayValue,
+              array.count == 512 else {
+            throw AppError.faceEmbeddingFailed
+        }
+
+        let vector = (0..<array.count).map { array[$0].floatValue }
+        guard let embedding = FaceEmbedding(vector) else {
+            throw AppError.faceEmbeddingFailed
+        }
+
         return embedding
     }
 }
