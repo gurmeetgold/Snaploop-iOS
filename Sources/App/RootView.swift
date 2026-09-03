@@ -32,6 +32,12 @@ struct RootView: View {
                                 PendingInviteStore.clear()
                                 session.pendingRoute = nil
                                 session.activeEvent = event
+
+                                // Joining happens while SnapLoop is already active,
+                                // so scenePhase may not change again. Start the first
+                                // automatic Event scan immediately instead of waiting
+                                // for the next foreground/background opportunity.
+                                configureAutomaticSyncAndRun()
                             }
                         }
                     }
