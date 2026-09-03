@@ -92,3 +92,17 @@ test("every literal callable used by the iOS source is exported by production bo
   const missing = [...used].filter((name) => !exported.has(name));
   assert.deepEqual(missing, [], `Missing callable exports: ${missing.join(", ")}`);
 });
+
+test("release device testing deploys the complete matching backend and security rules", () => {
+  const script = fs.readFileSync("scripts/prepare_release_device_test.sh", "utf8");
+  assert.match(
+    script,
+    /firebase deploy --project getsnaploop --only functions,firestore:rules,storage/,
+    "Release device tests must deploy all Functions plus Firestore/Storage rules so the iOS Change 4 contract cannot run against a stale partial backend."
+  );
+  assert.doesNotMatch(
+    script,
+    /functions:publishMatch|functions:listEventFaceProfiles|functions:listMyMatchedPhotos/,
+    "Do not return to a hand-maintained matching-function allowlist; deploy the complete Functions surface for a Release device test."
+  );
+});
