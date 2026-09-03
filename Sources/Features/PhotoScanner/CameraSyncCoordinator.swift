@@ -78,6 +78,38 @@ public struct CameraSyncCoordinator {
         }
     }
 
+    private struct PreferenceRevisions {
+        let sharing: String?
+        let ownMatches: String?
+    }
+
+    /// The client sends a combined token (`share=...;own=...`) so automatic sync
+    /// wakes for either preference. The two revisions must be applied separately:
+    /// changing "Keep My Pics" may invalidate only the source user's own cursor,
+    /// while changing sharing generation can require replaying every previously
+    /// published positive from this source.
+    private static func preferenceRevisions(_ rawValue: String) -> PreferenceRevisions {
+        let raw = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return PreferenceRevisions(sharing: nil, ownMatches: nil) }
+
+        guard raw.contains("share=") || raw.contains("own=") else {
+            // Backward compatibility for pre-combined callers/tests.
+            return PreferenceRevisions(sharing: raw, ownMatches: nil)
+        }
+
+        var sharing: String?
+        var ownMatches: String?
+        for component in raw.split(separator: ";", omittingEmptySubsequences: true) {
+            let value = String(component)
+            if value.hasPrefix("share=") {
+                sharing = normalizedRevision(String(value.dropFirst("share=".count)))
+            } else if value.hasPrefix("own=") {
+                ownMatches = normalizedRevision(String(value.dropFirst("own=".count)))
+            }
+        }
+        return PreferenceRevisions(sharing: sharing, ownMatches: ownMatches)
+    }
+
     /// Stable local namespace: Event + account-scoped installation + face-model
     /// generation. Roster/template/preferences are deliberately absent; those
     /// changes are represented by recipient cursors rather than duplicate corpora.
@@ -198,12 +230,19 @@ public struct CameraSyncCoordinator {
             state.sourceMembershipEpoch = sourceMembershipEpoch
         }
 
+        let revisions = Self.preferenceRevisions(preferenceRevision)
+        // Schema-v5 migration can contain the old combined token inside the
+        // sharing slot. Parse that old value before normalizing the two fields so
+        // upgrading does not cause a needless replay for every Event member.
+        let previouslyStoredCombined = state.sourceSharingRevision.map(Self.preferenceRevisions)
+
         // Sharing OFF deletes this source account's server photo rows. When it is
         // enabled again, the server issues a new sharing revision. Reopen only the
         // old positive cursor outcomes so those rows are republished from cached
         // face extraction; negatives still represent valid misses.
-        if let sharingRevision = Self.normalizedRevision(preferenceRevision) {
-            if let previous = state.sourceSharingRevision {
+        if let sharingRevision = revisions.sharing {
+            let previousSharingRevision = previouslyStoredCombined?.sharing
+            if let previous = previousSharingRevision {
                 if previous != sharingRevision {
                     state.clearPositiveRecipientEvaluations()
                 }
@@ -215,6 +254,26 @@ public struct CameraSyncCoordinator {
                 state.clearPositiveRecipientEvaluations()
             }
             state.sourceSharingRevision = sharingRevision
+        }
+
+        // "Keep My Pics" / own-photo visibility is intentionally independent
+        // from source sharing. A change can only affect the source user's own
+        // recipient cursor. In particular it must never turn arbitrary contact or
+        // non-matching photos into own matches, and it must not force rematching
+        // every other Event member.
+        if let ownMatchesRevision = revisions.ownMatches {
+            let previousOwnRevision = state.sourceOwnMatchesRevision
+                ?? previouslyStoredCombined?.ownMatches
+            if let previous = previousOwnRevision {
+                if previous != ownMatchesRevision {
+                    state.removeRecipientCursor(userId: currentUserId)
+                }
+            } else if state.recipientCursor(userId: currentUserId) != nil {
+                // One-time safe migration for a pre-v5 state that had an own
+                // cursor but no dedicated own preference generation.
+                state.removeRecipientCursor(userId: currentUserId)
+            }
+            state.sourceOwnMatchesRevision = ownMatchesRevision
         }
 
         let ambiguityRevision = Self.ambiguityRosterRevision(participants)
