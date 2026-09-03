@@ -26,6 +26,8 @@ public struct EventDraft: Equatable, Sendable {
 }
 
 public struct EventFactory {
+    public static let maximumNameLength = 20
+
     public struct Generators {
         public var id: () -> String
         public var joinCode: () -> String
@@ -60,7 +62,7 @@ public struct EventFactory {
 
     public func make(draft: EventDraft, creatorUserId: String) throws -> Event {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw AppError.invalidEventName }
+        guard !name.isEmpty, name.count <= Self.maximumNameLength else { throw AppError.invalidEventName }
         let now = clock.now()
         try EventLifecycle.validateDates(
             startsAt: draft.startsAt,
@@ -108,7 +110,7 @@ public struct EventFactory {
         datesChanged: Bool = true
     ) throws -> Event {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw AppError.invalidEventName }
+        guard !name.isEmpty, name.count <= Self.maximumNameLength else { throw AppError.invalidEventName }
         let now = clock.now()
 
         var updated = event
