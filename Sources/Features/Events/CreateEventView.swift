@@ -38,7 +38,7 @@ final class CreateEventModel: ObservableObject {
                 calendar: eventCalendar
             )
             let draft = EventDraft(
-                name: name,
+                name: String(name.prefix(20)),
                 category: category,
                 startsAt: startsAt,
                 endsAt: endsAt,
@@ -70,6 +70,13 @@ struct CreateEventView: View {
     }
 
     private var creationCalendar: Calendar { EventLifecycle.calendar() }
+
+    private var eventNameBinding: Binding<String> {
+        Binding(
+            get: { model.name },
+            set: { model.name = String($0.prefix(20)) }
+        )
+    }
 
     private var allowedDates: ClosedRange<Date> {
         EventLifecycle.allowedDateRange(
@@ -110,7 +117,7 @@ struct CreateEventView: View {
                         PremiumCard {
                             VStack(alignment: .leading, spacing: 14) {
                                 fieldLabel("Event name", icon: "textformat")
-                                TextField("e.g. Banff Weekend", text: $model.name)
+                                TextField("e.g. Banff Weekend", text: eventNameBinding)
                                     .textInputAutocapitalization(.words)
                                     .padding(14)
                                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
