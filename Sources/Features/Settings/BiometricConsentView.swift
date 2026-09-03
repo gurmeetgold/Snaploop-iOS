@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 
 struct BiometricConsentView: View {
@@ -12,14 +13,34 @@ struct BiometricConsentView: View {
     @State private var confirmWithdrawal = false
     @State private var ageConfirmed = false
     @State private var noticeConfirmed = false
-
-    private let launchJurisdiction = BiometricJurisdiction(countryCode: "IN")
+    @State private var launchJurisdiction = BiometricConsentView.localeFallbackJurisdiction()
 
     private var canAccept: Bool {
         launchJurisdiction.isFaceMatchAvailable
             && ageConfirmed
             && noticeConfirmed
             && !isSaving
+    }
+
+    private var countryName: String {
+        BiometricJurisdictionCatalog.countryName(for: launchJurisdiction.countryCode)
+    }
+
+    private var subdivisionName: String? {
+        BiometricJurisdictionCatalog.subdivisionName(
+            countryCode: launchJurisdiction.countryCode,
+            subdivisionCode: launchJurisdiction.subdivisionCode
+        )
+    }
+
+    private var residenceAttestation: String {
+        if launchJurisdiction.countryCode == "CA", let subdivisionName {
+            return "I confirm I am at least 18 years old and ordinarily reside in \(subdivisionName), Canada."
+        }
+        if launchJurisdiction.countryCode == "IN" {
+            return "I confirm I am at least 18 years old and ordinarily reside in India."
+        }
+        return "Face Match is not available for this App Store region."
     }
 
     var body: some View {
@@ -51,6 +72,9 @@ struct BiometricConsentView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This deletes your active Face Setup and related face-matching data and stops Face Match until you consent and set it up again.")
+            }
+            .task {
+                await resolveStorefrontJurisdiction()
             }
         }
     }
@@ -171,21 +195,53 @@ struct BiometricConsentView: View {
 
     private var launchResidenceCard: some View {
         PremiumCard {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 9) {
                 HStack {
                     Label("Residence", systemImage: "mappin.and.ellipse")
                         .font(.subheadline.bold())
                         .foregroundStyle(Theme.ink)
                     Spacer()
-                    Label("India", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Theme.violet)
+                    if launchJurisdiction.isFaceMatchAvailable {
+                        Label(countryName, systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(Theme.violet)
+                    } else {
+                        Text(countryName)
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
-                Text("SnapLoop's first public release supports Face Match for residents of India only. No GPS or precise address is required.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if launchJurisdiction.countryCode == "CA" {
+                    Divider()
+                    HStack {
+                        Text("Province or territory")
+                            .font(.caption.bold())
+                            .foregroundStyle(Theme.ink)
+                        Spacer()
+                        Picker("Province or territory", selection: subdivisionSelection) {
+                            ForEach(BiometricJurisdictionCatalog.subdivisions(for: "CA")) { subdivision in
+                                Text(subdivision.name).tag(subdivision.code)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .tint(Theme.violet)
+                    }
+                    Text("Face Match is available in Canada except Quebec. Ontario is selected by default. No GPS or precise address is required.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if launchJurisdiction.countryCode == "IN" {
+                    Text("Face Match is available for residents of India. No GPS or precise address is required.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Face Match is not currently available for this App Store region.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -199,7 +255,7 @@ struct BiometricConsentView: View {
 
                 checkboxRow(
                     checked: ageConfirmed,
-                    text: "I confirm I am at least 18 years old and ordinarily reside in India."
+                    text: residenceAttestation
                 ) { ageConfirmed.toggle() }
 
                 Divider()
@@ -210,6 +266,16 @@ struct BiometricConsentView: View {
                 ) { noticeConfirmed.toggle() }
             }
         }
+    }
+
+    private var subdivisionSelection: Binding<String> {
+        Binding(
+            get: { launchJurisdiction.subdivisionCode },
+            set: { code in
+                launchJurisdiction = BiometricJurisdiction(countryCode: "CA", subdivisionCode: code)
+                ageConfirmed = false
+            }
+        )
     }
 
     private func checkboxRow(checked: Bool, text: String, action: @escaping () -> Void) -> some View {
@@ -227,7 +293,7 @@ struct BiometricConsentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isSaving)
+        .disabled(isSaving || !launchJurisdiction.isFaceMatchAvailable)
         .accessibilityValue(checked ? "Selected" : "Not selected")
     }
 
@@ -247,6 +313,31 @@ struct BiometricConsentView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    @MainActor
+    private func resolveStorefrontJurisdiction() async {
+        guard !consentActive else { return }
+
+        if let storefront = await Storefront.current {
+            switch storefront.countryCode.uppercased() {
+            case "CAN":
+                launchJurisdiction = BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON")
+            case "IND":
+                launchJurisdiction = BiometricJurisdiction(countryCode: "IN")
+            default:
+                launchJurisdiction = BiometricJurisdiction(countryCode: storefront.countryCode)
+            }
+            ageConfirmed = false
+            noticeConfirmed = false
+        }
+    }
+
+    private static func localeFallbackJurisdiction() -> BiometricJurisdiction {
+        if Locale.current.region?.identifier.uppercased() == "IN" {
+            return BiometricJurisdiction(countryCode: "IN")
+        }
+        return BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON")
     }
 
     @MainActor
