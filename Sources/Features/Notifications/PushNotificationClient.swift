@@ -6,6 +6,7 @@ import UserNotifications
 
 extension Notification.Name {
     static let myPicsRoomInviteReceived = Notification.Name("MyPicsRoomInviteReceived")
+    static let snapLoopInviteDeclined = Notification.Name("SnapLoopInviteDeclined")
 }
 
 @MainActor
@@ -83,6 +84,34 @@ enum PushNotificationClient {
             "platform": "ios",
             "appBundleId": Bundle.main.bundleIdentifier ?? "",
         ])
+    }
+
+    /// Remove already-delivered or still-pending iOS invite notifications for the
+    /// Event after the server accepts a decline. Server notification records are
+    /// deleted separately by `declineEventInvite`; this closes the device-local
+    /// presentation surface as well without affecting invitations for other Events.
+    @MainActor
+    static func removeInviteNotifications(eventId: String) async {
+        guard !eventId.isEmpty else { return }
+        let center = UNUserNotificationCenter.current()
+
+        let delivered = await center.deliveredNotifications()
+        let deliveredIds = delivered.compactMap { notification -> String? in
+            let payloadEventId = notification.request.content.userInfo["eventId"] as? String
+            return payloadEventId == eventId ? notification.request.identifier : nil
+        }
+        if !deliveredIds.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: deliveredIds)
+        }
+
+        let pending = await center.pendingNotificationRequests()
+        let pendingIds = pending.compactMap { request -> String? in
+            let payloadEventId = request.content.userInfo["eventId"] as? String
+            return payloadEventId == eventId ? request.identifier : nil
+        }
+        if !pendingIds.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: pendingIds)
+        }
     }
 
     static func capturePushPayload(_ userInfo: [AnyHashable: Any]) {

@@ -138,6 +138,11 @@ final class SyncModel: ObservableObject {
             if case .failed = state { return }
             state = .failed(AppError.syncCancelled.userMessage)
         } catch let error as AppError {
+            // CameraSyncCoordinator persists its checkpoint and currently maps a
+            // cancellation to AppError.syncCancelled. Treat that exactly like the
+            // raw CancellationError above when the cancellation came from iOS
+            // backgrounding; a user-initiated Stop still surfaces the normal state.
+            if error == .syncCancelled && resumeAfterBackground { return }
             if case .failed = state { return }
             state = .failed(error.userMessage)
         } catch {
