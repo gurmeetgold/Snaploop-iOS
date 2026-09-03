@@ -93,7 +93,8 @@ final class OwnMatchRegressionTests: XCTestCase {
             includeOwnMatches: false,
             preferenceRevision: "share=s1;own=o1"
         )
-        XCTAssertTrue(try await matches.myPhotos(eventId: event.id, userId: "alice").isEmpty)
+        let beforeEnabling = try await matches.myPhotos(eventId: event.id, userId: "alice")
+        XCTAssertTrue(beforeEnabling.isEmpty)
 
         // Turning the option ON changes only the own-match generation. The next
         // pass must reuse the cached extraction, open Alice's recipient cursor and
