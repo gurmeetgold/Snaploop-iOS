@@ -24,26 +24,47 @@ public struct BiometricJurisdiction: Equatable, Codable, Sendable {
         self.subdivisionCode = subdivisionCode.uppercased()
     }
 
-    /// The first public SnapLoop release is intentionally limited to India.
-    /// Keeping this check narrow prevents an old/stale client value from
-    /// accidentally enabling Face Match in another jurisdiction.
     public var isFaceMatchAvailable: Bool {
-        countryCode == "IN" && subdivisionCode.isEmpty
+        if countryCode == "IN" { return subdivisionCode.isEmpty }
+        if countryCode == "CA" {
+            return BiometricJurisdictionCatalog.canadianSubdivisionCodes.contains(subdivisionCode)
+        }
+        return false
     }
 }
 
 public enum BiometricJurisdictionCatalog {
-    /// India is the only residence offered for the first public release.
     public static let countries = [
-        BiometricJurisdictionOption(code: "IN", name: "India")
+        BiometricJurisdictionOption(code: "IN", name: "India"),
+        BiometricJurisdictionOption(code: "CA", name: "Canada")
     ]
 
+    /// Quebec is deliberately excluded from the launch allowlist. Keeping the
+    /// allowlist explicit also makes stale or injected subdivision values fail
+    /// closed instead of enabling Face Match accidentally.
+    public static let canadianSubdivisions = [
+        BiometricJurisdictionOption(code: "AB", name: "Alberta"),
+        BiometricJurisdictionOption(code: "BC", name: "British Columbia"),
+        BiometricJurisdictionOption(code: "MB", name: "Manitoba"),
+        BiometricJurisdictionOption(code: "NB", name: "New Brunswick"),
+        BiometricJurisdictionOption(code: "NL", name: "Newfoundland and Labrador"),
+        BiometricJurisdictionOption(code: "NS", name: "Nova Scotia"),
+        BiometricJurisdictionOption(code: "NT", name: "Northwest Territories"),
+        BiometricJurisdictionOption(code: "NU", name: "Nunavut"),
+        BiometricJurisdictionOption(code: "ON", name: "Ontario"),
+        BiometricJurisdictionOption(code: "PE", name: "Prince Edward Island"),
+        BiometricJurisdictionOption(code: "SK", name: "Saskatchewan"),
+        BiometricJurisdictionOption(code: "YT", name: "Yukon")
+    ]
+
+    public static let canadianSubdivisionCodes = Set(canadianSubdivisions.map(\.code))
+
     public static func subdivisions(for countryCode: String) -> [BiometricJurisdictionOption] {
-        []
+        countryCode.uppercased() == "CA" ? canadianSubdivisions : []
     }
 
     public static func firstAvailableSubdivision(for countryCode: String) -> String {
-        ""
+        countryCode.uppercased() == "CA" ? "ON" : ""
     }
 }
 
