@@ -334,10 +334,16 @@ struct BiometricConsentView: View {
     }
 
     private static func localeFallbackJurisdiction() -> BiometricJurisdiction {
-        if Locale.current.region?.identifier.uppercased() == "IN" {
+        switch Locale.current.region?.identifier.uppercased() {
+        case "CA":
+            return BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON")
+        case "IN":
             return BiometricJurisdiction(countryCode: "IN")
+        case let region?:
+            return BiometricJurisdiction(countryCode: region)
+        case nil:
+            return BiometricJurisdiction(countryCode: "UN")
         }
-        return BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON")
     }
 
     @MainActor
