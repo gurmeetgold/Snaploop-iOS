@@ -57,6 +57,18 @@ final class EventCreationTests: XCTestCase {
         }
     }
 
+    func testAcceptsExactlyTwentyCharacterName() {
+        let draft = EventDraft(name: String(repeating: "A", count: 20), startsAt: now, endsAt: now + day)
+        XCTAssertNoThrow(try factory().make(draft: draft, creatorUserId: "u1"))
+    }
+
+    func testRejectsEventNameOverTwentyCharacters() {
+        let draft = EventDraft(name: String(repeating: "A", count: 21), startsAt: now, endsAt: now + day)
+        XCTAssertThrowsError(try factory().make(draft: draft, creatorUserId: "u1")) {
+            XCTAssertEqual($0 as? AppError, .invalidEventName)
+        }
+    }
+
     func testRejectsEndBeforeStart() {
         let draft = EventDraft(name: "Bad", startsAt: now, endsAt: now - day)
         XCTAssertThrowsError(try factory().make(draft: draft, creatorUserId: "u1")) {
