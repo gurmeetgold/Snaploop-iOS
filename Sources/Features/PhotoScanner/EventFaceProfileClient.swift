@@ -29,15 +29,24 @@ enum EventFaceProfileClient {
             throw AppError.decoding("Event face profile response is malformed")
         }
 
-        // Current backends return membershipId in the same trusted roster row as
-        // the biometric descriptor and also return the caller's authoritative
-        // membership generation independently of whether the caller currently
-        // has an active Face Setup. That distinction matters because sharing
-        // photos and being a match recipient are separate concerns.
-        let requiresLegacyMembershipLookup = rows.contains {
+        // Change 4 requires the same server revision that returns authoritative
+        // membership generations with the biometric roster. The Release device
+        // test used to deploy only a subset of Functions, leaving this callable
+        // stale while the iOS client had already moved to source-scoped matching.
+        // Fail before scanning rather than letting every positive publication fail
+        // asset-by-asset and masquerade as another scan batch.
+        let backendSourceMembershipId = normalizedMembershipId(wrapper["callerMembershipId"])
+        let hasLegacyRosterRows = rows.contains {
             normalizedMembershipId($0["membershipId"]) == nil
         }
-        let backendSourceMembershipId = normalizedMembershipId(wrapper["callerMembershipId"])
+        if AppEnvironment.useLiveServices,
+           (backendSourceMembershipId == nil || hasLegacyRosterRows) {
+            throw AppError.matchingServiceOutdated
+        }
+
+        // Compatibility fallback is retained for non-live/test callers and old
+        // fixtures. A production Release build must pass the contract check above.
+        let requiresLegacyMembershipLookup = hasLegacyRosterRows
         let currentUserId = Auth.auth().currentUser?.uid
         let needsSourceFallback = backendSourceMembershipId == nil && currentUserId != nil
         let legacyMembershipIds = (requiresLegacyMembershipLookup || needsSourceFallback)
