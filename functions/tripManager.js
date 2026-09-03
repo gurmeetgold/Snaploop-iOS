@@ -79,7 +79,7 @@ exports.updateTripManaged = onCall(async (request) => {
 
     const update = { updatedAt: Timestamp.now() };
     if (data.name !== undefined) {
-      update.name = cleanString(data.name, "Event name", 80);
+      update.name = cleanString(data.name, "Event name", 20);
       eventName = update.name;
     }
     if (data.category !== undefined) {
