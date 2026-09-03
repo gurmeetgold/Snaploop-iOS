@@ -32,6 +32,10 @@ function phoneKey(phone) {
   return phone.replace(/\D/g, "");
 }
 
+function timestampMillis(value) {
+  return value && typeof value.toMillis === "function" ? value.toMillis() : 0;
+}
+
 function inviteDecisionRef(uid, eventId) {
   return db.doc(`users/${uid}/inviteDecisions/${eventId}`);
 }
@@ -139,8 +143,8 @@ exports.nextPendingInvite = onCall(async (request) => {
   const docs = [...snap.docs].sort((a, b) => {
     const at = a.data().createdAt;
     const bt = b.data().createdAt;
-    const am = at && typeof at.toMillis === "function" ? at.toMillis() : 0;
-    const bm = bt && typeof bt.toMillis === "function" ? bt.toMillis() : 0;
+    const am = timestampMillis(at);
+    const bm = timestampMillis(bt);
     return am - bm;
   });
 
@@ -150,23 +154,38 @@ exports.nextPendingInvite = onCall(async (request) => {
 
     // Decline state is account-scoped and server authoritative. This prevents a
     // reinstalled app, a second phone, or stale local UserDefaults from surfacing
-    // the same pending invitation again. A new explicit invite resets this state
-    // to "invited" in inviteByPhone above.
-    const decisionSnap = await inviteDecisionRef(uid, eventId).get();
+    // the same pending invitation again. A genuinely newer explicit invitation
+    // is allowed to reopen the Event even though production invite creation is
+    // routed through eventManagement.js rather than this module's compatibility
+    // inviteByPhone export.
+    const decisionRef = inviteDecisionRef(uid, eventId);
+    const decisionSnap = await decisionRef.get();
     if (decisionSnap.exists && decisionSnap.data()?.status === "declined") {
-      const now = Timestamp.now();
-      const batch = db.batch();
-      batch.set(doc.ref, { status: "declined", updatedAt: now }, { merge: true });
-      if (invite.phoneNumber) {
-        batch.set(
-          db.doc(`events/${eventId}/invites/${phoneKey(invite.phoneNumber)}`),
-          { status: "declined", updatedAt: now },
-          { merge: true }
-        );
+      const decision = decisionSnap.data() || {};
+      const declinedAtMillis = timestampMillis(decision.updatedAt);
+      const invitedAtMillis = timestampMillis(invite.createdAt);
+
+      if (invitedAtMillis > declinedAtMillis) {
+        await decisionRef.set({
+          status: "invited",
+          inviteToken: invite.inviteToken || null,
+          updatedAt: invite.updatedAt || invite.createdAt || Timestamp.now(),
+        }, { merge: true });
+      } else {
+        const now = Timestamp.now();
+        const batch = db.batch();
+        batch.set(doc.ref, { status: "declined", updatedAt: now }, { merge: true });
+        if (invite.phoneNumber) {
+          batch.set(
+            db.doc(`events/${eventId}/invites/${phoneKey(invite.phoneNumber)}`),
+            { status: "declined", updatedAt: now },
+            { merge: true }
+          );
+        }
+        await batch.commit();
+        await removeInviteNotifications(uid, eventId);
+        continue;
       }
-      await batch.commit();
-      await removeInviteNotifications(uid, eventId);
-      continue;
     }
 
     const memberSnap = await db.doc(`events/${eventId}/members/${uid}`).get();
