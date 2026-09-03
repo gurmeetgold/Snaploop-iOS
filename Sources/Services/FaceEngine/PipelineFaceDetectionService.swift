@@ -62,11 +62,13 @@ public final class PipelineFaceDetectionService: FaceDetectionService, FaceDiagn
 
     public func diagnose(in imageData: Data) async throws -> FacePipelineDiagnostics {
         guard isReadyForMatching else { throw AppError.faceRecognitionNotReady }
+        try Task.checkCancellation()
         let alignment = try await FaceAligner.diagnostics(in: imageData, outputSize: engine.expectedInputSize)
         var samples: [FacePipelineSample] = []
         samples.reserveCapacity(alignment.alignedFaces.count)
 
         for (index, face) in alignment.alignedFaces.enumerated() {
+            try Task.checkCancellation()
             let alignedJPEG = UIImage(cgImage: face.image).jpegData(compressionQuality: 0.92)
             var reason: String?
             var embedding: FaceEmbedding?
@@ -80,6 +82,12 @@ public final class PipelineFaceDetectionService: FaceDetectionService, FaceDiagn
             } else {
                 do {
                     embedding = try await engine.embedding(forAlignedFace: face.image)
+                } catch is CancellationError {
+                    // App backgrounding intentionally cancels the active scan.
+                    // Never downgrade cancellation into an ordinary rejected face:
+                    // CameraSyncCoordinator must see it so this asset is not
+                    // checkpointed as a completed no-face result.
+                    throw CancellationError()
                 } catch {
                     reason = "embedding failed"
                     Log.matching.error("Skipping one face after v5 embedding failure: \(String(describing: error), privacy: .public)")
@@ -100,6 +108,7 @@ public final class PipelineFaceDetectionService: FaceDetectionService, FaceDiagn
             ))
         }
 
+        try Task.checkCancellation()
         return FacePipelineDiagnostics(
             engineIdentifier: engine.identifier,
             modelVersion: engine.modelVersion,
