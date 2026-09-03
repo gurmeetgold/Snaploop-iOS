@@ -64,6 +64,10 @@ public final class CoreMLFaceEmbeddingEngine: FaceEmbeddingEngine, @unchecked Se
             try VNImageRequestHandler(cgImage: image, orientation: .up)
                 .perform([request])
         } catch {
+            // Backgrounding cancels the owning scan task. Preserve cancellation
+            // semantics instead of converting that interruption into a permanent
+            // per-face inference failure that callers might checkpoint.
+            if Task.isCancelled { throw CancellationError() }
             Log.matching.error("AuraFace inference failed: \(String(describing: error), privacy: .public)")
             throw AppError.faceEmbeddingFailed
         }
