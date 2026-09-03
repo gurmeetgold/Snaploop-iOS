@@ -252,7 +252,7 @@ final class AutomaticEventSync {
 
                     // Exactly one coordinator batch per automatic pass. The
                     // coordinator itself applies the device-safety batch cap.
-                    _ = try await environment.makeSyncCoordinator().sync(
+                    let summary = try await environment.makeSyncCoordinator().sync(
                         event: event,
                         participants: manifest.participants,
                         currentUserId: userId,
@@ -261,6 +261,19 @@ final class AutomaticEventSync {
                         preferenceRevision: preferences.revisionToken
                     )
                     guard session.isCurrent(executionContext) else { return false }
+
+                    // Never record a failed pass as synchronized. The old code
+                    // saved the roster fingerprint even when every publication
+                    // failed, which suppressed automatic recovery until the next
+                    // cooldown. Failed assets remain pending and should retry on
+                    // the next eligible foreground/background opportunity.
+                    if summary.hasRetryableFailures {
+                        Log.scanner.error(
+                            "Automatic scan left retryable photo work pending count=\(summary.remaining, privacy: .public)"
+                        )
+                        continue
+                    }
+
                     saveFingerprint(
                         fingerprint,
                         for: event.id,
