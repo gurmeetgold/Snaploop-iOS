@@ -2,6 +2,8 @@ import SwiftUI
 
 @MainActor
 final class EditEventModel: ObservableObject {
+    static let maximumNameCharacters = 20
+
     @Published var name: String
     @Published var category: EventCategory
     @Published var startsAt: Date
@@ -25,6 +27,12 @@ final class EditEventModel: ObservableObject {
 
     var editingCalendar: Calendar { baseline.photoWindowCalendar }
     var editingTimeZone: TimeZone { editingCalendar.timeZone }
+
+    func enforceNameCharacterLimit() {
+        if name.count > Self.maximumNameCharacters {
+            name = String(name.prefix(Self.maximumNameCharacters))
+        }
+    }
 
     func configure(env: AppEnvironment) async {
         guard !didConfigure else { return }
@@ -171,6 +179,9 @@ struct EditEventView: View {
                                 .textInputAutocapitalization(.words)
                                 .padding(14)
                                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                                .onChange(of: model.name) { _, _ in
+                                    model.enforceNameCharacterLimit()
+                                }
                             Divider()
                             Label("Type", systemImage: model.category.systemImage).font(.subheadline.bold())
                             Picker("Type", selection: $model.category) {
