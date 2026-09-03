@@ -1,4 +1,28 @@
+import StoreKit
 import SwiftUI
+
+enum ConsentStorefrontResolver {
+    /// StoreKit reports ISO 3166-1 alpha-3 storefront codes. SnapLoop stores the
+    /// existing alpha-2 jurisdiction codes used by the backend and consent data.
+    /// Locale is used only when StoreKit cannot return a storefront at all,
+    /// which keeps development/TestFlight flows usable without overriding a
+    /// known unsupported App Store storefront.
+    static func appCountryCode(storefrontCountryCode: String?, localeRegionCode: String?) -> String? {
+        if let storefrontCountryCode {
+            switch storefrontCountryCode.uppercased() {
+            case "IND": return "IN"
+            case "CAN": return "CA"
+            default: return nil
+            }
+        }
+
+        switch localeRegionCode?.uppercased() {
+        case "IN": return "IN"
+        case "CA": return "CA"
+        default: return nil
+        }
+    }
+}
 
 struct BiometricConsentView: View {
     let consentActive: Bool
@@ -12,11 +36,35 @@ struct BiometricConsentView: View {
     @State private var confirmWithdrawal = false
     @State private var ageConfirmed = false
     @State private var noticeConfirmed = false
+    @State private var storefrontCountryCode: String?
+    @State private var selectedSubdivision = "ON"
+    @State private var storefrontResolved = false
 
-    private let launchJurisdiction = BiometricJurisdiction(countryCode: "IN")
+    private var launchJurisdiction: BiometricJurisdiction? {
+        guard let storefrontCountryCode else { return nil }
+        return BiometricJurisdiction(
+            countryCode: storefrontCountryCode,
+            subdivisionCode: storefrontCountryCode == "CA" ? selectedSubdivision : ""
+        )
+    }
+
+    private var countryName: String? {
+        switch storefrontCountryCode {
+        case "IN": return "India"
+        case "CA": return "Canada"
+        default: return nil
+        }
+    }
+
+    private var selectedSubdivisionName: String? {
+        guard storefrontCountryCode == "CA" else { return nil }
+        return BiometricJurisdictionCatalog.canadianSubdivisions
+            .first(where: { $0.code == selectedSubdivision })?.name
+    }
 
     private var canAccept: Bool {
-        launchJurisdiction.isFaceMatchAvailable
+        storefrontResolved
+            && launchJurisdiction?.isFaceMatchAvailable == true
             && ageConfirmed
             && noticeConfirmed
             && !isSaving
@@ -52,6 +100,7 @@ struct BiometricConsentView: View {
             } message: {
                 Text("This deletes your active Face Setup and related face-matching data and stops Face Match until you consent and set it up again.")
             }
+            .task { await resolveStorefrontIfNeeded() }
         }
     }
 
@@ -177,15 +226,41 @@ struct BiometricConsentView: View {
                         .font(.subheadline.bold())
                         .foregroundStyle(Theme.ink)
                     Spacer()
-                    Label("India", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Theme.violet)
+                    if !storefrontResolved {
+                        ProgressView()
+                    } else if let countryName {
+                        Label(countryName, systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(Theme.violet)
+                    } else {
+                        Text("Unavailable")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
-                Text("SnapLoop's first public release supports Face Match for residents of India only. No GPS or precise address is required.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if storefrontCountryCode == "CA" {
+                    Divider()
+                    Picker("Province or territory", selection: $selectedSubdivision) {
+                        ForEach(BiometricJurisdictionCatalog.canadianSubdivisions) { subdivision in
+                            Text(subdivision.name).tag(subdivision.code)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Theme.violet)
+                }
+
+                if let countryName {
+                    Text("SnapLoop uses your App Store storefront to preselect \(countryName). Confirm below that this is where you ordinarily reside. No GPS or precise address is required.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if storefrontResolved {
+                    Text("Face Match is not currently available for this App Store storefront.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -199,8 +274,9 @@ struct BiometricConsentView: View {
 
                 checkboxRow(
                     checked: ageConfirmed,
-                    text: "I confirm I am at least 18 years old and ordinarily reside in India."
+                    text: residenceAttestationText
                 ) { ageConfirmed.toggle() }
+                .disabled(launchJurisdiction?.isFaceMatchAvailable != true)
 
                 Divider()
 
@@ -208,8 +284,19 @@ struct BiometricConsentView: View {
                     checked: noticeConfirmed,
                     text: "I read the Face Match Notice, confirm Face Setup will use my own face only, and expressly consent to the described biometric processing."
                 ) { noticeConfirmed.toggle() }
+                .disabled(launchJurisdiction?.isFaceMatchAvailable != true)
             }
         }
+    }
+
+    private var residenceAttestationText: String {
+        if storefrontCountryCode == "CA", let selectedSubdivisionName {
+            return "I confirm I am at least 18 years old and ordinarily reside in \(selectedSubdivisionName), Canada."
+        }
+        if storefrontCountryCode == "IN" {
+            return "I confirm I am at least 18 years old and ordinarily reside in India."
+        }
+        return "I confirm I am at least 18 years old and ordinarily reside in the supported jurisdiction shown above."
     }
 
     private func checkboxRow(checked: Bool, text: String, action: @escaping () -> Void) -> some View {
@@ -250,8 +337,23 @@ struct BiometricConsentView: View {
     }
 
     @MainActor
+    private func resolveStorefrontIfNeeded() async {
+        guard !storefrontResolved else { return }
+        let storefront = await Storefront.current
+        let resolved = ConsentStorefrontResolver.appCountryCode(
+            storefrontCountryCode: storefront?.countryCode,
+            localeRegionCode: Locale.current.region?.identifier
+        )
+        storefrontCountryCode = resolved
+        selectedSubdivision = BiometricJurisdictionCatalog.firstAvailableSubdivision(for: resolved ?? "")
+        ageConfirmed = false
+        noticeConfirmed = false
+        storefrontResolved = true
+    }
+
+    @MainActor
     private func accept() async {
-        guard canAccept else { return }
+        guard canAccept, let launchJurisdiction else { return }
         isWithdrawing = false
         isSaving = true
         errorMessage = nil
