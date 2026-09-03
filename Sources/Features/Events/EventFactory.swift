@@ -110,7 +110,10 @@ public struct EventFactory {
         datesChanged: Bool = true
     ) throws -> Event {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name.count <= Self.maximumNameCharacters else { throw AppError.invalidEventName }
+        guard !name.isEmpty else { throw AppError.invalidEventName }
+        if name != event.name, name.count > Self.maximumNameCharacters {
+            throw AppError.invalidEventName
+        }
         let now = clock.now()
 
         var updated = event
