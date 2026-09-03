@@ -12,6 +12,7 @@ public enum AppError: Error, Equatable, Sendable {
     case faceEmbeddingFailed
     case faceIdentityMismatch
     case faceRecognitionNotReady
+    case matchingServiceOutdated
     case deviceTooWarm
     case syncCancelled
     case eventNotFound
@@ -57,6 +58,8 @@ public extension AppError {
             return "This scan does not match your current Face Setup. To protect privacy, an existing Face Setup can only be updated with the same person."
         case .faceRecognitionNotReady:
             return "Camera matching is not ready for this build. Your photos have not been marked as scanned."
+        case .matchingServiceOutdated:
+            return "SnapLoop's matching service is not updated for this app build. No photos were marked as checked. Update the Release backend, then try again."
         case .deviceTooWarm:
             return "iOS reported critical thermal pressure, so SnapLoop paused photo scanning to protect performance. Let your iPhone cool down, then try again."
         case .syncCancelled:
