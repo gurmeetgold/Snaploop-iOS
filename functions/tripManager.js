@@ -5,6 +5,7 @@ const { validateEventDatePayload, PHOTO_WINDOW_VERSION } = require("./eventDateS
 
 const db = admin.firestore();
 const ALLOWED_CATEGORIES = new Set(["trip","wedding","party","birthday","conference","family","sports","other"]);
+const MAX_EVENT_NAME_LENGTH = 20;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -79,7 +80,7 @@ exports.updateTripManaged = onCall(async (request) => {
 
     const update = { updatedAt: Timestamp.now() };
     if (data.name !== undefined) {
-      update.name = cleanString(data.name, "Event name", 80);
+      update.name = cleanString(data.name, "Event name", MAX_EVENT_NAME_LENGTH);
       eventName = update.name;
     }
     if (data.category !== undefined) {
