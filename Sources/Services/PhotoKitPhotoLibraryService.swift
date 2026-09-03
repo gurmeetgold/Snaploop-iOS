@@ -4,6 +4,94 @@ import Photos
 import UIKit
 import UniformTypeIdentifiers
 
+/// Thread-safe one-shot bridge for PhotoKit's callback APIs. PhotoKit may deliver
+/// degraded + final callbacks and cancellation/error callbacks can race with task
+/// cancellation. Only the first terminal outcome is allowed to resume Swift's
+/// checked continuation.
+private final class PhotoRequestGate<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Value, Error>?
+    private var requestID: PHImageRequestID?
+    private var cancelled = false
+    private var finished = false
+
+    /// Returns false when cancellation happened before the continuation was
+    /// installed. In that case this method resumes it with CancellationError.
+    func install(_ continuation: CheckedContinuation<Value, Error>) -> Bool {
+        lock.lock()
+        if cancelled {
+            finished = true
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return false
+        }
+        if finished {
+            lock.unlock()
+            return false
+        }
+        self.continuation = continuation
+        lock.unlock()
+        return true
+    }
+
+    /// Returns true when the underlying PhotoKit request should be cancelled
+    /// immediately because task cancellation raced request creation.
+    func setRequestID(_ requestID: PHImageRequestID) -> Bool {
+        lock.lock()
+        self.requestID = requestID
+        let shouldCancel = cancelled
+        lock.unlock()
+        return shouldCancel
+    }
+
+    func succeed(_ value: Value) {
+        finish(.success(value))
+    }
+
+    func fail(_ error: Error) {
+        finish(.failure(error))
+    }
+
+    /// Resumes the Swift continuation immediately and returns the PhotoKit request
+    /// ID, if one already exists, so the caller can cancel underlying image work.
+    func cancel() -> PHImageRequestID? {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return nil
+        }
+        cancelled = true
+        let requestID = requestID
+        let continuation = continuation
+        if continuation != nil {
+            finished = true
+            self.continuation = nil
+        }
+        lock.unlock()
+
+        continuation?.resume(throwing: CancellationError())
+        return requestID
+    }
+
+    private func finish(_ result: Result<Value, Error>) {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        guard let continuation else { return }
+        switch result {
+        case .success(let value): continuation.resume(returning: value)
+        case .failure(let error): continuation.resume(throwing: error)
+        }
+    }
+}
+
 /// Production PhotoKit implementation. Reads only the current device's library.
 public final class PhotoKitPhotoLibraryService: PhotoLibraryService, @unchecked Sendable {
     private let imageManager: PHImageManager
@@ -73,36 +161,42 @@ public final class PhotoKitPhotoLibraryService: PhotoLibraryService, @unchecked 
         options.version = .current
         options.isNetworkAccessAllowed = true
 
-        let image: UIImage = try await withCheckedThrowingContinuation { continuation in
-            var finished = false
-            imageManager.requestImage(
-                for: asset,
-                targetSize: targetSize,
-                contentMode: .aspectFit,
-                options: options
-            ) { image, info in
-                guard !finished else { return }
+        let gate = PhotoRequestGate<UIImage>()
+        let image: UIImage = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard gate.install(continuation) else { return }
 
-                if let cancelled = info?[PHImageCancelledKey] as? Bool, cancelled {
-                    finished = true
-                    continuation.resume(throwing: CancellationError())
-                    return
+                let requestID = imageManager.requestImage(
+                    for: asset,
+                    targetSize: targetSize,
+                    contentMode: .aspectFit,
+                    options: options
+                ) { image, info in
+                    if let cancelled = info?[PHImageCancelledKey] as? Bool, cancelled {
+                        gate.fail(CancellationError())
+                        return
+                    }
+                    if let error = info?[PHImageErrorKey] as? Error {
+                        gate.fail(error)
+                        return
+                    }
+                    if let degraded = info?[PHImageResultIsDegradedKey] as? Bool, degraded {
+                        return
+                    }
+                    guard let image else {
+                        gate.fail(AppError.originalUnavailable)
+                        return
+                    }
+                    gate.succeed(image)
                 }
-                if let error = info?[PHImageErrorKey] as? Error {
-                    finished = true
-                    continuation.resume(throwing: error)
-                    return
+
+                if gate.setRequestID(requestID) {
+                    imageManager.cancelImageRequest(requestID)
                 }
-                if let degraded = info?[PHImageResultIsDegradedKey] as? Bool, degraded {
-                    return
-                }
-                guard let image else {
-                    finished = true
-                    continuation.resume(throwing: AppError.originalUnavailable)
-                    return
-                }
-                finished = true
-                continuation.resume(returning: image)
+            }
+        } onCancel: {
+            if let requestID = gate.cancel() {
+                self.imageManager.cancelImageRequest(requestID)
             }
         }
 
@@ -119,6 +213,7 @@ public final class PhotoKitPhotoLibraryService: PhotoLibraryService, @unchecked 
         guard authorizationStatus().canRead else {
             throw AppError.photoLibraryAccessDenied
         }
+        try Task.checkCancellation()
 
         let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [assetId], options: nil)
         guard let asset = fetch.firstObject else {
@@ -130,19 +225,39 @@ public final class PhotoKitPhotoLibraryService: PhotoLibraryService, @unchecked 
         options.version = .current
         options.isNetworkAccessAllowed = true
 
-        return try await withCheckedThrowingContinuation { continuation in
-            imageManager.requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
-                if let error = info?[PHImageErrorKey] as? Error {
-                    continuation.resume(throwing: error)
-                    return
+        let gate = PhotoRequestGate<Data>()
+        let data: Data = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard gate.install(continuation) else { return }
+
+                let requestID = imageManager.requestImageDataAndOrientation(for: asset, options: options) { data, _, _, info in
+                    if let cancelled = info?[PHImageCancelledKey] as? Bool, cancelled {
+                        gate.fail(CancellationError())
+                        return
+                    }
+                    if let error = info?[PHImageErrorKey] as? Error {
+                        gate.fail(error)
+                        return
+                    }
+                    guard let data else {
+                        gate.fail(AppError.originalUnavailable)
+                        return
+                    }
+                    gate.succeed(data)
                 }
-                guard let data else {
-                    continuation.resume(throwing: AppError.originalUnavailable)
-                    return
+
+                if gate.setRequestID(requestID) {
+                    imageManager.cancelImageRequest(requestID)
                 }
-                continuation.resume(returning: data)
+            }
+        } onCancel: {
+            if let requestID = gate.cancel() {
+                self.imageManager.cancelImageRequest(requestID)
             }
         }
+
+        try Task.checkCancellation()
+        return data
     }
 
     private static func map(_ status: PHAuthorizationStatus) -> PhotoAuthorization {
