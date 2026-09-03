@@ -116,6 +116,12 @@ final class JoinEventModel: ObservableObject {
         defer { isDeclining = false }
         do {
             try await EventInviteClient.decline(eventId: event.id)
+
+            // Clear both local invite surfaces only after the server records the
+            // decline. Otherwise the same route can immediately re-present from
+            // UserDefaults/session state even though the user just declined it.
+            PendingInviteStore.clear()
+            session?.pendingRoute = nil
             phase = .declined
         } catch {
             actionError = (error as NSError).localizedDescription
