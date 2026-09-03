@@ -2,6 +2,24 @@ import Photos
 import SwiftUI
 import UIKit
 
+extension CameraSyncCoordinator.Summary {
+    /// CameraSyncCoordinator currently processes at most 100 assets in one pass,
+    /// and Release Remote Config clamps the requested batch to at least 100.
+    /// Therefore a pass that finishes with `remaining > 0` but fewer than 100
+    /// completed assets necessarily had one or more per-asset failures. Treating
+    /// those failed assets as a second batch was the reason the UI could show
+    /// "Scan complete" followed by "Scan Next Batch" for a 10-photo scan.
+    var hasRetryableFailures: Bool {
+        remaining > 0 && scanned < 100
+    }
+
+    /// True only when the current 100-photo pass completed and there is genuine
+    /// additional batch work. Failed assets are recovery work, not a new batch.
+    var hasDeferredBatchWork: Bool {
+        remaining > 0 && !hasRetryableFailures
+    }
+}
+
 @MainActor
 final class SyncModel: ObservableObject {
     enum State: Equatable { case idle, running(SyncProgress), done(CameraSyncCoordinator.Summary), failed(String) }
@@ -66,7 +84,13 @@ final class SyncModel: ObservableObject {
             ) { [weak self] progress in
                 Task { @MainActor in self?.state = .running(progress) }
             }
-            state = .done(summary)
+
+            if summary.hasRetryableFailures {
+                let noun = summary.remaining == 1 ? "photo is" : "photos are"
+                state = .failed("\(summary.remaining) \(noun) still pending because the scan could not finish processing or sharing them. Nothing failed is marked as complete. Try again.")
+            } else {
+                state = .done(summary)
+            }
         } catch is CancellationError {
             if case .failed = state { return }
             state = .failed(AppError.syncCancelled.userMessage)
@@ -256,19 +280,20 @@ struct SyncView: View {
                 .frame(width: 94, height: 94)
                 .shadow(color: Theme.hotPink.opacity(0.20), radius: 14, y: 6)
 
-                Text(summary.alreadyCaughtUp ? "You're up to date" : "Scan complete")
+                let didCheckPhotos = summary.scanned > 0
+                Text(didCheckPhotos ? "Scan complete" : "You're up to date")
                     .font(.title3.bold())
                     .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
 
-                Text(summary.alreadyCaughtUp
-                     ? "No new photos need scanning for this Event."
-                     : "Matched photos are now available to the Event members found in them.")
+                Text(didCheckPhotos
+                     ? "Matched photos are now available to the Event members found in them."
+                     : "No new photos need scanning for this Event.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                if summary.hasMore {
+                if summary.hasDeferredBatchWork {
                     Button { model.start(event: event) } label: {
                         Label("Scan Next Batch", systemImage: "arrow.triangle.2.circlepath")
                     }
