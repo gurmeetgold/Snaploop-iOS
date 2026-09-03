@@ -137,6 +137,16 @@ final class ParticipantsModel: ObservableObject {
                 }
                 includeOwnMatches = confirmed
             }
+
+            // Turning this on changes the recipient generation, but the app is
+            // already foregrounded so no scenePhase transition occurs to trigger
+            // AutomaticEventSync. Run it immediately; CameraSyncCoordinator will
+            // replay the protected local corpus for only this newly-enabled self
+            // recipient instead of requiring new photos or a full ML rescan.
+            if enabled, let env, let session {
+                AutomaticEventSync.shared.configure(environment: env, session: session)
+                AutomaticEventSync.shared.runWhenAppBecomesActive()
+            }
         } catch {
             includeOwnMatches = previous
             errorMessage = EventManagementClient.userMessage(for: error)
