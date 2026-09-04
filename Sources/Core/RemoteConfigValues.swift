@@ -15,6 +15,10 @@ public struct RemoteConfigValues: Equatable, Sendable {
     public var aiBestShotEnabled: Bool
     public var aiBlurFilterEnabled: Bool
     public var aiHighlightsEnabled: Bool
+    public var analyticsEnabled: Bool
+    public var performanceMonitoringEnabled: Bool
+    public var sessionReplayEnabled: Bool
+    public var feedbackSurveysEnabled: Bool
 
     public init(
         matchConfidenceThreshold: Double,
@@ -30,7 +34,11 @@ public struct RemoteConfigValues: Equatable, Sendable {
         maxParticipantsPerEvent: Int,
         aiBestShotEnabled: Bool = true,
         aiBlurFilterEnabled: Bool = true,
-        aiHighlightsEnabled: Bool = true
+        aiHighlightsEnabled: Bool = true,
+        analyticsEnabled: Bool = true,
+        performanceMonitoringEnabled: Bool = true,
+        sessionReplayEnabled: Bool = false,
+        feedbackSurveysEnabled: Bool = false
     ) {
         self.matchConfidenceThreshold = matchConfidenceThreshold
         self.matchAmbiguityMargin = matchAmbiguityMargin
@@ -46,6 +54,10 @@ public struct RemoteConfigValues: Equatable, Sendable {
         self.aiBestShotEnabled = aiBestShotEnabled
         self.aiBlurFilterEnabled = aiBlurFilterEnabled
         self.aiHighlightsEnabled = aiHighlightsEnabled
+        self.analyticsEnabled = analyticsEnabled
+        self.performanceMonitoringEnabled = performanceMonitoringEnabled
+        self.sessionReplayEnabled = sessionReplayEnabled
+        self.feedbackSurveysEnabled = feedbackSurveysEnabled
     }
 
     /// MVP previews are intentionally high quality because they are also the
@@ -66,7 +78,11 @@ public struct RemoteConfigValues: Equatable, Sendable {
         maxParticipantsPerEvent: 250,
         aiBestShotEnabled: true,
         aiBlurFilterEnabled: true,
-        aiHighlightsEnabled: true
+        aiHighlightsEnabled: true,
+        analyticsEnabled: true,
+        performanceMonitoringEnabled: true,
+        sessionReplayEnabled: false,
+        feedbackSurveysEnabled: false
     )
 }
 
@@ -86,5 +102,9 @@ public extension RemoteConfigValues {
         case aiBestShotEnabled = "ai_best_shot_enabled"
         case aiBlurFilterEnabled = "ai_blur_filter_enabled"
         case aiHighlightsEnabled = "ai_highlights_enabled"
+        case analyticsEnabled = "analytics_enabled"
+        case performanceMonitoringEnabled = "performance_monitoring_enabled"
+        case sessionReplayEnabled = "session_replay_enabled"
+        case feedbackSurveysEnabled = "feedback_surveys_enabled"
     }
 }
