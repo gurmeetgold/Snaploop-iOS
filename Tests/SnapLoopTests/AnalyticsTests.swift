@@ -61,6 +61,56 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertTrue(sink.names().contains("photo_discovered"))
     }
 
+    func testProductionAnalyticsDropsPrivateEventIdentifiers() {
+        let events: [AnalyticsEvent] = [
+            .inviteLinkOpened(eventId: "private-event-id"),
+            .eventCreated(eventId: "private-event-id", category: .trip),
+            .inviteSent(eventId: "private-event-id", channel: "messages"),
+            .joinConversion(eventId: "private-event-id"),
+            .firstSyncCompleted(eventId: "private-event-id", matched: 3),
+            .photoDiscovered(eventId: "private-event-id", firstForUserInEvent: true),
+        ]
+
+        for event in events {
+            XCTAssertNil(
+                event.productionParameters["event_id"],
+                "\(event.name) must not transmit event_id"
+            )
+        }
+
+        XCTAssertEqual(
+            AnalyticsEvent.firstSyncCompleted(eventId: "private", matched: 3)
+                .productionParameters["matched"],
+            .int(3)
+        )
+        XCTAssertEqual(
+            AnalyticsEvent.photoDiscovered(
+                eventId: "private",
+                firstForUserInEvent: true
+            ).productionParameters["first_for_user_in_event"],
+            .bool(true)
+        )
+    }
+
+    func testScanTelemetryUsesOnlyCoarseReviewedProperties() {
+        let event = AnalyticsEvent.scanCompleted(
+            source: .manual,
+            scanned: 42,
+            matchedPhotos: 7,
+            remaining: 0,
+            alreadyCaughtUp: true
+        )
+
+        XCTAssertEqual(event.name, "scan_completed")
+        XCTAssertEqual(
+            Set(event.productionParameters.keys),
+            Set(["source", "scanned", "matched_photos", "remaining", "already_caught_up"])
+        )
+        XCTAssertEqual(event.productionParameters["source"], .string("manual"))
+        XCTAssertEqual(event.productionParameters["scanned"], .int(42))
+        XCTAssertEqual(event.productionParameters["matched_photos"], .int(7))
+    }
+
     func testObservabilityDefaultsAreConservative() {
         let values = RemoteConfigValues.default
         XCTAssertTrue(values.analyticsEnabled)

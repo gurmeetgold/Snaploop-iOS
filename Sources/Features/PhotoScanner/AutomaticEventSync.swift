@@ -252,6 +252,7 @@ final class AutomaticEventSync {
 
                     // Exactly one coordinator batch per automatic pass. The
                     // coordinator itself applies the device-safety batch cap.
+                    environment.analytics.log(.scanStarted(source: .automatic))
                     let summary = try await environment.makeSyncCoordinator().sync(
                         event: event,
                         participants: manifest.participants,
@@ -261,6 +262,27 @@ final class AutomaticEventSync {
                         preferenceRevision: preferences.revisionToken
                     )
                     guard session.isCurrent(executionContext) else { return false }
+
+                    if summary.hasRetryableFailures {
+                        environment.analytics.log(.scanFailed(
+                            source: .automatic,
+                            reason: .retryableWork
+                        ))
+                    } else {
+                        environment.analytics.log(.scanCompleted(
+                            source: .automatic,
+                            scanned: summary.scanned,
+                            matchedPhotos: summary.matchedPhotos,
+                            remaining: summary.remaining,
+                            alreadyCaughtUp: summary.alreadyCaughtUp
+                        ))
+                        if summary.scanned > 0 && summary.matchedPhotos == 0 {
+                            environment.analytics.log(.zeroMatchScanCompleted(
+                                source: .automatic,
+                                scanned: summary.scanned
+                            ))
+                        }
+                    }
 
                     // Never record a failed pass as synchronized. The old code
                     // saved the roster fingerprint even when every publication
@@ -280,8 +302,17 @@ final class AutomaticEventSync {
                         sourceInstallationId: sourceInstallationId
                     )
                 } catch is CancellationError {
+                    environment.analytics.log(.scanInterrupted(reason: .systemCancellation))
                     return hasEligibleSharingEvent && session.isCurrent(executionContext)
+                } catch is AppError {
+                    environment.analytics.log(.scanFailed(source: .automatic, reason: .appError))
+                    FirebaseObservability.recordNonFatal(code: "automatic_scan_app_error")
+                    // Automatic discovery must never block the app. Manual
+                    // "Scan Event Photos" remains available for visible recovery.
+                    Log.scanner.error("Automatic scan skipped Event \(event.id, privacy: .public): AppError")
                 } catch {
+                    environment.analytics.log(.scanFailed(source: .automatic, reason: .unexpected))
+                    FirebaseObservability.recordNonFatal(code: "automatic_scan_unexpected_error")
                     // Automatic discovery must never block the app. Manual
                     // "Scan Event Photos" remains available for visible recovery.
                     Log.scanner.error("Automatic scan skipped Event \(event.id, privacy: .public): \(String(describing: error), privacy: .public)")

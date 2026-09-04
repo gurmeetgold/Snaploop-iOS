@@ -20,7 +20,7 @@ public final class PostHogAnalyticsService: AnalyticsService, @unchecked Sendabl
         guard isEnabled() else { return }
         PostHogSDK.shared.capture(
             event.name,
-            properties: event.parameters.mapValues { $0.postHogValue }
+            properties: event.productionParameters.mapValues { $0.postHogValue }
         )
     }
 

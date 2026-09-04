@@ -40,6 +40,10 @@ final class SyncModel: ObservableObject {
 
     func start(event: Event) {
         resumeAfterBackground = false
+        if case .failed = state {
+            env?.analytics.log(.scanRetryStarted(source: .manual))
+        }
+        env?.analytics.log(.scanStarted(source: .manual))
         begin(event: event)
     }
 
@@ -50,6 +54,9 @@ final class SyncModel: ObservableObject {
 
     func cancel() {
         resumeAfterBackground = false
+        if syncTask != nil {
+            env?.analytics.log(.scanInterrupted(reason: .userStopped))
+        }
         syncTask?.cancel()
     }
 
@@ -61,6 +68,8 @@ final class SyncModel: ObservableObject {
     func appDidEnterBackground() {
         isAppActive = false
         guard syncTask != nil else { return }
+        env?.analytics.log(.scanBackgrounded())
+        env?.analytics.log(.scanInterrupted(reason: .backgrounded))
         resumeAfterBackground = true
         syncTask?.cancel()
     }
@@ -68,12 +77,18 @@ final class SyncModel: ObservableObject {
     func appDidBecomeActive(event: Event) {
         isAppActive = true
         guard resumeAfterBackground, syncTask == nil else { return }
+        env?.analytics.log(.scanResumeAttempted())
         resumeAfterBackground = false
         begin(event: event)
+        if syncTask != nil {
+            env?.analytics.log(.scanResumeSucceeded())
+        }
     }
 
     func cancelForSafety(message: String) {
         guard syncTask != nil else { return }
+        env?.analytics.log(.scanInterrupted(reason: .memoryPressure))
+        FirebaseObservability.recordNonFatal(code: "scan_memory_pressure")
         resumeAfterBackground = false
         syncTask?.cancel()
         state = .failed(message)
@@ -106,12 +121,20 @@ final class SyncModel: ObservableObject {
             }
 
             guard preferences.sharingEnabled else {
+                env.analytics.log(.scanFailed(source: .manual, reason: .sharingDisabled))
                 state = .failed("You have turned off photo sharing for this Event. Turn on ‘Share matched pictures from my phone in this Event’ in Event Members before scanning.")
                 return
             }
 
             let manifest = try await EventFaceProfileClient.manifest(eventId: event.id)
             try Task.checkCancellation()
+
+            let performanceTrace = FirebaseObservability.startPerformanceTrace(
+                name: "scan_session",
+                enabled: env.config.current.performanceMonitoringEnabled
+            )
+            defer { performanceTrace.stop() }
+
             let coordinator = env.makeSyncCoordinator()
             let summary = try await coordinator.sync(
                 event: event,
@@ -124,10 +147,35 @@ final class SyncModel: ObservableObject {
                 Task { @MainActor in self?.state = .running(progress) }
             }
 
+            performanceTrace.setMetric("scanned", value: summary.scanned)
+            performanceTrace.setMetric("matched_photos", value: summary.matchedPhotos)
+            performanceTrace.setMetric("remaining", value: summary.remaining)
+
             if summary.hasRetryableFailures {
+                env.analytics.log(.scanFailed(source: .manual, reason: .retryableWork))
+                FirebaseObservability.recordNonFatal(
+                    code: "scan_retryable_work_pending",
+                    context: [
+                        "scanned": .int(summary.scanned),
+                        "remaining": .int(summary.remaining),
+                    ]
+                )
                 let noun = summary.remaining == 1 ? "photo is" : "photos are"
                 state = .failed("\(summary.remaining) \(noun) still pending because the scan could not finish processing or sharing them. Nothing failed is marked as complete. Try again.")
             } else {
+                env.analytics.log(.scanCompleted(
+                    source: .manual,
+                    scanned: summary.scanned,
+                    matchedPhotos: summary.matchedPhotos,
+                    remaining: summary.remaining,
+                    alreadyCaughtUp: summary.alreadyCaughtUp
+                ))
+                if summary.scanned > 0 && summary.matchedPhotos == 0 {
+                    env.analytics.log(.zeroMatchScanCompleted(
+                        source: .manual,
+                        scanned: summary.scanned
+                    ))
+                }
                 state = .done(summary)
             }
         } catch is CancellationError {
@@ -144,9 +192,13 @@ final class SyncModel: ObservableObject {
             // backgrounding; a user-initiated Stop still surfaces the normal state.
             if error == .syncCancelled && resumeAfterBackground { return }
             if case .failed = state { return }
+            env.analytics.log(.scanFailed(source: .manual, reason: .appError))
+            FirebaseObservability.recordNonFatal(code: "manual_scan_app_error")
             state = .failed(error.userMessage)
         } catch {
             if case .failed = state { return }
+            env.analytics.log(.scanFailed(source: .manual, reason: .unexpected))
+            FirebaseObservability.recordNonFatal(code: "manual_scan_unexpected_error")
             let description = (error as NSError).localizedDescription
             if description.localizedCaseInsensitiveContains("not found") {
                 state = .failed("Scan service is not deployed yet. Update Firebase Functions and try again.")

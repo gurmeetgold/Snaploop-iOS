@@ -11,6 +11,25 @@ public enum AnalyticsValue: Equatable, Sendable {
     case bool(Bool)
 }
 
+public enum AnalyticsScanSource: String, Sendable {
+    case manual
+    case automatic
+}
+
+public enum AnalyticsScanFailureReason: String, Sendable {
+    case sharingDisabled = "sharing_disabled"
+    case retryableWork = "retryable_work"
+    case appError = "app_error"
+    case unexpected
+}
+
+public enum AnalyticsScanInterruptionReason: String, Sendable {
+    case backgrounded
+    case userStopped = "user_stopped"
+    case memoryPressure = "memory_pressure"
+    case systemCancellation = "system_cancellation"
+}
+
 /// A funnel/analytics event: a name plus safe scalar parameters. Constructed
 /// only through the factory methods below, so the instrumented funnel is
 /// enumerable and auditable in one place.
@@ -61,6 +80,108 @@ public struct AnalyticsEvent: Equatable, Sendable {
     // MARK: Retention (episodic — nth event participation)
     public static func eventParticipation(ordinal: Int) -> Self {
         .init("event_participation", ["ordinal": .int(ordinal)])
+    }
+
+    // MARK: Scan lifecycle / value
+    public static func scanStarted(source: AnalyticsScanSource) -> Self {
+        .init("scan_started", ["source": .string(source.rawValue)])
+    }
+
+    public static func scanBackgrounded() -> Self {
+        .init("scan_backgrounded")
+    }
+
+    public static func scanResumeAttempted() -> Self {
+        .init("scan_resume_attempted")
+    }
+
+    public static func scanResumeSucceeded() -> Self {
+        .init("scan_resume_succeeded")
+    }
+
+    public static func scanInterrupted(reason: AnalyticsScanInterruptionReason) -> Self {
+        .init("scan_interrupted", ["reason": .string(reason.rawValue)])
+    }
+
+    public static func scanRetryStarted(source: AnalyticsScanSource) -> Self {
+        .init("scan_retry_started", ["source": .string(source.rawValue)])
+    }
+
+    public static func scanCompleted(
+        source: AnalyticsScanSource,
+        scanned: Int,
+        matchedPhotos: Int,
+        remaining: Int,
+        alreadyCaughtUp: Bool
+    ) -> Self {
+        .init("scan_completed", [
+            "source": .string(source.rawValue),
+            "scanned": .int(max(0, scanned)),
+            "matched_photos": .int(max(0, matchedPhotos)),
+            "remaining": .int(max(0, remaining)),
+            "already_caught_up": .bool(alreadyCaughtUp),
+        ])
+    }
+
+    public static func zeroMatchScanCompleted(
+        source: AnalyticsScanSource,
+        scanned: Int
+    ) -> Self {
+        .init("zero_match_scan_completed", [
+            "source": .string(source.rawValue),
+            "scanned": .int(max(0, scanned)),
+        ])
+    }
+
+    public static func scanFailed(
+        source: AnalyticsScanSource,
+        reason: AnalyticsScanFailureReason
+    ) -> Self {
+        .init("scan_failed", [
+            "source": .string(source.rawValue),
+            "reason": .string(reason.rawValue),
+        ])
+    }
+
+    /// Strict production egress policy.
+    ///
+    /// Older in-memory events intentionally still carry `event_id` so existing
+    /// local tests/callers remain compatible, but production analytics must not
+    /// transmit Event IDs or any other private identifiers. Unknown future event
+    /// properties fail closed here until explicitly reviewed.
+    var productionParameters: [String: AnalyticsValue] {
+        let allowedKeys: Set<String>
+
+        switch name {
+        case "permission_result":
+            allowedKeys = ["granted"]
+        case "first_sync_completed":
+            allowedKeys = ["matched"]
+        case "photo_discovered":
+            allowedKeys = ["first_for_user_in_event"]
+        case "event_participation":
+            allowedKeys = ["ordinal"]
+        case "scan_started", "scan_retry_started":
+            allowedKeys = ["source"]
+        case "scan_interrupted":
+            allowedKeys = ["reason"]
+        case "scan_completed":
+            allowedKeys = [
+                "source",
+                "scanned",
+                "matched_photos",
+                "remaining",
+                "already_caught_up",
+            ]
+        case "scan_failed":
+            allowedKeys = ["source", "reason"]
+        case "zero_match_scan_completed":
+            allowedKeys = ["source", "scanned"]
+        default:
+            allowedKeys = []
+        }
+
+        return parameters.filter { allowedKeys.contains($0.key) }
     }
 }
 

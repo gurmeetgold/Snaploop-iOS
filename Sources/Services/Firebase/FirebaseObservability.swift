@@ -2,9 +2,39 @@ import Foundation
 import FirebaseCrashlytics
 import FirebasePerformance
 
+/// Small ownership wrapper around a Firebase custom trace. It deliberately
+/// exposes metrics only — no URLs, identifiers, paths or arbitrary attributes.
+final class FirebasePerformanceTraceHandle {
+    private var trace: Trace?
+
+    init(name: String, enabled: Bool) {
+        trace = enabled ? Performance.startTrace(name: name) : nil
+    }
+
+    func setMetric(_ name: String, value: Int) {
+        trace?.setValue(Int64(max(0, value)), forMetric: name)
+    }
+
+    func stop() {
+        trace?.stop()
+        trace = nil
+    }
+
+    deinit {
+        trace?.stop()
+    }
+}
+
 /// Firebase observability controls that are safe to call repeatedly as Remote
 /// Config changes. Product analytics remains owned by `AnalyticsService`.
 enum FirebaseObservability {
+    static func startPerformanceTrace(
+        name: String,
+        enabled: Bool
+    ) -> FirebasePerformanceTraceHandle {
+        FirebasePerformanceTraceHandle(name: name, enabled: enabled)
+    }
+
     static func apply(_ values: RemoteConfigValues) {
         let performance = Performance.sharedInstance()
         performance.isInstrumentationEnabled = values.performanceMonitoringEnabled
