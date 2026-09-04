@@ -14,9 +14,11 @@ struct BiometricConsentView: View {
     @State private var ageConfirmed = false
     @State private var noticeConfirmed = false
     @State private var launchJurisdiction = BiometricConsentView.localeFallbackJurisdiction()
+    @State private var didResolveStorefront = false
 
     private var canAccept: Bool {
-        launchJurisdiction.isFaceMatchAvailable
+        didResolveStorefront
+            && launchJurisdiction.isFaceMatchAvailable
             && ageConfirmed
             && noticeConfirmed
             && !isSaving
@@ -226,6 +228,7 @@ struct BiometricConsentView: View {
                         }
                         .pickerStyle(.menu)
                         .tint(Theme.violet)
+                        .disabled(!didResolveStorefront || isSaving)
                     }
                     Text("Face Match is available in Canada except Quebec. Ontario is selected by default. No GPS or precise address is required.")
                         .font(.caption2)
@@ -293,7 +296,7 @@ struct BiometricConsentView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isSaving || !launchJurisdiction.isFaceMatchAvailable)
+        .disabled(isSaving || !didResolveStorefront || !launchJurisdiction.isFaceMatchAvailable)
         .accessibilityValue(checked ? "Selected" : "Not selected")
     }
 
@@ -317,7 +320,10 @@ struct BiometricConsentView: View {
 
     @MainActor
     private func resolveStorefrontJurisdiction() async {
-        guard !consentActive else { return }
+        guard !consentActive else {
+            didResolveStorefront = true
+            return
+        }
 
         if let storefront = await Storefront.current {
             switch storefront.countryCode.uppercased() {
@@ -331,6 +337,7 @@ struct BiometricConsentView: View {
             ageConfirmed = false
             noticeConfirmed = false
         }
+        didResolveStorefront = true
     }
 
     private static func localeFallbackJurisdiction() -> BiometricJurisdiction {
