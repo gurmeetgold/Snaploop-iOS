@@ -11,6 +11,15 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(sink.names(), ["signup_completed", "selfie_completed", "join_conversion"])
     }
 
+    func testInMemorySinkTracksAndResetsIdentity() {
+        let sink = InMemoryAnalytics()
+        sink.identify(userId: "internal-user-123")
+        XCTAssertEqual(sink.identifiedUserId, "internal-user-123")
+
+        sink.reset()
+        XCTAssertNil(sink.identifiedUserId)
+    }
+
     func testNorthStarEventCarriesEventAndFirstFlag() {
         let event = AnalyticsEvent.photoDiscovered(eventId: "e1", firstForUserInEvent: true)
         XCTAssertEqual(event.name, "photo_discovered")
@@ -30,6 +39,14 @@ final class AnalyticsTests: XCTestCase {
         sink.log(.photoDiscovered(eventId: "e1", firstForUserInEvent: true))
         XCTAssertEqual(sink.events.count, 7)
         XCTAssertTrue(sink.names().contains("photo_discovered"))
+    }
+
+    func testObservabilityDefaultsAreConservative() {
+        let values = RemoteConfigValues.default
+        XCTAssertTrue(values.analyticsEnabled)
+        XCTAssertTrue(values.performanceMonitoringEnabled)
+        XCTAssertFalse(values.sessionReplayEnabled)
+        XCTAssertFalse(values.feedbackSurveysEnabled)
     }
 
     /// Biometric-exclusion audit: every parameter value across every event
