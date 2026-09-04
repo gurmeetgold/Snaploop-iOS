@@ -64,9 +64,18 @@ public struct AnalyticsEvent: Equatable, Sendable {
     }
 }
 
-/// Sink for analytics. Firebase Analytics in production; in-memory in tests.
+/// Product analytics abstraction. Production currently uses PostHog; tests and
+/// previews use in-memory/no-op sinks. Identity uses only SnapLoop's stable
+/// internal user ID — never phone number, email, display name or biometric data.
 public protocol AnalyticsService: Sendable {
     func log(_ event: AnalyticsEvent)
+    func identify(userId: String)
+    func reset()
+}
+
+public extension AnalyticsService {
+    func identify(userId: String) {}
+    func reset() {}
 }
 
 public struct NoopAnalytics: AnalyticsService {
@@ -74,13 +83,38 @@ public struct NoopAnalytics: AnalyticsService {
     public func log(_ event: AnalyticsEvent) {}
 }
 
-/// Captures events for assertion in tests.
+/// Captures events and identity state for assertion in tests.
 public final class InMemoryAnalytics: AnalyticsService, @unchecked Sendable {
     private let lock = NSLock()
-    public private(set) var events: [AnalyticsEvent] = []
+    private var storedEvents: [AnalyticsEvent] = []
+    private var storedIdentifiedUserId: String?
+
     public init() {}
-    public func log(_ event: AnalyticsEvent) {
-        lock.lock(); events.append(event); lock.unlock()
+
+    public var events: [AnalyticsEvent] {
+        lock.lock(); defer { lock.unlock() }
+        return storedEvents
     }
-    public func names() -> [String] { lock.lock(); defer { lock.unlock() }; return events.map(\.name) }
+
+    public var identifiedUserId: String? {
+        lock.lock(); defer { lock.unlock() }
+        return storedIdentifiedUserId
+    }
+
+    public func log(_ event: AnalyticsEvent) {
+        lock.lock(); storedEvents.append(event); lock.unlock()
+    }
+
+    public func identify(userId: String) {
+        lock.lock(); storedIdentifiedUserId = userId; lock.unlock()
+    }
+
+    public func reset() {
+        lock.lock(); storedIdentifiedUserId = nil; lock.unlock()
+    }
+
+    public func names() -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        return storedEvents.map(\.name)
+    }
 }
