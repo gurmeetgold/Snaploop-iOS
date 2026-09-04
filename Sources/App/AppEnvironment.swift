@@ -79,7 +79,9 @@ public final class AppEnvironment: ObservableObject {
     /// until SnapLoop completes physical-device masking validation.
     public func applyObservabilityConfiguration() {
         guard Self.useLiveServices else { return }
-        FirebaseObservability.apply(config.current)
+        let values = config.current
+        FirebaseObservability.apply(values)
+        analytics.setCollectionEnabled(values.analyticsEnabled)
     }
 
     public static var useLiveServices: Bool {
@@ -120,6 +122,7 @@ public final class AppEnvironment: ObservableObject {
         let analytics = PostHogAnalyticsService.fromBundle(
             isEnabled: { remoteConfig.current.analyticsEnabled }
         )
+        analytics.setCollectionEnabled(remoteConfig.current.analyticsEnabled)
 
         // Keep first launch responsive. The Core ML model is loaded only when
         // Face Setup or camera matching actually needs it.
