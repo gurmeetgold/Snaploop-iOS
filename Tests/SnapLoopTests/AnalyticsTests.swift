@@ -20,6 +20,26 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertNil(sink.identifiedUserId)
     }
 
+    func testCollectionKillSwitchSuppressesCaptureAndIdentity() {
+        let sink = InMemoryAnalytics()
+        sink.setCollectionEnabled(false)
+
+        sink.log(.signupCompleted())
+        sink.identify(userId: "internal-user-123")
+
+        XCTAssertFalse(sink.isCollectionEnabled)
+        XCTAssertTrue(sink.events.isEmpty)
+        XCTAssertNil(sink.identifiedUserId)
+
+        sink.setCollectionEnabled(true)
+        sink.log(.signupCompleted())
+        sink.identify(userId: "internal-user-123")
+
+        XCTAssertTrue(sink.isCollectionEnabled)
+        XCTAssertEqual(sink.names(), ["signup_completed"])
+        XCTAssertEqual(sink.identifiedUserId, "internal-user-123")
+    }
+
     func testNorthStarEventCarriesEventAndFirstFlag() {
         let event = AnalyticsEvent.photoDiscovered(eventId: "e1", firstForUserInEvent: true)
         XCTAssertEqual(event.name, "photo_discovered")
