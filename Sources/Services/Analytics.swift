@@ -71,11 +71,13 @@ public protocol AnalyticsService: Sendable {
     func log(_ event: AnalyticsEvent)
     func identify(userId: String)
     func reset()
+    func setCollectionEnabled(_ enabled: Bool)
 }
 
 public extension AnalyticsService {
     func identify(userId: String) {}
     func reset() {}
+    func setCollectionEnabled(_ enabled: Bool) {}
 }
 
 public struct NoopAnalytics: AnalyticsService {
@@ -88,6 +90,7 @@ public final class InMemoryAnalytics: AnalyticsService, @unchecked Sendable {
     private let lock = NSLock()
     private var storedEvents: [AnalyticsEvent] = []
     private var storedIdentifiedUserId: String?
+    private var storedCollectionEnabled = true
 
     public init() {}
 
@@ -101,16 +104,31 @@ public final class InMemoryAnalytics: AnalyticsService, @unchecked Sendable {
         return storedIdentifiedUserId
     }
 
+    public var isCollectionEnabled: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return storedCollectionEnabled
+    }
+
     public func log(_ event: AnalyticsEvent) {
-        lock.lock(); storedEvents.append(event); lock.unlock()
+        lock.lock()
+        defer { lock.unlock() }
+        guard storedCollectionEnabled else { return }
+        storedEvents.append(event)
     }
 
     public func identify(userId: String) {
-        lock.lock(); storedIdentifiedUserId = userId; lock.unlock()
+        lock.lock()
+        defer { lock.unlock() }
+        guard storedCollectionEnabled else { return }
+        storedIdentifiedUserId = userId
     }
 
     public func reset() {
         lock.lock(); storedIdentifiedUserId = nil; lock.unlock()
+    }
+
+    public func setCollectionEnabled(_ enabled: Bool) {
+        lock.lock(); storedCollectionEnabled = enabled; lock.unlock()
     }
 
     public func names() -> [String] {
