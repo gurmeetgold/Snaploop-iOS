@@ -74,6 +74,14 @@ public final class AppEnvironment: ObservableObject {
         )
     }
 
+    /// Re-apply runtime observability switches after Remote Config refreshes.
+    /// Session Replay deliberately remains hard-disabled in the PostHog provider
+    /// until SnapLoop completes physical-device masking validation.
+    public func applyObservabilityConfiguration() {
+        guard Self.useLiveServices else { return }
+        FirebaseObservability.apply(config.current)
+    }
+
     public static var useLiveServices: Bool {
         ProcessInfo.processInfo.environment["SNAPLOOP_DEV"] != "1"
     }
@@ -106,12 +114,19 @@ public final class AppEnvironment: ObservableObject {
     public static func live() -> AppEnvironment {
         FirebaseBootstrap.configureIfNeeded()
 
+        let remoteConfig = FirebaseRemoteConfigProvider()
+        FirebaseObservability.apply(remoteConfig.current)
+
+        let analytics = PostHogAnalyticsService.fromBundle(
+            isEnabled: { remoteConfig.current.analyticsEnabled }
+        )
+
         // Keep first launch responsive. The Core ML model is loaded only when
         // Face Setup or camera matching actually needs it.
         let faceService: FaceDetectionService = LazyFaceDetectionService()
 
         return AppEnvironment(
-            config: FirebaseRemoteConfigProvider(),
+            config: remoteConfig,
             clock: SystemClock(),
             auth: FirebaseAuthService(),
             photoLibrary: PhotoKitPhotoLibraryService(),
@@ -128,7 +143,7 @@ public final class AppEnvironment: ObservableObject {
             biometricConsent: FirebaseBiometricConsentStore(),
             users: FirebaseUserDirectory(),
             quality: StubQualityScoring(),
-            analytics: InMemoryAnalytics(),
+            analytics: analytics,
             accountInstallationIdentity: SecureAccountInstallationIdentityStore()
         )
     }
