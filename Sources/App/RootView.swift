@@ -58,11 +58,19 @@ struct RootView: View {
                 kickOffDeferredStartupWork()
             }
         }
-        .onChange(of: session.user?.id) { _, userId in
+        .onChange(of: session.user?.id) { previousUserId, userId in
+            if let previousUserId, previousUserId != userId {
+                // Account boundary: clear the previous PostHog identity before
+                // identifying another account (or becoming anonymous).
+                environment.analytics.reset()
+            }
+
             guard let userId else {
                 postAuthUserId = nil
                 return
             }
+
+            environment.analytics.identify(userId: userId)
             guard postAuthUserId != userId else { return }
             kickOffDeferredStartupWork()
         }
@@ -124,7 +132,10 @@ struct RootView: View {
     @MainActor
     private func kickOffDeferredStartupWork() {
         guard let userId = session.user?.id else {
-            Task { await environment.config.refresh() }
+            Task {
+                await environment.config.refresh()
+                environment.applyObservabilityConfiguration()
+            }
             return
         }
         guard postAuthUserId != userId else { return }
@@ -139,6 +150,13 @@ struct RootView: View {
                 await hydrateFaceProfileIfNeeded(userId: userId)
             }
             _ = await (configRefresh, inviteLoad, pushRegistration)
+
+            environment.applyObservabilityConfiguration()
+            if session.user?.id == userId {
+                // Re-identify after Remote Config resolves in case analytics was
+                // disabled at launch and became enabled by the fetched policy.
+                environment.analytics.identify(userId: userId)
+            }
 
             // An authenticated Event member may contribute photos even when they
             // skipped, deleted or temporarily lost their own Face Setup. Recipient
