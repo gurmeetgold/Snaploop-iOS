@@ -57,7 +57,11 @@ public final class FirebaseRemoteConfigProvider: ConfigProviding, @unchecked Sen
             RemoteConfigValues.Key.maxParticipantsPerEvent.rawValue: NSNumber(value: d.maxParticipantsPerEvent),
             RemoteConfigValues.Key.aiBestShotEnabled.rawValue: NSNumber(value: d.aiBestShotEnabled),
             RemoteConfigValues.Key.aiBlurFilterEnabled.rawValue: NSNumber(value: d.aiBlurFilterEnabled),
-            RemoteConfigValues.Key.aiHighlightsEnabled.rawValue: NSNumber(value: d.aiHighlightsEnabled)
+            RemoteConfigValues.Key.aiHighlightsEnabled.rawValue: NSNumber(value: d.aiHighlightsEnabled),
+            RemoteConfigValues.Key.analyticsEnabled.rawValue: NSNumber(value: d.analyticsEnabled),
+            RemoteConfigValues.Key.performanceMonitoringEnabled.rawValue: NSNumber(value: d.performanceMonitoringEnabled),
+            RemoteConfigValues.Key.sessionReplayEnabled.rawValue: NSNumber(value: d.sessionReplayEnabled),
+            RemoteConfigValues.Key.feedbackSurveysEnabled.rawValue: NSNumber(value: d.feedbackSurveysEnabled)
         ]
     }
 
@@ -87,7 +91,11 @@ public final class FirebaseRemoteConfigProvider: ConfigProviding, @unchecked Sen
             maxParticipantsPerEvent: remote.configValue(forKey: RemoteConfigValues.Key.maxParticipantsPerEvent.rawValue).numberValue.intValue,
             aiBestShotEnabled: remote.configValue(forKey: RemoteConfigValues.Key.aiBestShotEnabled.rawValue).boolValue,
             aiBlurFilterEnabled: remote.configValue(forKey: RemoteConfigValues.Key.aiBlurFilterEnabled.rawValue).boolValue,
-            aiHighlightsEnabled: remote.configValue(forKey: RemoteConfigValues.Key.aiHighlightsEnabled.rawValue).boolValue
+            aiHighlightsEnabled: remote.configValue(forKey: RemoteConfigValues.Key.aiHighlightsEnabled.rawValue).boolValue,
+            analyticsEnabled: remote.configValue(forKey: RemoteConfigValues.Key.analyticsEnabled.rawValue).boolValue,
+            performanceMonitoringEnabled: remote.configValue(forKey: RemoteConfigValues.Key.performanceMonitoringEnabled.rawValue).boolValue,
+            sessionReplayEnabled: remote.configValue(forKey: RemoteConfigValues.Key.sessionReplayEnabled.rawValue).boolValue,
+            feedbackSurveysEnabled: remote.configValue(forKey: RemoteConfigValues.Key.feedbackSurveysEnabled.rawValue).boolValue
         )
     }
 }
