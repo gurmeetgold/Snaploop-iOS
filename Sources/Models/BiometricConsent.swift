@@ -25,22 +25,19 @@ public struct BiometricJurisdiction: Equatable, Codable, Sendable {
     }
 
     public var isFaceMatchAvailable: Bool {
-        if countryCode == "IN" { return subdivisionCode.isEmpty }
-        if countryCode == "CA" {
-            return BiometricJurisdictionCatalog.canadianSubdivisionCodes.contains(subdivisionCode)
-        }
-        return false
+        // India-only launch policy.
+        // India does not require a subdivision selection.
+        countryCode == "IN" && subdivisionCode.isEmpty
     }
 }
 
 public enum BiometricJurisdictionCatalog {
     public static let countries = [
-        BiometricJurisdictionOption(code: "CA", name: "Canada"),
         BiometricJurisdictionOption(code: "IN", name: "India")
     ]
 
-    /// Quebec is intentionally absent. Canada is supported for Face Match in
-    /// every listed province/territory, with Ontario as the default selection.
+    /// Retained as dormant metadata for a possible future Canadian rollout.
+    /// Canada is not enabled for Face Match in the current launch policy.
     public static let canadianSubdivisions = [
         BiometricJurisdictionOption(code: "AB", name: "Alberta"),
         BiometricJurisdictionOption(code: "BC", name: "British Columbia"),
