@@ -20,7 +20,7 @@ public final class PostHogAnalyticsService: AnalyticsService, @unchecked Sendabl
         guard isEnabled() else { return }
         PostHogSDK.shared.capture(
             event.name,
-            properties: event.parameters.mapValues(\.postHogValue)
+            properties: event.parameters.mapValues { $0.postHogValue }
         )
     }
 
@@ -35,6 +35,17 @@ public final class PostHogAnalyticsService: AnalyticsService, @unchecked Sendabl
     /// can never inherit another account's local PostHog identity on this device.
     public func reset() {
         PostHogSDK.shared.reset()
+    }
+
+    /// Remote Config kill switch. PostHog persists this state, so an emergency
+    /// disable continues to suppress capture until SnapLoop explicitly enables
+    /// collection again from the current/cached Remote Config policy.
+    public func setCollectionEnabled(_ enabled: Bool) {
+        if enabled {
+            PostHogSDK.shared.optIn()
+        } else {
+            PostHogSDK.shared.optOut()
+        }
     }
 
     /// Release builds receive the client-side PostHog project token through the
