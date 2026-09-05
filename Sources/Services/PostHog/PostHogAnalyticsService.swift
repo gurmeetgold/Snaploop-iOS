@@ -14,6 +14,15 @@ public final class PostHogAnalyticsService: AnalyticsService, @unchecked Sendabl
     ) {
         self.isEnabled = isEnabled
         PostHogBootstrap.configureIfNeeded(projectToken: projectToken, host: host)
+        registerPrivacyDefaults()
+    }
+
+    /// Prevent PostHog from using the request IP to enrich events with
+    /// city, postal code, coordinates, region or other GeoIP properties.
+    /// This is separate from PostHog's server-side "discard client IP"
+    /// setting, which discards the raw IP only after enrichment.
+    private func registerPrivacyDefaults() {
+        PostHogSDK.shared.register(["$geoip_disable": true])
     }
 
     public func log(_ event: AnalyticsEvent) {
@@ -35,6 +44,10 @@ public final class PostHogAnalyticsService: AnalyticsService, @unchecked Sendabl
     /// can never inherit another account's local PostHog identity on this device.
     public func reset() {
         PostHogSDK.shared.reset()
+
+        // reset() clears registered PostHog properties, so restore the
+        // privacy guard before the next account/session emits events.
+        registerPrivacyDefaults()
     }
 
     /// Remote Config kill switch. PostHog persists this state, so an emergency
