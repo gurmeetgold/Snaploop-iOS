@@ -17,10 +17,31 @@ enum QRCode {
 
 struct ActivityView: UIViewControllerRepresentable {
     let items: [Any]
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    let onCompletion: ((Bool) -> Void)?
+
+    init(
+        items: [Any],
+        onCompletion: ((Bool) -> Void)? = nil
+    ) {
+        self.items = items
+        self.onCompletion = onCompletion
     }
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(
+            activityItems: items,
+            applicationActivities: nil
+        )
+        controller.completionWithItemsHandler = { _, completed, _, _ in
+            onCompletion?(completed)
+        }
+        return controller
+    }
+
+    func updateUIViewController(
+        _ controller: UIActivityViewController,
+        context: Context
+    ) {}
 }
 
 struct ShareEventView: View {

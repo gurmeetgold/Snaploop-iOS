@@ -136,6 +136,69 @@ final class AnalyticsTests: XCTestCase {
         )
     }
 
+    func testMatchedPhotoValueEventsUseOnlyCoarseProperties() {
+        XCTAssertEqual(
+            AnalyticsEvent.matchedPhotosGalleryViewed(
+                scope: .allEvents,
+                photoCount: 12
+            ).productionParameters,
+            [
+                "scope": .string("all_events"),
+                "photo_count": .int(12),
+            ]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.matchedPhotosSaved(count: 3)
+                .productionParameters,
+            ["count": .int(3)]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.matchedPhotosSaveFailed(
+                count: 2,
+                reason: .permissionDenied
+            ).productionParameters,
+            [
+                "count": .int(2),
+                "reason": .string("permission_denied"),
+            ]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.matchedPhotosFavoriteChanged(
+                favorited: true,
+                count: 4
+            ).productionParameters,
+            [
+                "favorited": .bool(true),
+                "count": .int(4),
+            ]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.matchedPhotoNotMeResult(succeeded: true)
+                .productionParameters,
+            ["succeeded": .bool(true)]
+        )
+    }
+
+    func testMatchedPhotoCountsAreClampedToNonNegativeValues() {
+        XCTAssertEqual(
+            AnalyticsEvent.matchedPhotosSaved(count: -4)
+                .productionParameters["count"],
+            .int(0)
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.matchedPhotosGalleryViewed(
+                scope: .event,
+                photoCount: -1
+            ).productionParameters["photo_count"],
+            .int(0)
+        )
+    }
+
     func testProductionAnalyticsDropsPrivateEventIdentifiers() {
         let events: [AnalyticsEvent] = [
             .inviteLinkOpened(eventId: "private-event-id"),

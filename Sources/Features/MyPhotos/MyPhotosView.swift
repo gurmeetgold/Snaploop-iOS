@@ -182,8 +182,16 @@ final class MyPhotosModel: ObservableObject {
             )
         }
 
-        do { try await env.matches.dismissAppearance(matchId: match.id, participantUserId: userId) }
-        catch { errorMessage = "Couldn't save the Not Me correction. Pull to refresh and try again." }
+        do {
+            try await env.matches.dismissAppearance(
+                matchId: match.id,
+                participantUserId: userId
+            )
+            env.analytics.log(.matchedPhotoNotMeResult(succeeded: true))
+        } catch {
+            env.analytics.log(.matchedPhotoNotMeResult(succeeded: false))
+            errorMessage = "Couldn't save the Not Me correction. Pull to refresh and try again."
+        }
     }
 }
 
@@ -373,11 +381,25 @@ struct MyPhotosView: View {
             }
         }
         .sheet(isPresented: $showBulkShare) {
-            ActivityView(items: bulkShareImages.map { $0 as Any })
+            ActivityView(
+                items: bulkShareImages.map { $0 as Any },
+                onCompletion: { completed in
+                    let count = bulkShareImages.count
+                    if completed {
+                        env.analytics.log(.matchedPhotosShared(count: count))
+                    } else {
+                        env.analytics.log(.matchedPhotosShareCancelled(count: count))
+                    }
+                }
+            )
         }
         .task {
             model.configure(env: env, session: session)
             await model.reload()
+            env.analytics.log(.matchedPhotosGalleryViewed(
+                scope: .event,
+                photoCount: model.photos.count
+            ))
         }
         .refreshable { await model.reload(force: true) }
         .onChange(of: filter) { _, _ in selectedIDs.removeAll(); bulkMessage = nil }
@@ -404,8 +426,13 @@ struct MyPhotosView: View {
 
     private func favoriteSelected() {
         guard !selectedMatches.isEmpty else { return }
+        let count = selectedMatches.count
         let nextValue = !allSelectedAreFavorites
         for match in selectedMatches { model.setFavorite(nextValue, match: match) }
+        env.analytics.log(.matchedPhotosFavoriteChanged(
+            favorited: nextValue,
+            count: count
+        ))
         bulkMessage = nextValue ? "Added to Favorites." : "Removed from Favorites."
         if filter == .favorites && !nextValue { selectedIDs.removeAll() }
     }
@@ -413,6 +440,7 @@ struct MyPhotosView: View {
     @MainActor
     private func saveSelected() async {
         guard !selectedMatches.isEmpty else { return }
+        let requestedCount = selectedMatches.count
         bulkBusy = true
         bulkMessage = nil
         defer { bulkBusy = false }
@@ -420,10 +448,19 @@ struct MyPhotosView: View {
             let images = await PhotoBulkActions.loadImages(for: selectedMatches)
             guard !images.isEmpty else { throw AppError.originalUnavailable }
             try await PhotoBulkActions.saveToPhotoLibrary(images)
+            env.analytics.log(.matchedPhotosSaved(count: images.count))
             bulkMessage = images.count == 1 ? "Saved 1 photo." : "Saved \(images.count) photos."
         } catch AppError.photoLibraryAccessDenied {
+            env.analytics.log(.matchedPhotosSaveFailed(
+                count: requestedCount,
+                reason: .permissionDenied
+            ))
             bulkMessage = "Allow SnapLoop to add photos in iPhone Settings."
         } catch {
+            env.analytics.log(.matchedPhotosSaveFailed(
+                count: requestedCount,
+                reason: .unavailable
+            ))
             bulkMessage = "Some photos couldn't be saved."
         }
     }
@@ -431,15 +468,18 @@ struct MyPhotosView: View {
     @MainActor
     private func shareSelected() async {
         guard !selectedMatches.isEmpty else { return }
+        let requestedCount = selectedMatches.count
         bulkBusy = true
         bulkMessage = nil
         let images = await PhotoBulkActions.loadImages(for: selectedMatches)
         bulkBusy = false
         guard !images.isEmpty else {
+            env.analytics.log(.matchedPhotosShareFailed(count: requestedCount))
             bulkMessage = "Selected photos couldn't be prepared."
             return
         }
         bulkShareImages = images
+        env.analytics.log(.matchedPhotosShareOpened(count: images.count))
         showBulkShare = true
     }
 }
@@ -765,6 +805,7 @@ struct PhotoDetailView: View {
     let isFavorite: (PhotoMatch) -> Bool
     let onFavoriteChanged: (PhotoMatch, Bool) -> Void
 
+    @EnvironmentObject private var env: AppEnvironment
     @Environment(\.dismiss) private var dismiss
     @State private var selectedIndex: Int
     @State private var chromeVisible = true
@@ -903,9 +944,25 @@ struct PhotoDetailView: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showShareSheet) {
-            if let shareImage { ActivityView(items: [shareImage]) }
+            if let shareImage {
+                ActivityView(
+                    items: [shareImage],
+                    onCompletion: { completed in
+                        if completed {
+                            env.analytics.log(.matchedPhotosShared(count: 1))
+                        } else {
+                            env.analytics.log(.matchedPhotosShareCancelled(count: 1))
+                        }
+                    }
+                )
+            }
         }
-        .task { await prefetchAdjacent(to: selectedIndex) }
+        .task {
+            env.analytics.log(.matchedPhotosDetailOpened(
+                galleryCount: matches.count
+            ))
+            await prefetchAdjacent(to: selectedIndex)
+        }
         .onChange(of: selectedIndex) { _, newValue in
             currentPageZoomed = false
             statusMessage = nil
@@ -1026,6 +1083,10 @@ struct PhotoDetailView: View {
         let next = !currentFavorite
         favoriteOverrides[currentMatch.id] = next
         onFavoriteChanged(currentMatch, next)
+        env.analytics.log(.matchedPhotosFavoriteChanged(
+            favorited: next,
+            count: 1
+        ))
     }
 
     @MainActor
@@ -1035,12 +1096,24 @@ struct PhotoDetailView: View {
         statusMessage = nil
         defer { actionBusy = false }
         do {
-            let image = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath, maxPixelSize: 2560)
+            let image = try await StorageThumbnailLoader.image(
+                path: currentMatch.thumbnailPath,
+                maxPixelSize: 2560
+            )
             try await PhotoBulkActions.saveToPhotoLibrary([image])
+            env.analytics.log(.matchedPhotosSaved(count: 1))
             statusMessage = "Saved to Photos."
         } catch AppError.photoLibraryAccessDenied {
+            env.analytics.log(.matchedPhotosSaveFailed(
+                count: 1,
+                reason: .permissionDenied
+            ))
             statusMessage = "Allow Photos access in Settings."
         } catch {
+            env.analytics.log(.matchedPhotosSaveFailed(
+                count: 1,
+                reason: .unavailable
+            ))
             statusMessage = "Couldn't save this photo."
         }
     }
@@ -1052,9 +1125,14 @@ struct PhotoDetailView: View {
         statusMessage = nil
         defer { actionBusy = false }
         do {
-            shareImage = try await StorageThumbnailLoader.image(path: currentMatch.thumbnailPath, maxPixelSize: 2560)
+            shareImage = try await StorageThumbnailLoader.image(
+                path: currentMatch.thumbnailPath,
+                maxPixelSize: 2560
+            )
+            env.analytics.log(.matchedPhotosShareOpened(count: 1))
             showShareSheet = true
         } catch {
+            env.analytics.log(.matchedPhotosShareFailed(count: 1))
             statusMessage = "Couldn't prepare this photo."
         }
     }

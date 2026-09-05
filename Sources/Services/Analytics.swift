@@ -43,6 +43,16 @@ public enum AnalyticsPhotoPermissionState: String, Sendable {
     case notDetermined = "not_determined"
 }
 
+public enum AnalyticsMatchedPhotosGalleryScope: String, Sendable {
+    case event
+    case allEvents = "all_events"
+}
+
+public enum AnalyticsPhotoSaveFailureReason: String, Sendable {
+    case permissionDenied = "permission_denied"
+    case unavailable
+}
+
 /// A funnel/analytics event: a name plus safe scalar parameters. Constructed
 /// only through the factory methods below, so the instrumented funnel is
 /// enumerable and auditable in one place.
@@ -128,6 +138,79 @@ public struct AnalyticsEvent: Equatable, Sendable {
         state: AnalyticsPhotoPermissionState
     ) -> Self {
         .init("photo_permission_result", ["state": .string(state.rawValue)])
+    }
+
+    // MARK: Matched-photo value
+    public static func matchedPhotosGalleryViewed(
+        scope: AnalyticsMatchedPhotosGalleryScope,
+        photoCount: Int
+    ) -> Self {
+        .init("matched_photos_gallery_viewed", [
+            "scope": .string(scope.rawValue),
+            "photo_count": .int(max(0, photoCount)),
+        ])
+    }
+
+    public static func matchedPhotosDetailOpened(galleryCount: Int) -> Self {
+        .init("matched_photos_detail_opened", [
+            "gallery_count": .int(max(0, galleryCount)),
+        ])
+    }
+
+    public static func matchedPhotosSaved(count: Int) -> Self {
+        .init("matched_photos_saved", [
+            "count": .int(max(0, count)),
+        ])
+    }
+
+    public static func matchedPhotosSaveFailed(
+        count: Int,
+        reason: AnalyticsPhotoSaveFailureReason
+    ) -> Self {
+        .init("matched_photos_save_failed", [
+            "count": .int(max(0, count)),
+            "reason": .string(reason.rawValue),
+        ])
+    }
+
+    public static func matchedPhotosShareOpened(count: Int) -> Self {
+        .init("matched_photos_share_opened", [
+            "count": .int(max(0, count)),
+        ])
+    }
+
+    public static func matchedPhotosShared(count: Int) -> Self {
+        .init("matched_photos_shared", [
+            "count": .int(max(0, count)),
+        ])
+    }
+
+    public static func matchedPhotosShareCancelled(count: Int) -> Self {
+        .init("matched_photos_share_cancelled", [
+            "count": .int(max(0, count)),
+        ])
+    }
+
+    public static func matchedPhotosShareFailed(count: Int) -> Self {
+        .init("matched_photos_share_failed", [
+            "count": .int(max(0, count)),
+        ])
+    }
+
+    public static func matchedPhotosFavoriteChanged(
+        favorited: Bool,
+        count: Int
+    ) -> Self {
+        .init("matched_photos_favorite_changed", [
+            "favorited": .bool(favorited),
+            "count": .int(max(0, count)),
+        ])
+    }
+
+    public static func matchedPhotoNotMeResult(succeeded: Bool) -> Self {
+        .init("matched_photo_not_me_result", [
+            "succeeded": .bool(succeeded),
+        ])
     }
 
     // MARK: Conversion
@@ -233,6 +316,22 @@ public struct AnalyticsEvent: Equatable, Sendable {
             allowedKeys = ["was_update"]
         case "photo_permission_result":
             allowedKeys = ["state"]
+        case "matched_photos_gallery_viewed":
+            allowedKeys = ["scope", "photo_count"]
+        case "matched_photos_detail_opened":
+            allowedKeys = ["gallery_count"]
+        case "matched_photos_saved",
+             "matched_photos_share_opened",
+             "matched_photos_shared",
+             "matched_photos_share_cancelled",
+             "matched_photos_share_failed":
+            allowedKeys = ["count"]
+        case "matched_photos_save_failed":
+            allowedKeys = ["count", "reason"]
+        case "matched_photos_favorite_changed":
+            allowedKeys = ["favorited", "count"]
+        case "matched_photo_not_me_result":
+            allowedKeys = ["succeeded"]
         case "permission_result":
             allowedKeys = ["granted"]
         case "first_sync_completed":
