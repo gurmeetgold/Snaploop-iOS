@@ -81,6 +81,7 @@ final class FaceSetupModel: ObservableObject {
 
     func useGuidedFrames(_ frames: [GuidedEnrollmentFrame]) async {
         guard let env else { return }
+        env.analytics.log(.faceSetupStarted())
         isBusy = true
         didSave = false
         differentIdentityDetected = false
@@ -112,6 +113,7 @@ final class FaceSetupModel: ObservableObject {
                 isBusy = false
                 message = nil
                 differentIdentityDetected = true
+                env.analytics.log(.faceSetupFailed())
                 return
             }
 
@@ -132,9 +134,11 @@ final class FaceSetupModel: ObservableObject {
             message = "Saving Face Setup…"
             await saveFaceSetup(automatic: true)
         } catch let error as AppError {
+            env.analytics.log(.faceSetupFailed())
             isBusy = false
             message = error.userMessage
         } catch {
+            env.analytics.log(.faceSetupFailed())
             isBusy = false
             message = (error as NSError).localizedDescription
         }
@@ -240,7 +244,9 @@ final class FaceSetupModel: ObservableObject {
             hasChanges = false
             didSave = true
             message = wasUpdate ? "Face Setup updated." : "Face Setup saved."
+            env.analytics.log(.faceSetupCompleted(wasUpdate: wasUpdate))
         } catch let error as AppError {
+            env.analytics.log(.faceSetupFailed())
             if error == .faceIdentityMismatch {
                 message = nil
                 differentIdentityDetected = true
@@ -248,6 +254,7 @@ final class FaceSetupModel: ObservableObject {
                 message = error.userMessage
             }
         } catch {
+            env.analytics.log(.faceSetupFailed())
             let text = (error as NSError).localizedDescription
             if text.localizedCaseInsensitiveContains("does not match your current Face Setup")
                 || text.localizedCaseInsensitiveContains("delete the current Face Setup") {

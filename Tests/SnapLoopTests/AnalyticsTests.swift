@@ -61,6 +61,81 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertTrue(sink.names().contains("photo_discovered"))
     }
 
+    func testCoreProductFunnelEventsAreAvailable() {
+        let events: [AnalyticsEvent] = [
+            .phoneVerificationStarted(),
+            .phoneVerificationSucceeded(),
+            .signupCompleted(),
+            .loginSucceeded(),
+            .faceSetupStarted(),
+            .faceSetupCompleted(wasUpdate: false),
+            .photoPermissionRequested(),
+            .photoPermissionResult(state: .limited),
+            .eventCreated(eventId: "private-event", category: .trip),
+            .inviteSent(eventId: "private-event", channel: "in_app"),
+            .invitationOpened(source: .token),
+            .invitationAccepted(source: .token),
+            .eventJoined(source: .token),
+            .invitationDeclined(source: .token),
+        ]
+
+        XCTAssertEqual(
+            events.map(\.name),
+            [
+                "phone_verification_started",
+                "phone_verification_succeeded",
+                "signup_completed",
+                "login_succeeded",
+                "face_setup_started",
+                "face_setup_completed",
+                "photo_permission_requested",
+                "photo_permission_result",
+                "event_created",
+                "invite_sent",
+                "invitation_opened",
+                "invitation_accepted",
+                "event_joined",
+                "invitation_declined",
+            ]
+        )
+    }
+
+    func testProductionFunnelPropertiesArePrivacyMinimized() {
+        XCTAssertEqual(
+            AnalyticsEvent.eventCreated(
+                eventId: "must-not-egress",
+                category: .trip
+            ).productionParameters,
+            ["category": .string(EventCategory.trip.rawValue)]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.inviteSent(
+                eventId: "must-not-egress",
+                channel: "in_app"
+            ).productionParameters,
+            ["channel": .string("in_app")]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.invitationOpened(source: .token)
+                .productionParameters,
+            ["source": .string("token")]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.faceSetupCompleted(wasUpdate: true)
+                .productionParameters,
+            ["was_update": .bool(true)]
+        )
+
+        XCTAssertEqual(
+            AnalyticsEvent.photoPermissionResult(state: .limited)
+                .productionParameters,
+            ["state": .string("limited")]
+        )
+    }
+
     func testProductionAnalyticsDropsPrivateEventIdentifiers() {
         let events: [AnalyticsEvent] = [
             .inviteLinkOpened(eventId: "private-event-id"),

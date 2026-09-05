@@ -35,6 +35,7 @@ final class PhoneAuthModel: ObservableObject {
         normalizedPhoneNumber = e164
         isBusy = true
         errorMessage = nil
+        env.analytics.log(.phoneVerificationStarted())
         authTask?.cancel()
 
         authTask = Task { [weak self] in
@@ -50,10 +51,12 @@ final class PhoneAuthModel: ObservableObject {
                 self.isBusy = false
             } catch let error as AppError {
                 guard !Task.isCancelled else { return }
+                env.analytics.log(.phoneVerificationFailed())
                 self.errorMessage = error.userMessage
                 self.isBusy = false
             } catch {
                 guard !Task.isCancelled else { return }
+                env.analytics.log(.phoneVerificationFailed())
                 self.errorMessage = AppError.unknown("\(error)").userMessage
                 self.isBusy = false
             }
@@ -84,6 +87,7 @@ final class PhoneAuthModel: ObservableObject {
                 )
                 guard !Task.isCancelled else { return }
 
+                var createdNewUser = false
                 let user: User
                 do {
                     user = try await env.users.fetch(userId: uid)
@@ -98,6 +102,7 @@ final class PhoneAuthModel: ObservableObject {
                         )
                         try await env.users.save(created)
                         user = created
+                        createdNewUser = true
                     } else {
                         throw error
                     }
@@ -125,13 +130,20 @@ final class PhoneAuthModel: ObservableObject {
                     faceProfile: currentProfile,
                     faceProfileResolved: true
                 )
+                env.analytics.log(.phoneVerificationSucceeded())
+                if createdNewUser {
+                    env.analytics.log(.signupCompleted())
+                }
+                env.analytics.log(.loginSucceeded())
                 self.isBusy = false
             } catch let error as AppError {
                 guard !Task.isCancelled else { return }
+                env.analytics.log(.phoneVerificationFailed())
                 self.errorMessage = error.userMessage
                 self.isBusy = false
             } catch {
                 guard !Task.isCancelled else { return }
+                env.analytics.log(.phoneVerificationFailed())
                 self.errorMessage = AppError.unknown("\(error)").userMessage
                 self.isBusy = false
             }

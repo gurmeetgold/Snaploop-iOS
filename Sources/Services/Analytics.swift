@@ -30,6 +30,19 @@ public enum AnalyticsScanInterruptionReason: String, Sendable {
     case systemCancellation = "system_cancellation"
 }
 
+public enum AnalyticsInvitationSource: String, Sendable {
+    case token
+    case code
+    case unknown
+}
+
+public enum AnalyticsPhotoPermissionState: String, Sendable {
+    case authorized
+    case limited
+    case denied
+    case notDetermined = "not_determined"
+}
+
 /// A funnel/analytics event: a name plus safe scalar parameters. Constructed
 /// only through the factory methods below, so the instrumented funnel is
 /// enumerable and auditable in one place.
@@ -54,11 +67,67 @@ public struct AnalyticsEvent: Equatable, Sendable {
         .init("invite_sent", ["event_id": .string(eventId), "channel": .string(channel)])
     }
 
+    public static func invitationOpened(source: AnalyticsInvitationSource) -> Self {
+        .init("invitation_opened", ["source": .string(source.rawValue)])
+    }
+
+    public static func invitationAccepted(source: AnalyticsInvitationSource) -> Self {
+        .init("invitation_accepted", ["source": .string(source.rawValue)])
+    }
+
+    public static func invitationDeclined(source: AnalyticsInvitationSource) -> Self {
+        .init("invitation_declined", ["source": .string(source.rawValue)])
+    }
+
+    public static func eventJoined(source: AnalyticsInvitationSource) -> Self {
+        .init("event_joined", ["source": .string(source.rawValue)])
+    }
+
     // MARK: Signup / onboarding
+    public static func phoneVerificationStarted() -> Self {
+        .init("phone_verification_started")
+    }
+
+    public static func phoneVerificationSucceeded() -> Self {
+        .init("phone_verification_succeeded")
+    }
+
+    public static func phoneVerificationFailed() -> Self {
+        .init("phone_verification_failed")
+    }
+
     public static func signupCompleted() -> Self { .init("signup_completed") }
+
+    public static func loginSucceeded() -> Self {
+        .init("login_succeeded")
+    }
+
     public static func selfieCompleted() -> Self { .init("selfie_completed") }
+
+    public static func faceSetupStarted() -> Self {
+        .init("face_setup_started")
+    }
+
+    public static func faceSetupCompleted(wasUpdate: Bool) -> Self {
+        .init("face_setup_completed", ["was_update": .bool(wasUpdate)])
+    }
+
+    public static func faceSetupFailed() -> Self {
+        .init("face_setup_failed")
+    }
+
     public static func permissionGranted(kind: String, granted: Bool) -> Self {
         .init("permission_result", ["kind": .string(kind), "granted": .bool(granted)])
+    }
+
+    public static func photoPermissionRequested() -> Self {
+        .init("photo_permission_requested")
+    }
+
+    public static func photoPermissionResult(
+        state: AnalyticsPhotoPermissionState
+    ) -> Self {
+        .init("photo_permission_result", ["state": .string(state.rawValue)])
     }
 
     // MARK: Conversion
@@ -153,6 +222,17 @@ public struct AnalyticsEvent: Equatable, Sendable {
         let allowedKeys: Set<String>
 
         switch name {
+        case "event_created":
+            allowedKeys = ["category"]
+        case "invite_sent":
+            allowedKeys = ["channel"]
+        case "invitation_opened", "invitation_accepted",
+             "invitation_declined", "event_joined":
+            allowedKeys = ["source"]
+        case "face_setup_completed":
+            allowedKeys = ["was_update"]
+        case "photo_permission_result":
+            allowedKeys = ["state"]
         case "permission_result":
             allowedKeys = ["granted"]
         case "first_sync_completed":

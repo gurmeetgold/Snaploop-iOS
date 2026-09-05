@@ -53,6 +53,7 @@ struct MessageInviteComposer: UIViewControllerRepresentable {
 
 struct InvitePeopleView: View {
     let event: Event
+    @EnvironmentObject private var env: AppEnvironment
     @State private var country: PhoneCountry = .localeDefault
     @State private var phone = ""
     @State private var smsRecipient = ""
@@ -172,6 +173,7 @@ struct InvitePeopleView: View {
             MessageInviteComposer(recipients: [smsRecipient], body: messageBody) { result in
                 switch result {
                 case .sent:
+                    env.analytics.log(.inviteSent(eventId: event.id, channel: "sms"))
                     message = "SMS invitation sent."
                     errorMessage = nil
                 case .failed:
@@ -259,6 +261,7 @@ struct InvitePeopleView: View {
             let delivery = try await EventInviteClient.invite(eventId: event.id, phoneNumber: normalized)
             switch delivery.kind {
             case .inApp:
+                env.analytics.log(.inviteSent(eventId: event.id, channel: "in_app"))
                 message = "Invitation delivered in SnapLoop."
             case .sms:
                 smsRecipient = normalized

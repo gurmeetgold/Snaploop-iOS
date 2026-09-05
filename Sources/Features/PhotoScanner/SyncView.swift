@@ -413,9 +413,24 @@ struct SyncView: View {
     @MainActor
     private func beginScanWithPhotoAccessCheck() async {
         var status = env.photoLibrary.authorizationStatus()
-        if status == .notDetermined {
+        let requestedNow = status == .notDetermined
+
+        if requestedNow {
+            env.analytics.log(.photoPermissionRequested())
             status = await env.photoLibrary.requestAuthorization()
+
+            switch status {
+            case .authorized:
+                env.analytics.log(.photoPermissionResult(state: .authorized))
+            case .limited:
+                env.analytics.log(.photoPermissionResult(state: .limited))
+            case .denied:
+                env.analytics.log(.photoPermissionResult(state: .denied))
+            case .notDetermined:
+                env.analytics.log(.photoPermissionResult(state: .notDetermined))
+            }
         }
+
         photoAccessStatus = status
 
         switch status {

@@ -33,15 +33,21 @@ final class JoinEventModel: ObservableObject {
         inviterLabel = nil
         do {
             let event: Event
+            let analyticsSource: AnalyticsInvitationSource
+
             switch route.reviewRoute {
             case .joinEventByToken(let token):
+                analyticsSource = .token
                 event = try await env.events.fetchEvent(inviteToken: token)
             case .joinEventByCode(let code):
+                analyticsSource = .code
                 event = try await env.events.fetchEvent(joinCode: code)
             default:
                 phase = .error("This invitation link is invalid.")
                 return
             }
+
+            env.analytics.log(.invitationOpened(source: analyticsSource))
 
             // This server-curated preview can identify the actual Admin who sent
             // a direct phone/in-app invite. For a generic shared link it safely
@@ -92,7 +98,10 @@ final class JoinEventModel: ObservableObject {
         }
     }
 
-    func join(event: Event) async {
+    func join(
+        event: Event,
+        source: AnalyticsInvitationSource
+    ) async {
         guard !isJoining, !isDeclining else { return }
         guard let env, let session, let user = session.user, let profile = session.faceProfile else { return }
         isJoining = true
@@ -109,6 +118,8 @@ final class JoinEventModel: ObservableObject {
             AutomaticEventSync.shared.configure(environment: env, session: session)
             AutomaticEventSync.shared.runWhenAppBecomesActive()
 
+            env.analytics.log(.invitationAccepted(source: source))
+            env.analytics.log(.eventJoined(source: source))
             phase = .joined(event)
         } catch let error as AppError {
             actionError = error.userMessage
@@ -117,13 +128,17 @@ final class JoinEventModel: ObservableObject {
         }
     }
 
-    func decline(event: Event) async {
+    func decline(
+        event: Event,
+        source: AnalyticsInvitationSource
+    ) async {
         guard !isJoining, !isDeclining else { return }
         isDeclining = true
         actionError = nil
         defer { isDeclining = false }
         do {
             try await EventInviteClient.decline(eventId: event.id)
+            env?.analytics.log(.invitationDeclined(source: source))
 
             // A decline is terminal for this invitation. Remove every local
             // presentation surface only after the server has persisted the
@@ -149,6 +164,17 @@ struct JoinEventView: View {
     @State private var hasPerformedAutomaticAction = false
 
     private var isPhoneInvitation: Bool { route.isTokenInvitation }
+
+    private var analyticsInvitationSource: AnalyticsInvitationSource {
+        switch route.reviewRoute {
+        case .joinEventByToken:
+            return .token
+        case .joinEventByCode:
+            return .code
+        default:
+            return .unknown
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -231,10 +257,20 @@ struct JoinEventView: View {
         switch route.action {
         case .accept:
             hasPerformedAutomaticAction = true
-            Task { await model.join(event: event) }
+            Task {
+                await model.join(
+                    event: event,
+                    source: analyticsInvitationSource
+                )
+            }
         case .decline:
             hasPerformedAutomaticAction = true
-            Task { await model.decline(event: event) }
+            Task {
+                await model.decline(
+                    event: event,
+                    source: analyticsInvitationSource
+                )
+            }
         case .review:
             break
         }
@@ -317,7 +353,12 @@ struct JoinEventView: View {
                 } else if route.action == .review {
                     Button {
                         guard !model.isJoining, !model.isDeclining else { return }
-                        Task { await model.join(event: event) }
+                        Task {
+                await model.join(
+                    event: event,
+                    source: analyticsInvitationSource
+                )
+            }
                     } label: {
                         HStack {
                             if model.isJoining { ProgressView().tint(.white) }
@@ -349,7 +390,12 @@ struct JoinEventView: View {
                 if isPhoneInvitation && route.action == .review {
                     Button(role: .destructive) {
                         guard !model.isJoining, !model.isDeclining else { return }
-                        Task { await model.decline(event: event) }
+                        Task {
+                await model.decline(
+                    event: event,
+                    source: analyticsInvitationSource
+                )
+            }
                     } label: {
                         HStack(spacing: 7) {
                             if model.isDeclining { ProgressView() }

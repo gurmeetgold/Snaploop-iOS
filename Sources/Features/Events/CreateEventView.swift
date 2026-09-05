@@ -55,6 +55,7 @@ final class CreateEventModel: ObservableObject {
             let event = try factory.make(draft: draft, creatorUserId: user.id)
             let membership = EventMembershipService(repository: env.events, config: env.config, clock: env.clock)
             try await membership.create(event: event, creator: user, faceProfile: profile)
+            env.analytics.log(.eventCreated(eventId: event.id, category: event.category))
             return event
         } catch let error as AppError {
             errorMessage = error.userMessage
