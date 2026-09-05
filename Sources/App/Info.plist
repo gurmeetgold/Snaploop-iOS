@@ -46,6 +46,10 @@
 	<false/>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
+	<key>SnapLoopPostHogHost</key>
+	<string>$(POSTHOG_HOST)</string>
+	<key>SnapLoopPostHogProjectToken</key>
+	<string>$(POSTHOG_PROJECT_TOKEN)</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
