@@ -5,6 +5,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
 const { Timestamp } = require("firebase-admin/firestore");
 const { isWithinEventGraceWindow } = require("./eventDateSemantics");
+const { normalizePushPlatform } = require("./notificationContract");
 
 const db = admin.firestore();
 const messaging = admin.messaging();
@@ -91,7 +92,7 @@ exports.registerPushToken = onCall(async (request) => {
   const uid = requireAuth(request);
   const input = request.data || {};
   const token = requireToken(input.token);
-  const platform = input.platform === "ios" ? "ios" : "unknown";
+  const platform = normalizePushPlatform(input.platform);
   const ref = db.doc(`users/${uid}/pushTokens/${tokenKey(token)}`);
   const existing = await ref.get();
   await ref.set({
@@ -219,7 +220,7 @@ exports.markInviteJoined = onDocumentCreated(
   }
 );
 
-// A phone invite sent before the recipient installs/signs up is recovered as
+// A phone invite sent before the recipient installs/signs/up is recovered as
 // soon as the trusted user profile exists. This is the deferred-invite path and
 // does not depend on Safari/App Store preserving arbitrary query parameters.
 exports.hydrateDeferredInvites = onDocumentWritten(
