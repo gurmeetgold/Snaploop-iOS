@@ -1,0 +1,36 @@
+name: Functions tests
+
+on:
+  push:
+    branches:
+      - feature/android-production-parity-v1
+    paths:
+      - "functions/**"
+      - ".github/workflows/functions-tests.yml"
+  pull_request:
+    paths:
+      - "functions/**"
+      - ".github/workflows/functions-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: functions
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Use Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run unit tests
+        run: npm test
