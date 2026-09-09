@@ -25,6 +25,7 @@ const security = require("./security");
 const memberCleanup = require("./memberCleanup");
 const membershipIdentity = require("./membershipIdentity");
 const notifications = require("./notifications");
+const pushRegistration = require("./pushRegistration");
 const inviteExpiry = require("./inviteExpiry");
 const privacy = require("./privacyHardening");
 const consentV5 = require("./biometricConsentV5");
@@ -60,7 +61,7 @@ exports.expirePendingInvites = inviteExpiry.expirePendingInvites;
 exports.invitePreview = invitePreview.invitePreview;
 exports.resolveInvitePreview = invitePreview.resolveInvitePreview;
 
-exports.registerPushToken = notifications.registerPushToken;
+exports.registerPushToken = pushRegistration.registerPushToken;
 exports.unregisterPushToken = notifications.unregisterPushToken;
 exports.deliverNotificationRecord = notifications.deliverNotificationRecord;
 
