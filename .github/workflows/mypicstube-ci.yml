@@ -5,6 +5,7 @@ on:
     branches:
       - chatgpt/mvp-stabilization-2
       - chatgpt/principal-release-hardening
+      - fix/reinstall-photo-dedup-2026-09-09
     paths:
       - 'functions/**'
       - 'tests/backend/**'
@@ -13,6 +14,7 @@ on:
       - 'storage.rules'
       - 'firebase.json'
       - '.firebaserc'
+      - '.github/workflows/mypicstube-ci.yml'
   workflow_dispatch:
 
 concurrency:
@@ -44,6 +46,10 @@ jobs:
           for file in functions/*.js; do
             node --check "$file"
           done
+
+      - name: Verify matched-photo reinstall deduplication
+        working-directory: functions
+        run: npm test
 
       - name: Verify Event calendar-day semantics
         run: node --test tests/backend/event-date-semantics.test.mjs
