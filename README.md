@@ -1,4 +1,6 @@
 # SnapLoop — iOS
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fgurmeetgold%2FSnaploop-iOS.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fgurmeetgold%2FSnaploop-iOS?ref=badge_shield)
+
 
 **Get every photo of you from everyone's camera — automatically.**
 
@@ -232,3 +234,7 @@ The on-device PhotoKit + Vision/Core ML implementations (`PhotoLibraryService`,
 `FaceDetectionService`, `QualityScoring`) are a separate track, unrelated to
 Firebase. No engine changes are required for any of this — that's the point of
 the seams.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fgurmeetgold%2FSnaploop-iOS.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fgurmeetgold%2FSnaploop-iOS?ref=badge_large)
