@@ -12,16 +12,18 @@ permissions:
 
 jobs:
   patch:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Apply guarded safe-area fix
         run: python3 scripts/fix_photo_detail_safe_area.py
-      - name: Run focused Swift tests when package is available
+      - name: Verify regression source
         run: |
-          if [ -f Package.swift ]; then swift test --filter PhotoDetailSafeAreaRegressionTests; fi
+          grep -F '.safeAreaPadding(.top, 16)' Sources/Features/MyPhotos/MyPhotosView.swift
+          ! grep -F '.safeAreaPadding(.top, 8)' Sources/Features/MyPhotos/MyPhotosView.swift
+          test -f Tests/SnapLoopTests/PhotoDetailSafeAreaRegressionTests.swift
       - name: Commit safe-area fix and regression test
         run: |
           git config user.name "gurmeetgold"
