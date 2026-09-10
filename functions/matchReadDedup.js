@@ -3,6 +3,7 @@ function normalizedString(value) {
 }
 
 function comparableMillis(value) {
+  if (value === null || value === undefined || value === "") return Number.NEGATIVE_INFINITY;
   const number = Number(value);
   return Number.isFinite(number) ? number : Number.NEGATIVE_INFINITY;
 }
@@ -10,7 +11,9 @@ function comparableMillis(value) {
 function presentationEquivalenceKey(photo) {
   const owner = normalizedString(photo && photo.sourceUserId);
   const asset = normalizedString(photo && photo.assetLocalId);
-  const capturedAtMillis = Number(photo && photo.capturedAtMillis);
+  const capturedValue = photo && photo.capturedAtMillis;
+  if (capturedValue === null || capturedValue === undefined || capturedValue === "") return null;
+  const capturedAtMillis = Number(capturedValue);
   if (!owner || !asset || !Number.isFinite(capturedAtMillis)) return null;
   return `${owner}|${asset}|${capturedAtMillis}`;
 }
