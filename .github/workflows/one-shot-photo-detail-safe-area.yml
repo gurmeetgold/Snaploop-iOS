@@ -1,0 +1,32 @@
+name: One-shot photo detail safe-area fix
+
+on:
+  push:
+    branches:
+      - 'fix/reinstall-photo-dedup-2026-09-09'
+    paths:
+      - '.github/workflows/one-shot-photo-detail-safe-area.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply guarded safe-area fix
+        run: python3 scripts/fix_photo_detail_safe_area.py
+      - name: Run focused Swift tests when package is available
+        run: |
+          if [ -f Package.swift ]; then swift test --filter PhotoDetailSafeAreaRegressionTests; fi
+      - name: Commit safe-area fix and regression test
+        run: |
+          git config user.name "gurmeetgold"
+          git config user.email "50425243+gurmeetgold@users.noreply.github.com"
+          git add Sources/Features/MyPhotos/MyPhotosView.swift Tests/SnapLoopTests/PhotoDetailSafeAreaRegressionTests.swift
+          git diff --cached --check
+          git commit -m "Lower full-screen photo chrome below status bar"
+          git push origin HEAD:fix/reinstall-photo-dedup-2026-09-09
