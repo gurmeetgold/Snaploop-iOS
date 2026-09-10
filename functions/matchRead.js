@@ -1,6 +1,7 @@
 const { onCall, HttpsError } = require("firebase-functions/https");
 const admin = require("firebase-admin");
 const { Timestamp } = require("firebase-admin/firestore");
+const { deduplicateMatchedPhotos } = require("./matchReadDedup");
 
 const db = admin.firestore();
 
@@ -35,20 +36,29 @@ exports.listMyMatchedPhotos = onCall(async (request) => {
     .where("matchedUserIds", "array-contains", uid)
     .get();
 
-  const photos = snap.docs.map((doc) => {
+  const candidates = snap.docs.map((doc) => {
     const data = doc.data() || {};
     return {
       id: data.id || "",
       eventId: data.eventId || eventId,
       sourceUserId: data.sourceUserId || "",
+      sourceInstallationId: typeof data.sourceInstallationId === "string" ? data.sourceInstallationId : null,
+      sourceMembershipId: typeof data.sourceMembershipId === "string" ? data.sourceMembershipId : null,
       assetLocalId: data.assetLocalId || "",
       appearances: Array.isArray(data.appearances) ? data.appearances : [],
+      matchedMembershipIds: data.matchedMembershipIds && typeof data.matchedMembershipIds === "object"
+        ? data.matchedMembershipIds
+        : {},
       capturedAtMillis: toMillis(data.capturedAt),
       matchedAtMillis: toMillis(data.matchedAt),
+      updatedAtMillis: toMillis(data.updatedAt),
       thumbnailPath: typeof data.thumbnailPath === "string" ? data.thumbnailPath : null,
     };
   });
 
-  photos.sort((a, b) => Number(b.capturedAtMillis || 0) - Number(a.capturedAtMillis || 0));
+  const photos = deduplicateMatchedPhotos(candidates)
+    .map(({ updatedAtMillis, ...photo }) => photo)
+    .sort((a, b) => Number(b.capturedAtMillis || 0) - Number(a.capturedAtMillis || 0));
+
   return { eventId, photos };
 });
