@@ -60,7 +60,7 @@ enum AutomaticSyncIdentityScope {
 /// Automatic work is intentionally conservative:
 /// - no eligible Event -> no photo scan and no background task is kept scheduled
 /// - sharing off -> that Event is skipped
-/// - unchanged Events have a persistent one-hour automatic-scan cooldown
+/// - unchanged Events have a persistent 30-minute automatic-scan cooldown
 /// - roster/date/membership/sharing-generation changes bypass that cooldown
 /// - only one bounded coordinator batch is processed per automatic pass
 /// - Low Power Mode skips automatic scanning entirely
@@ -76,7 +76,7 @@ final class AutomaticEventSync {
     private var activeRun: Task<Void, Never>?
     private var sessionGenerationObservation: AnyCancellable?
 
-    private let automaticCooldown: TimeInterval = 60 * 60
+    private let automaticCooldown: TimeInterval = 30 * 60
     private let backgroundEarliestDelay: TimeInterval = 60 * 60
     private let defaults = UserDefaults.standard
     private let lastRunKeyPrefix = "snaploop.autoSync.lastAttempt."
