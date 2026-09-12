@@ -258,13 +258,14 @@ final class BiometricConsentPolicyTests: XCTestCase {
         XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "NY").isFaceMatchAvailable)
     }
 
-    func testIndiaIsOnlySupportedLaunchJurisdiction() {
+    func testCanadaAndIndiaAreSupportedLaunchJurisdictions() {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
-        XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
+        XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
     }
 
-    func testLaunchCountryPickerContainsIndiaOnly() {
-        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["IN"])
+    func testLaunchCountryPickerContainsCanadaAndIndiaOnly() {
+        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["CA", "IN"])
     }
 
     func testAgeAttestationIsRequiredForActiveConsent() {
