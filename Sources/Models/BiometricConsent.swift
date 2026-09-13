@@ -27,20 +27,29 @@ public struct BiometricJurisdiction: Equatable, Codable, Sendable {
     public var isFaceMatchAvailable: Bool {
         if countryCode == "IN" { return subdivisionCode.isEmpty }
         if countryCode == "CA" {
-            return BiometricJurisdictionCatalog.canadianSubdivisionCodes.contains(subdivisionCode)
+            return BiometricJurisdictionCatalog.faceMatchCanadianSubdivisionCodes.contains(subdivisionCode)
         }
         return false
     }
 }
 
 public enum BiometricJurisdictionCatalog {
-    public static let countries = [
-        BiometricJurisdictionOption(code: "CA", name: "Canada"),
-        BiometricJurisdictionOption(code: "IN", name: "India")
-    ]
+    /// Show a normal global country/region picker rather than exposing the
+    /// product rollout list in consent UI. Availability remains a separate
+    /// policy decision in `BiometricJurisdiction.isFaceMatchAvailable`.
+    public static var countries: [BiometricJurisdictionOption] {
+        Locale.isoRegionCodes.compactMap { code in
+            guard let name = Locale.current.localizedString(forRegionCode: code) else { return nil }
+            return BiometricJurisdictionOption(code: code.uppercased(), name: name)
+        }
+        .sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
 
-    /// Quebec is intentionally absent. Canada is supported for Face Match in
-    /// every listed province/territory, with Ontario as the default selection.
+    /// All Canadian provinces and territories are displayed so the picker is
+    /// complete. Quebec is present in the UI but remains unavailable for Face
+    /// Match through the separate supported-code set below.
     public static let canadianSubdivisions = [
         BiometricJurisdictionOption(code: "AB", name: "Alberta"),
         BiometricJurisdictionOption(code: "BC", name: "British Columbia"),
@@ -52,11 +61,15 @@ public enum BiometricJurisdictionCatalog {
         BiometricJurisdictionOption(code: "NU", name: "Nunavut"),
         BiometricJurisdictionOption(code: "ON", name: "Ontario"),
         BiometricJurisdictionOption(code: "PE", name: "Prince Edward Island"),
+        BiometricJurisdictionOption(code: "QC", name: "Quebec"),
         BiometricJurisdictionOption(code: "SK", name: "Saskatchewan"),
         BiometricJurisdictionOption(code: "YT", name: "Yukon")
     ]
 
     public static let canadianSubdivisionCodes = Set(canadianSubdivisions.map(\.code))
+    public static let faceMatchCanadianSubdivisionCodes = Set(
+        canadianSubdivisions.map(\.code).filter { $0 != "QC" }
+    )
 
     public static func subdivisions(for countryCode: String) -> [BiometricJurisdictionOption] {
         countryCode.uppercased() == "CA" ? canadianSubdivisions : []
