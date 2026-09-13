@@ -17,6 +17,9 @@ packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk.git
     exactVersion: "12.17.0"
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios.git
+    exactVersion: "3.69.8"
 
 targets:
   SnapLoop:
@@ -36,6 +39,8 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         ITSAppUsesNonExemptEncryption: false
         PHPhotoLibraryPreventAutomaticLimitedAccessAlert: true
+        SnapLoopPostHogProjectToken: "$(POSTHOG_PROJECT_TOKEN)"
+        SnapLoopPostHogHost: "$(POSTHOG_HOST)"
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - app-1-254317517474-ios-c62155e2316187ee1f95fb
@@ -77,6 +82,17 @@ targets:
           mkdir -p "$(dirname "$DESTINATION")"
           cp "$SOURCE_PLIST" "$DESTINATION"
 
+      - name: Upload Crashlytics symbols
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - ${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}
+          - ${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${PRODUCT_NAME}
+          - ${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Info.plist
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist
+          - $(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)
+        script: |
+          "${BUILD_DIR%/Build/*}/SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run"
+
     dependencies:
       - package: Firebase
         product: FirebaseCore
@@ -92,6 +108,14 @@ targets:
         product: FirebaseRemoteConfig
       - package: Firebase
         product: FirebaseMessaging
+      - package: Firebase
+        product: FirebaseAnalytics
+      - package: Firebase
+        product: FirebaseCrashlytics
+      - package: Firebase
+        product: FirebasePerformance
+      - package: PostHog
+        product: PostHog
 
     settings:
       base:
@@ -112,13 +136,18 @@ targets:
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "SnapLoop saves a shared photo preview to your Photos library only when you tap Save."
         INFOPLIST_KEY_NSCameraUsageDescription: "SnapLoop uses the front camera for guided Face Setup and can use the camera for Event QR codes."
         INFOPLIST_KEY_NSContactsUsageDescription: "SnapLoop lets an Event organizer choose a contact to invite. SnapLoop does not upload your address book."
+        DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+        OTHER_LDFLAGS: "$(inherited) -ObjC"
+        POSTHOG_HOST: https://us.i.posthog.com
       configs:
         Debug:
           APS_ENVIRONMENT: development
           SNAPLOOP_ASSOCIATED_DOMAIN: snaploop-dev.web.app
+          POSTHOG_PROJECT_TOKEN: ""
         Release:
           APS_ENVIRONMENT: production
           SNAPLOOP_ASSOCIATED_DOMAIN: getsnaploop.web.app
+          POSTHOG_PROJECT_TOKEN: "phc_AnftHggFKsEksu6ANLGbUsbMs32bU2u5JCpJaxo3wenY"
 
   SnapLoopTests:
     type: bundle.unit-test
@@ -141,6 +170,8 @@ targets:
         product: FirebaseStorage
       - package: Firebase
         product: FirebaseRemoteConfig
+      - package: Firebase
+        product: FirebaseAnalytics
 
     settings:
       base:
