@@ -12,17 +12,26 @@ final class BiometricJurisdictionTests: XCTestCase {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
     }
 
-    func testQuebecIsNotOfferedOrAvailable() {
-        XCTAssertFalse(BiometricJurisdictionCatalog.canadianSubdivisionCodes.contains("QC"))
+    func testQuebecIsDisplayedButFaceMatchRemainsUnavailable() {
+        XCTAssertTrue(BiometricJurisdictionCatalog.canadianSubdivisionCodes.contains("QC"))
+        XCTAssertFalse(BiometricJurisdictionCatalog.faceMatchCanadianSubdivisionCodes.contains("QC"))
         XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
     }
 
     func testOtherCanadianSubdivisionsRemainAvailable() {
         let expected = Set(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "SK", "YT"])
-        XCTAssertEqual(BiometricJurisdictionCatalog.canadianSubdivisionCodes, expected)
+        XCTAssertEqual(BiometricJurisdictionCatalog.faceMatchCanadianSubdivisionCodes, expected)
         for code in expected {
             XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: code).isFaceMatchAvailable)
         }
+    }
+
+    func testCountryCatalogIsGlobalRatherThanRolloutOnly() {
+        let codes = Set(BiometricJurisdictionCatalog.countries.map(\.code))
+        XCTAssertTrue(codes.contains("CA"))
+        XCTAssertTrue(codes.contains("IN"))
+        XCTAssertTrue(codes.contains("US"))
+        XCTAssertGreaterThan(codes.count, 100)
     }
 
     func testUnsupportedCountryCannotEnableFaceMatch() {
