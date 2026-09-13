@@ -42,7 +42,7 @@ struct BiometricConsentView: View {
         if launchJurisdiction.countryCode == "IN" {
             return "I confirm I am at least 18 years old and ordinarily reside in India."
         }
-        return "Face Match is not available for this App Store region."
+        return "Face Match is not available for the selected jurisdiction."
     }
 
     var body: some View {
@@ -199,19 +199,18 @@ struct BiometricConsentView: View {
         PremiumCard {
             VStack(alignment: .leading, spacing: 9) {
                 HStack {
-                    Label("Residence", systemImage: "mappin.and.ellipse")
+                    Label("Country or region", systemImage: "mappin.and.ellipse")
                         .font(.subheadline.bold())
                         .foregroundStyle(Theme.ink)
                     Spacer()
-                    if launchJurisdiction.isFaceMatchAvailable {
-                        Label(countryName, systemImage: "checkmark.circle.fill")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(Theme.violet)
-                    } else {
-                        Text(countryName)
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
+                    Picker("Country or region", selection: countrySelection) {
+                        ForEach(BiometricJurisdictionCatalog.countries) { country in
+                            Text(country.name).tag(country.code)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .tint(Theme.violet)
+                    .disabled(!didResolveStorefront || isSaving)
                 }
 
                 if launchJurisdiction.countryCode == "CA" {
@@ -230,17 +229,15 @@ struct BiometricConsentView: View {
                         .tint(Theme.violet)
                         .disabled(!didResolveStorefront || isSaving)
                     }
-                    Text("Face Match is available in Canada except Quebec. Ontario is selected by default. No GPS or precise address is required.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if launchJurisdiction.countryCode == "IN" {
-                    Text("Face Match is available for residents of India. No GPS or precise address is required.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("Face Match is not currently available for this App Store region.")
+                }
+
+                Text("Your selection is used to apply the appropriate privacy and biometric rules. No GPS or precise address is required.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !launchJurisdiction.isFaceMatchAvailable {
+                    Text("Face Match is not available for the selected jurisdiction.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -271,12 +268,27 @@ struct BiometricConsentView: View {
         }
     }
 
+    private var countrySelection: Binding<String> {
+        Binding(
+            get: { launchJurisdiction.countryCode },
+            set: { code in
+                launchJurisdiction = BiometricJurisdiction(
+                    countryCode: code,
+                    subdivisionCode: BiometricJurisdictionCatalog.firstAvailableSubdivision(for: code)
+                )
+                ageConfirmed = false
+                noticeConfirmed = false
+            }
+        )
+    }
+
     private var subdivisionSelection: Binding<String> {
         Binding(
             get: { launchJurisdiction.subdivisionCode },
             set: { code in
                 launchJurisdiction = BiometricJurisdiction(countryCode: "CA", subdivisionCode: code)
                 ageConfirmed = false
+                noticeConfirmed = false
             }
         )
     }
@@ -332,7 +344,7 @@ struct BiometricConsentView: View {
             case "IND":
                 launchJurisdiction = BiometricJurisdiction(countryCode: "IN")
             default:
-                launchJurisdiction = BiometricJurisdiction(countryCode: storefront.countryCode)
+                launchJurisdiction = Self.localeFallbackJurisdiction()
             }
             ageConfirmed = false
             noticeConfirmed = false
