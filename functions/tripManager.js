@@ -5,6 +5,8 @@ const { validateEventDatePayload, PHOTO_WINDOW_VERSION } = require("./eventDateS
 
 const db = admin.firestore();
 const ALLOWED_CATEGORIES = new Set(["trip","wedding","party","birthday","conference","family","sports","other"]);
+const MAX_EVENT_NAME_LENGTH = 20;
+const LEGACY_MAX_EVENT_NAME_LENGTH = 80;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -79,8 +81,14 @@ exports.updateTripManaged = onCall(async (request) => {
 
     const update = { updatedAt: Timestamp.now() };
     if (data.name !== undefined) {
-      update.name = cleanString(data.name, "Event name", 80);
-      eventName = update.name;
+      const requestedName = cleanString(data.name, "Event name", LEGACY_MAX_EVENT_NAME_LENGTH);
+      if (requestedName !== eventName) {
+        if (requestedName.length > MAX_EVENT_NAME_LENGTH) {
+          throw new HttpsError("invalid-argument", `Event name must be ${MAX_EVENT_NAME_LENGTH} characters or fewer.`);
+        }
+        update.name = requestedName;
+        eventName = requestedName;
+      }
     }
     if (data.category !== undefined) {
       if (!ALLOWED_CATEGORIES.has(data.category)) throw new HttpsError("invalid-argument", "Event category is invalid.");

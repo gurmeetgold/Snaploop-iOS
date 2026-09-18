@@ -52,10 +52,6 @@
       background:linear-gradient(110deg,var(--orange),var(--coral),var(--pink),var(--magenta),var(--violet),var(--blue));
       color:#fff; box-shadow:0 12px 28px rgba(255,0,112,.20);
     }
-    a.decline {
-      display:block; text-decoration:none; padding:13px 18px; margin-top:7px;
-      font-size:15px; font-weight:800; color:#B42318;
-    }
     #error {
       color:#B42318; background:#FFF3F2; border-radius:14px; padding:11px 12px;
       font-size:14px; margin-top:14px; display:none;
@@ -71,21 +67,18 @@
     <p id="conversation">Opening your invitation…</p>
     <p id="privacy">Join this Event to get your photos found on other participating members’ phones.</p>
     <a id="join" class="button" href="#">Join Event</a>
-    <a id="decline" class="decline" href="#">Decline</a>
     <p id="error">We couldn't load the Event details. You can still open this invitation in SnapLoop.</p>
   </main>
 <script>
 (() => {
   const match = window.location.pathname.match(/^\/(e|c)\/([^/]+)/);
   const join = document.getElementById("join");
-  const decline = document.getElementById("decline");
   const eventName = document.getElementById("eventName");
   const conversation = document.getElementById("conversation");
   const error = document.getElementById("error");
 
   if (!match) {
     join.style.display = "none";
-    decline.style.display = "none";
     conversation.textContent = "Open a valid SnapLoop Event invitation to continue.";
     return;
   }
@@ -97,7 +90,6 @@
     ? `snaploop://e/${value}`
     : `snaploop://c/${value}`;
   const acceptURL = `${baseURL}?action=accept`;
-  const declineURL = `${baseURL}?action=decline`;
 
   const formatDate = (millis, timeZone) => {
     if (!millis) return null;
@@ -154,11 +146,6 @@
   join.addEventListener("click", (event) => {
     event.preventDefault();
     openSnapLoop(acceptURL, join, "Join Event");
-  });
-
-  decline.addEventListener("click", (event) => {
-    event.preventDefault();
-    openSnapLoop(declineURL, decline, "Decline");
   });
 })();
 </script>

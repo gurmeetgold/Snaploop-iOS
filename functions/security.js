@@ -7,6 +7,7 @@ const db = admin.firestore();
 const MAX_APPEARANCES = 50;
 const MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024;
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const MAX_DISPLAY_NAME_LENGTH = 20;
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) {
@@ -190,8 +191,8 @@ exports.syncMyUserProfile = onCall(async (request) => {
   let displayName = null;
   if (data.displayName !== undefined && data.displayName !== null) {
     displayName = requireString(data.displayName, "displayName");
-    if (displayName.length < 2 || displayName.length > 40) {
-      throw new HttpsError("invalid-argument", "Display name must be between 2 and 40 characters.");
+    if (displayName.length < 2 || displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+      throw new HttpsError("invalid-argument", `Display name must be between 2 and ${MAX_DISPLAY_NAME_LENGTH} characters.`);
     }
   }
 
@@ -222,8 +223,8 @@ exports.syncMyUserProfile = onCall(async (request) => {
 exports.updateDisplayNameTrusted = onCall(async (request) => {
   const uid = requireAuth(request);
   const displayName = requireString((request.data || {}).displayName, "displayName");
-  if (displayName.length < 2 || displayName.length > 40) {
-    throw new HttpsError("invalid-argument", "Display name must be between 2 and 40 characters.");
+  if (displayName.length < 2 || displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+    throw new HttpsError("invalid-argument", `Display name must be between 2 and ${MAX_DISPLAY_NAME_LENGTH} characters.`);
   }
 
   const userRef = db.doc(`users/${uid}`);

@@ -2,6 +2,8 @@ import SwiftUI
 
 @MainActor
 final class CreateEventModel: ObservableObject {
+    static let maximumNameCharacters = 20
+
     @Published var name = ""
     @Published var category: EventCategory = .trip
     @Published var startsAt = Date()
@@ -16,6 +18,12 @@ final class CreateEventModel: ObservableObject {
     func configure(env: AppEnvironment, session: AppSession) {
         self.env = env
         self.session = session
+    }
+
+    func enforceNameCharacterLimit() {
+        if name.count > Self.maximumNameCharacters {
+            name = String(name.prefix(Self.maximumNameCharacters))
+        }
     }
 
     func create() async -> Event? {
@@ -38,7 +46,7 @@ final class CreateEventModel: ObservableObject {
                 calendar: eventCalendar
             )
             let draft = EventDraft(
-                name: name,
+                name: String(name.prefix(Self.maximumNameCharacters)),
                 category: category,
                 startsAt: startsAt,
                 endsAt: endsAt,
@@ -114,6 +122,9 @@ struct CreateEventView: View {
                                     .textInputAutocapitalization(.words)
                                     .padding(14)
                                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                                    .onChange(of: model.name) { _, _ in
+                                        model.enforceNameCharacterLimit()
+                                    }
 
                                 Divider()
                                 fieldLabel("Type", icon: model.category.systemImage)

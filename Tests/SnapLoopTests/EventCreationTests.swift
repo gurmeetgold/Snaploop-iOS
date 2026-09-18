@@ -57,6 +57,22 @@ final class EventCreationTests: XCTestCase {
         }
     }
 
+    func testRejectsNameLongerThanTwentyCharacters() {
+        let draft = EventDraft(name: String(repeating: "A", count: 21), startsAt: now, endsAt: now + day)
+        XCTAssertThrowsError(try factory().make(draft: draft, creatorUserId: "u1")) {
+            XCTAssertEqual($0 as? AppError, .invalidEventName)
+        }
+    }
+
+    func testAllowsExactlyTwentyCharacters() {
+        let name = String(repeating: "A", count: 20)
+        let event = try? factory().make(
+            draft: EventDraft(name: name, startsAt: now, endsAt: now + day),
+            creatorUserId: "u1"
+        )
+        XCTAssertEqual(event?.name, name)
+    }
+
     func testRejectsEndBeforeStart() {
         let draft = EventDraft(name: "Bad", startsAt: now, endsAt: now - day)
         XCTAssertThrowsError(try factory().make(draft: draft, creatorUserId: "u1")) {
@@ -80,5 +96,67 @@ final class EventCreationTests: XCTestCase {
         XCTAssertEqual(edited.name, "Great Trip")
         XCTAssertEqual(edited.category, .party)
         XCTAssertEqual(edited.locationName, "Banff")
+    }
+
+    func testLegacyLongNameCanRemainUnchangedDuringOtherEdit() throws {
+        let legacyName = String(repeating: "L", count: 30)
+        let legacyEvent = Event(
+            id: "legacy-id",
+            joinCode: "ABC234",
+            inviteToken: InviteToken.generate().value,
+            creatorUserId: "u1",
+            name: legacyName,
+            category: .trip,
+            startsAt: now,
+            endsAt: now + day,
+            status: .active,
+            createdAt: now,
+            updatedAt: now
+        )
+
+        let edited = try factory().applyEdit(
+            EventDraft(
+                name: legacyName,
+                category: .party,
+                startsAt: legacyEvent.startsAt,
+                endsAt: legacyEvent.endsAt
+            ),
+            to: legacyEvent,
+            datesChanged: false
+        )
+
+        XCTAssertEqual(edited.name, legacyName)
+        XCTAssertEqual(edited.category, .party)
+    }
+
+    func testLegacyLongNameCannotBeChangedToAnotherLongName() {
+        let legacyEvent = Event(
+            id: "legacy-id",
+            joinCode: "ABC234",
+            inviteToken: InviteToken.generate().value,
+            creatorUserId: "u1",
+            name: String(repeating: "L", count: 30),
+            category: .trip,
+            startsAt: now,
+            endsAt: now + day,
+            status: .active,
+            createdAt: now,
+            updatedAt: now
+        )
+
+        XCTAssertThrowsError(
+            try factory().applyEdit(
+                EventDraft(
+                    name: String(repeating: "N", count: 21),
+                    category: .trip,
+                    startsAt: legacyEvent.startsAt,
+                    endsAt: legacyEvent.endsAt
+                ),
+                to: legacyEvent,
+                datesChanged: false
+            )
+        ) {
+            XCTAssertEqual($0 as? AppError, .invalidEventName)
+        }
     }
 }

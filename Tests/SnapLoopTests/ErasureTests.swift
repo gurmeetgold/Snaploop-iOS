@@ -30,17 +30,17 @@ final class ErasureTests: XCTestCase {
 
     // MARK: Biometric launch policy
 
-    func testFaceMatchCountryPickerIsIndiaOnly() {
-        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["IN"])
-        XCTAssertFalse(BiometricJurisdictionCatalog.countries.contains(where: { $0.code == "CA" || $0.code == "US" }))
+    func testFaceMatchLaunchCountriesAreCanadaAndIndiaOnly() {
+        XCTAssertEqual(BiometricJurisdictionCatalog.countries.map(\.code), ["CA", "IN"])
+        XCTAssertFalse(BiometricJurisdictionCatalog.countries.contains(where: { $0.code == "US" }))
     }
 
-    func testFaceMatchJurisdictionAllowsIndiaOnly() {
+    func testFaceMatchJurisdictionAllowsIndiaAndEligibleCanada() {
         XCTAssertTrue(BiometricJurisdiction(countryCode: "IN").isFaceMatchAvailable)
-        XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
+        XCTAssertTrue(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "ON").isFaceMatchAvailable)
     }
 
-    func testFaceMatchJurisdictionBlocksCanadaUSAndUnsupportedCountries() {
+    func testFaceMatchJurisdictionBlocksQuebecUSAndUnsupportedCountries() {
         XCTAssertFalse(BiometricJurisdiction(countryCode: "CA", subdivisionCode: "QC").isFaceMatchAvailable)
         XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "AK").isFaceMatchAvailable)
         XCTAssertFalse(BiometricJurisdiction(countryCode: "US", subdivisionCode: "IL").isFaceMatchAvailable)
@@ -60,6 +60,28 @@ final class ErasureTests: XCTestCase {
             locale: "en_IN"
         )
         XCTAssertTrue(active.isActive)
+
+        let activeCanada = BiometricConsentRecord(
+            userId: "u",
+            acceptedAt: now,
+            expiresAt: now.addingTimeInterval(86_400),
+            jurisdictionCountry: "CA",
+            jurisdictionSubdivision: "ON",
+            appVersion: "1.0",
+            locale: "en_CA"
+        )
+        XCTAssertTrue(activeCanada.isActive)
+
+        let blockedQuebec = BiometricConsentRecord(
+            userId: "u",
+            acceptedAt: now,
+            expiresAt: now.addingTimeInterval(86_400),
+            jurisdictionCountry: "CA",
+            jurisdictionSubdivision: "QC",
+            appVersion: "1.0",
+            locale: "fr_CA"
+        )
+        XCTAssertFalse(blockedQuebec.isActive)
 
         let expired = BiometricConsentRecord(
             userId: "u",
@@ -83,17 +105,6 @@ final class ErasureTests: XCTestCase {
             locale: "en_IN"
         )
         XCTAssertFalse(oldDisclosure.isActive)
-
-        let blockedCanada = BiometricConsentRecord(
-            userId: "u",
-            acceptedAt: now,
-            expiresAt: now.addingTimeInterval(86_400),
-            jurisdictionCountry: "CA",
-            jurisdictionSubdivision: "ON",
-            appVersion: "1.0",
-            locale: "en_CA"
-        )
-        XCTAssertFalse(blockedCanada.isActive)
     }
 
     // MARK: Execution

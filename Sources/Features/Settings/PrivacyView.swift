@@ -184,7 +184,7 @@ struct PrivacyView: View {
                         Text("Face Match Consent")
                             .font(.subheadline.bold())
                             .foregroundStyle(Theme.ink)
-                        Text(model.consentActive ? "Active · Review or withdraw" : "Not active · Review details")
+                        Text(model.consentActive ? "Active · Review or delete Face Match data" : "Not active · Review details")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -206,7 +206,7 @@ struct PrivacyView: View {
                 Label("Data retention", systemImage: "clock.badge.checkmark")
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
-                Text("Face Match consent and the account-level numerical face template expire after 12 months without biometric activity. They are removed sooner when you withdraw consent, delete Face Setup, or delete your account. Event-related cloud data, including matched photo previews, is deleted within 15 days after an Event ends or is manually deleted.")
+                Text("Face Match consent and the account-level numerical face template expire after 12 months without biometric activity. You can delete active Face Match data sooner from Face Match Consent without deleting your SnapLoop account. Event-related cloud data, including matched photo previews, is deleted within 15 days after an Event ends or is manually deleted.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

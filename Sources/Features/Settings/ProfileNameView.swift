@@ -3,19 +3,28 @@ import SwiftUI
 
 @MainActor
 final class ProfileNameModel: ObservableObject {
+    static let maximumCharacters = 20
+
     @Published var name: String = ""
     @Published var isSaving = false
     @Published var errorMessage: String?
 
     func configure(session: AppSession) {
-        if name.isEmpty { name = session.user?.displayName ?? "" }
+        if name.isEmpty {
+            name = String((session.user?.displayName ?? "").prefix(Self.maximumCharacters))
+        }
+    }
+
+    func enforceCharacterLimit() {
+        if name.count > Self.maximumCharacters {
+            name = String(name.prefix(Self.maximumCharacters))
+        }
     }
 
     func save(session: AppSession) async -> Bool {
         guard !isSaving else { return false }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = String(name.prefix(Self.maximumCharacters)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else { errorMessage = "Enter at least 2 characters."; return false }
-        guard trimmed.count <= 40 else { errorMessage = "Keep your name to 40 characters or fewer."; return false }
         guard var user = session.user else { errorMessage = "Your account session could not be loaded."; return false }
 
         isSaving = true
@@ -80,6 +89,9 @@ struct ProfileNameView: View {
                                 .submitLabel(.done)
                                 .padding(14)
                                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 15))
+                                .onChange(of: model.name) { _, _ in
+                                    model.enforceCharacterLimit()
+                                }
                         }
                     }
 

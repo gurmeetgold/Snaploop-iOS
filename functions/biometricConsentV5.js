@@ -11,6 +11,8 @@ const CONSENT_DISCLOSURE_ID = "biometric-consent-v5";
 const CONSENT_DISCLOSURE_SHA256 = "2b78a5de4ced7219953cf4c3b62e07dce41392b0090f7c07c3fcb307411bc30f";
 const CONSENT_METHOD = "explicit-button";
 const BIOMETRIC_POLICY_PATH = "systemConfig/biometricFaceMatch";
+const CANADIAN_SUBDIVISIONS = new Set(["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]);
+const BLOCKED_CANADIAN_SUBDIVISIONS = new Set(["QC"]);
 
 function requireAuth(request) {
   if (!request.auth || !request.auth.uid) throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -34,7 +36,12 @@ function normalizeSubdivision(country, value) {
 }
 
 function staticJurisdictionAllowed(country, subdivision) {
-  return country === "IN" && subdivision === "";
+  if (country === "IN") return subdivision === "";
+  if (country === "CA") {
+    return CANADIAN_SUBDIVISIONS.has(subdivision)
+      && !BLOCKED_CANADIAN_SUBDIVISIONS.has(subdivision);
+  }
+  return false;
 }
 
 function jurisdictionKey(country, subdivision) {
