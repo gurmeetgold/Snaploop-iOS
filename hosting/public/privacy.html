@@ -19,11 +19,24 @@
 </head>
 <body>
 <h1>SnapLoop Privacy Policy</h1>
-<p class="updated">Last updated: September 3, 2026</p>
+<p class="updated">Last updated: September 18, 2026</p>
 
 <p>SnapLoop helps people participating in shared Events find photos of themselves taken on their own or other participating users' devices. This Privacy Policy explains what personal information SnapLoop processes, why it is processed, how it is protected and shared, how long it is retained, and the choices and rights available to users.</p>
 
 <p class="plain"><strong>Plain-language summary:</strong> SnapLoop does not upload your entire photo library. Face Match is optional, is intended for adults, and Face Setup must use the signed-in account holder's own face. Your Face Setup selfie stays on your iPhone. With your express consent, SnapLoop stores numerical face templates in Firebase and may temporarily provide those templates to authenticated Event-member devices for Event-scoped, on-device matching. Cloud photo matches are bound to the exact Face Setup revision that produced them, so an older Face Setup does not continue authorizing its previous face-derived results after the identity changes. Unmatched candidate-face embeddings are not stored as account profiles. SnapLoop does not sell or use biometric information for advertising. Active Face Match consent and account-level numerical face templates expire after 12 months (365 days) without Face Match activity initiated by your account and can be deleted sooner.</p>
+
+
+<h2 id="face-data-summary">Face Data: Collection, Use, Sharing, Storage, Retention, and Deletion</h2>
+<p>This section summarizes SnapLoop's Face Match processing in one place:</p>
+<ul>
+  <li><strong>Face data collected:</strong> the Face Setup workflow captures the signed-in adult account holder's own guided face images on-device and converts them into numerical face embeddings/templates. The raw Face Setup reference image remains on the iPhone and is not uploaded by the Face Setup workflow. SnapLoop stores the numerical account-level face template in Google Firebase after express consent and backend eligibility checks.</li>
+  <li><strong>How face data is used:</strong> only to find photos of the consenting user within Events they choose to join. Eligible Event-date photos are analyzed on participating devices. SnapLoop does not use face templates for advertising, account authentication, surveillance, stranger identification, sensitive-trait inference, or unrelated machine-learning training.</li>
+  <li><strong>Who receives face data:</strong> SnapLoop's Firebase backend stores the account-level numerical template and may return that template only to authenticated members of an active Event for on-device Event-scoped matching. Google Firebase acts as SnapLoop's infrastructure/service provider. SnapLoop does not disclose biometric templates to advertisers or data brokers. The open-source face-model publisher does not receive users' Face Setup images or templates through SnapLoop's recognition workflow.</li>
+  <li><strong>Candidate/bystander faces:</strong> faces appearing in eligible Event photos may be converted temporarily into candidate embeddings in device memory for comparison. Unmatched candidate embeddings are not uploaded to SnapLoop, not stored as account profiles, not sent to analytics, and not used to train the model.</li>
+  <li><strong>Retention:</strong> active Face Match consent and the account-level numerical face template expire after 12 months (365 days) without Face Match activity initiated by that account. Event-related cloud data, including matched photo previews, is scheduled for deletion within 15 days after the Event ends or is manually deleted.</li>
+  <li><strong>Deletion:</strong> users can delete Face Setup or withdraw Face Match consent from Privacy &amp; Data without deleting the SnapLoop account. Either action deletes the active account-level face template and related active face-match associations and disables further Face Match until fresh consent and Face Setup are completed. Deleting the SnapLoop account also removes the active Face Setup as part of account deletion. Limited non-biometric consent/audit records may be retained where reasonably necessary for legal, security, dispute, or audit purposes.</li>
+  <li><strong>Analytics:</strong> SnapLoop does not send raw Face Setup images, face templates/embeddings, candidate embeddings, or biometric identifiers to analytics systems.</li>
+</ul>
 
 <h2>1. Information We Process</h2>
 <ul>
