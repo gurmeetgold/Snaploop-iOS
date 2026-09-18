@@ -64,16 +64,16 @@ struct BiometricConsentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(isSaving)
             .confirmationDialog(
-                "Withdraw Face Match Consent?",
+                "Delete Face Match Data?",
                 isPresented: $confirmWithdrawal,
                 titleVisibility: .visible
             ) {
-                Button("Withdraw Consent & Delete Face Setup", role: .destructive) {
+                Button("Withdraw Consent & Delete Face Data", role: .destructive) {
                     Task { await withdraw() }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This deletes your active Face Setup and related face-matching data and stops Face Match until you consent and set it up again.")
+                Text("This withdraws Face Match consent, deletes your active Face Setup and account-level face template, removes related active match metadata, and stops future Face Match until you consent and set it up again. Your SnapLoop account remains active.")
             }
             .task {
                 await resolveStorefrontJurisdiction()
@@ -154,7 +154,7 @@ struct BiometricConsentView: View {
                             Text("Withdrawing…")
                         } else {
                             Image(systemName: "hand.raised.slash.fill")
-                            Text("Withdraw Consent")
+                            Text("Withdraw Consent & Delete Face Data")
                         }
                     }
                     .font(.headline)
